@@ -1,0 +1,11 @@
+.venv/
+models/
+.env
+__pycache__/
+*.pyc
+
+# Enregistrements de la voix d'Alex : données de travail, pas du code.
+# À ne publier qu'après décision explicite — le dépôt est destiné à GitHub.
+sessions/
+samples/
+tests/prises/
