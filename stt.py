@@ -19,7 +19,7 @@ Usage direct (banc de mesure) :
     python stt.py samples/01-normal.wav            # whisper
     python stt.py --moteur vosk samples/01.wav
 """
-import queue, threading, time
+import json, os, queue, threading, time
 import numpy as np
 import audio
 
@@ -155,12 +155,19 @@ class Whisper:
             if len(fenetre) < audio.RATE // 2:
                 time.sleep(PAS_S)
                 continue
+            gen = self._gen                # pour repérer un reset() pendant la passe
             t_passe = time.time()
             txt = " ".join(s.text for s in self.m.transcribe(fenetre)).strip()
             self.dernier_cout = time.time() - t_passe
-            if txt and not utile(txt):
-                continue                       # hallucination de silence : on ignore
-            if txt and txt != dernier:
+            # Une passe dure plus d'une seconde. Si on a répondu entre-temps,
+            # son résultat décrit un tour déjà traité : le publier ferait
+            # répondre une deuxième fois à la même phrase.
+            perime = gen != self._gen
+            # Le `continue` d'avant sautait la pause de cadencement : sur du
+            # silence, whisper hallucine à chaque passe, donc on repartait
+            # aussitôt. Trois cœurs à fond alors que personne ne parle — 80 °C
+            # en 25 s sur un Pi 3B. La pause doit être payée dans TOUS les cas.
+            if txt and not perime and utile(txt) and txt != dernier:
                 dernier = txt
                 if cap.trace is not None:
                     cap.trace.ev("partial", texte=txt, cout=round(self.dernier_cout, 3))
@@ -174,10 +181,15 @@ class Whisper:
 
     dernier_cout = 0.0
     _raz = False
+    _gen = 0
 
     def reset(self):
         """Ferme le tour : le tampon repart de zéro, donc le prochain transcript
-        ne recontient pas ce à quoi on vient déjà de répondre."""
+        ne recontient pas ce à quoi on vient déjà de répondre.
+
+        Le compteur invalide aussi une passe DÉJÀ EN COURS, dont le résultat
+        décrirait un tour auquel on vient de répondre."""
+        self._gen += 1
         self._raz = True
 
 
@@ -231,7 +243,62 @@ class Vosk:
         self._raz = True
 
 
+class Rejeu:
+    """Rejoue les transcriptions d'une session tracée, au lieu de les recalculer.
+
+    C'est la condition d'un banc de mesure honnête. Rejouer un WAV refait tourner
+    whisper, dont le coût par passe varie d'une exécution à l'autre : les découpes
+    de fenêtre changent, donc les deltas, donc les prompts. Comparer deux modèles
+    ainsi reviendrait à comparer deux bruits.
+
+    Ici les entrées sont figées : mêmes textes, mêmes instants, à la milliseconde.
+    Tout écart observé vient de ce qu'on fait varier, et de rien d'autre.
+
+    `vitesse` accélère le rejeu (2.0 = deux fois plus vite). Attention : le
+    décideur, lui, tourne toujours en temps réel — au-delà de 1.0 les latences
+    mesurées ne veulent plus rien dire, c'est bon pour dégrossir, pas pour publier.
+    """
+
+    charge_s = 0.0
+    dernier_cout = 0.0
+
+    def __init__(self, session, vitesse=1.0):
+        chemin = os.path.join(session, "session.jsonl")
+        if not os.path.exists(chemin) and session.endswith(".jsonl"):
+            chemin = session
+        self.vitesse = max(0.01, float(vitesse))
+        self.evts = []
+        with open(chemin) as f:
+            for ligne in f:
+                try:
+                    e = json.loads(ligne)
+                except ValueError:
+                    continue
+                if e.get("type") in ("partial", "final") and e.get("texte"):
+                    self.evts.append((float(e["t"]), e["type"], e["texte"]))
+        self.evts.sort()
+        self.source = chemin
+        self.reglages = {"source": chemin, "evenements": len(self.evts),
+                         "vitesse": self.vitesse}
+
+    def run(self, cap, q, stop):
+        t0 = time.time()
+        for t, genre, txt in self.evts:
+            if stop.is_set():
+                break
+            attente = t / self.vitesse - (time.time() - t0)
+            if attente > 0:
+                time.sleep(attente)
+            q.put((genre, txt, time.time() - t0))
+        q.put(("eof", "", time.time() - t0))
+
+    def reset(self):
+        """Rien à vider : les événements sont figés, on ne les recalcule pas."""
+
+
 def moteur(nom, **kw):
+    if nom == "rejeu":
+        return Rejeu(**kw)
     return Whisper(**kw) if nom == "whisper" else Vosk(**kw)
 
 
@@ -245,8 +312,10 @@ def start(nom, path=None, mic="default", porte=None, trace=None,
     est notre propre écho.
     """
     eng = moteur(nom, **kw)
-    stream = audio.open_stream(path, mic)
-    cap = audio.Capteur(stream, porte, trace, robot_parle)
+    # Le rejeu ne lit aucun son : ouvrir un flux allumerait le micro pour rien,
+    # et appliquerait la porte une seconde fois sur des textes déjà produits.
+    stream = None if nom == "rejeu" else audio.open_stream(path, mic)
+    cap = audio.Capteur(stream, porte, trace, robot_parle) if stream else None
     q, stop = queue.Queue(), threading.Event()
     threading.Thread(target=eng.run, args=(cap, q, stop), daemon=True).start()
     return q, stop, stream, eng

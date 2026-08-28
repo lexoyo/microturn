@@ -19,10 +19,21 @@ détection de la fin, pas le temps de l'aller-retour réseau.
 import argparse, hashlib, os, platform, queue, subprocess, sys, threading, time
 import audio, llm, stt, tts
 
-PAUSE_FIN = 0.35      # sans mot nouveau -> on considère que le tour est fini
-DELTA_MOTS = 3        # mots nouveaux avant de redemander au décideur
-ENTRE_APPELS = 0.4    # s minimum entre deux appels réseau
-RELANCE_S = 2.5       # filet : redemander si le texte change sans grandir
+# UNE seule constante de temps, et c'est tout le turn-taking.
+#
+# Avant : six seuils (silence, mots nouveaux, intervalle, relance…) qui décidaient
+# de la fin de tour AVANT le modèle, en aveugle — un VAD déguisé, exactement ce
+# que DuplexCascade supprime. Pire, on n'appelait le décideur QUE sur du texte
+# nouveau : le modèle ne voyait jamais les silences, donc ne pouvait pas juger
+# une fin de tour.
+#
+# Maintenant : on consulte à intervalle fixe, quoi qu'il arrive, et le silence
+# est une donnée qu'on lui transmet. 1,2 s est leur optimum mesuré d'exactitude
+# (0,934 contre 0,858 à 0,6 s) ; ils ont retenu 0,6 s pour la latence, mais notre
+# problème est la justesse, pas la réactivité — et ça divise les appels par deux.
+TICK_S = 1.2
+SILENCE = "SILENCE"      # ce qu'on envoie quand rien n'a été dit depuis le tick
+MICRO_TOURS = 24         # historique gardé ; au-delà le prompt gonfle sans fin
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
 # `audio.Porte` qui traite l'écho maintenant, en le mesurant au lieu de parier
@@ -63,7 +74,7 @@ def _machine():
 class Session:
     def __init__(self, moteur="whisper", path=None, mic="default",
                  engine=None, verbose=True, trace_dir=None, porte=audio.FACTEUR_ECHO,
-                 muet=False, **kw):
+                 muet=False, modele=None, **kw):
         self.voix = tts.Speaker(engine or tts.ENGINE)
         self.muet = muet
         if muet:
@@ -77,19 +88,19 @@ class Session:
             self.trace = journal.Journal(trace_dir, {
                 "stt": moteur,
                 "modele_stt": stt.WHISPER_MODEL if moteur == "whisper" else stt.VOSK_DIR,
-                "llm": llm.MODEL,
+                "llm": modele or llm.MODEL,
                 "tts": self.voix.engine, "voix": self.voix.voice,
                 "source": path or f"micro {mic}", "muet": muet,
                 "parametres": {
-                    "PAUSE_FIN": PAUSE_FIN, "DELTA_MOTS": DELTA_MOTS,
-                    "ENTRE_APPELS": ENTRE_APPELS, "porte_facteur": porte,
+                    "TICK_S": TICK_S, "MICRO_TOURS": MICRO_TOURS,
+                    "porte_facteur": porte,
                     "porte_facteur_bruit": audio.FACTEUR_BRUIT,
                     "llm_TIMEOUT": llm.TIMEOUT, "stt_PLAFOND_S": stt.PLAFOND_S,
                     "stt_PAS_S": stt.PAS_S, "audio_CHUNK": audio.CHUNK},
                 "version_code": _empreinte_code(),
                 "machine": _machine()})
         self.porte = audio.Porte(porte, self.trace) if porte > 0 else None
-        self.decideur = llm.Decideur(trace=self.trace)
+        self.decideur = llm.Decideur(model=modele or llm.MODEL, trace=self.trace)
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
             robot_parle=lambda: self.robot_parle, **kw)
@@ -102,154 +113,170 @@ class Session:
         self.verbose = verbose
         self.t0 = time.time()
 
-        self.transcript = ""        # ce que la personne dit dans ce tour
-        self.dernier_mot = 0.0      # quand le transcript a bougé
-        self.mots_vus = 0           # au dernier appel réseau
-        self.dernier_appel = 0.0
-        self.dernier_soumis = ""
+        self.transcript = ""        # fenêtre courante rendue par le STT
+        self.vu = ""                # ce qui avait déjà été envoyé au décideur
         self.parle_depuis = None    # début de notre propre parole
         self.texte_dit = ""         # ce qu'on est en train de prononcer
-
-        self.pret = None            # (réponse, transcript_source) — la spéculation
-        self.en_vol = False
-        self.sale = False           # un nouveau transcript est arrivé pendant l'appel
-        self.histoire = []
+        self.en_vol = False         # un appel réseau est en cours
+        self.t_vol = 0.0            # depuis quand
+        self.micro_tours = []       # historique alterné vu par le modèle
         self.stats = []
 
     def log(self, s):
         if self.verbose:
             print(f"{time.time()-self.t0:6.2f}s  {s}", flush=True)
 
-    # ---------- thread décideur : ne bloque jamais la boucle ----------
-    def _interroger(self, transcript):
-        action, texte, dt = self.decideur.decide(transcript, self.histoire)
-        self.q.put(("decision", (action, texte, transcript, dt), time.time() - self.t0))
-
-    def _peut_interroger(self, now):
-        """Décide s'il vaut la peine de payer un appel réseau.
-
-        Le compteur de mots ne suffit pas : le tampon STT glisse quand un tour
-        dépasse PLAFOND_S, donc le transcript RACCOURCIT. `mots_vus` restait
-        alors au-dessus du compte courant, la différence ne repassait jamais
-        au-dessus du seuil, et le système devenait muet DÉFINITIVEMENT
-        (observé : 2 décisions et aucune réponse en 68 s). D'où deux garde-fous :
-        on remet le compteur à zéro dès qu'il devient incohérent, et une relance
-        au temps prend le relais quand le texte change sans grandir."""
-        if self.en_vol or not self.transcript:
-            return False
-        if now - self.dernier_appel < ENTRE_APPELS:
-            return False
-        if self.transcript == self.dernier_soumis:
-            return False                       # rien de neuf : inutile de payer
-        n = len(self.transcript.split())
-        if n < self.mots_vus:                  # le tampon a glissé
-            self.mots_vus = 0
-        return (n - self.mots_vus >= DELTA_MOTS
-                or now - self.dernier_appel >= RELANCE_S)
-
-    def _lancer(self, now):
-        self.en_vol, self.sale = True, False
-        self.mots_vus = len(self.transcript.split())
-        self.dernier_soumis = self.transcript
-        self.dernier_appel = now
-        threading.Thread(target=self._interroger, args=(self.transcript,),
-                         daemon=True).start()
-
     # ---------- parole ----------
     def _dire(self, texte):
+        if not texte:
+            return
         self.log(f"▶  {texte}")
-        self.histoire += [{"role": "user", "content": self.transcript},
-                          {"role": "assistant", "content": texte}]
-        self.histoire[:] = self.histoire[-8:]
         self.voix.say(texte)                 # ne bloque pas
-        self._debut_parole(texte)
         self.parle_depuis = time.time()
-        self.eng.reset()                     # borne le segment : sinon le transcript
-        self.transcript = ""                 # suivant recontient tout depuis le début
-        self.mots_vus = 0
-        self.pret = None
-
-    def _debut_parole(self, texte):
-        """Ouvre la fenêtre où le seul son attendu au micro est notre écho.
-
-        On lit l'état réel des processus plutôt qu'un booléen posé à la main :
-        en `--muet` rien n'a été lancé, et fermer la porte pour un son qui ne
-        sortira jamais rendrait le robot sourd. L'audio de sortie n'est PAS
-        enregistré dans la trace : piper est déterministe, on le régénère du
-        texte, et ça doublerait le volume écrit."""
-        self.robot_parle = self.voix.speaking()
         self.texte_dit = texte
+        self.robot_parle = True
         if self.trace:
-            self.trace.ev("parole_debut", texte=texte, audible=self.robot_parle)
-            if not self.robot_parle:     # --muet : la paire début/fin reste
-                self.trace.ev("parole_fin", texte=texte, duree=0.0)  # complète
+            self.trace.ev("parole_debut", texte=texte)
+        # Ferme le tour côté STT : sans ça le prochain transcript recontiendrait
+        # tout ce à quoi on vient de répondre.
+        self.eng.reset()
+        self.transcript = ""
+        self.vu = ""
+
+    # ---------- l'horloge ----------
+    @staticmethod
+    def _cle(mot):
+        """Forme comparable d'un mot : whisper re-ponctue et re-capitalise toute
+        la fenêtre à chaque passe, donc « bonjour » et « Bonjour, » sont le même
+        mot. Comparer les formes brutes faisait tomber le préfixe commun à zéro
+        et renvoyait la phrase entière comme si elle venait d'être dite — le
+        modèle la lisait alors comme un énoncé neuf et complet, et répondait au
+        milieu de la phrase."""
+        return mot.lower().strip(".,;:!?…\"'«»()")
+
+    def _delta(self):
+        """Ce qui est arrivé DEPUIS le tick précédent, ou SILENCE.
+
+        Le modèle a besoin de la dynamique (« ce qui vient de se dire »), pas de
+        l'état (« voilà tout le tour »). Whisper re-transcrit toute la fenêtre et
+        peut se corriger rétroactivement : on prend donc ce qui dépasse du
+        préfixe commun, comparé sur une forme normalisée."""
+        mc = self.transcript.split()
+        mv = self.vu.split()
+        if not mc:
+            return SILENCE
+        k = 0
+        while k < len(mc) and k < len(mv) and self._cle(mc[k]) == self._cle(mv[k]):
+            k += 1
+        reste = " ".join(mc[k:]).strip()
+        return reste or SILENCE
+
+    def _interroger(self, delta):
+        """Tourne dans son thread. Ne DOIT jamais mourir sans reposer sa réponse :
+        sinon `en_vol` reste vrai pour toujours, plus aucune décision n'est prise,
+        et le système se tait définitivement — sans le moindre message."""
+        try:
+            action, texte, dt = self.decideur.decide(delta, list(self.micro_tours))
+        except Exception as e:
+            action, texte, dt = "error", f"{type(e).__name__}: {e}"[:90], 0.0
+        self.q.put(("decision", (action, texte, delta, dt), time.time() - self.t0))
+
+    def _tick(self):
+        """Un tour d'horloge : on consulte le modèle, quoi qu'il se soit passé."""
+        if self.en_vol:
+            # Ceinture : un mutisme définitif ne doit pas dépendre de
+            # l'exhaustivité d'un `except`.
+            if time.time() - self.t_vol > 4 * TICK_S:
+                self.log("⚠  appel sans réponse, on repart")
+                self.en_vol = False
+            else:
+                return              # un seul appel en vol ; le texte s'accumule
+        delta = self._delta()
+        # Sans ça, COUPE est indécidable : le prompt le définit comme « elle se
+        # remet à parler alors que je suis en train de parler », information
+        # qu'on ne transmettait jamais. C'est aussi la première source de
+        # contexte du système — les suivantes (caméra, capteurs) viendront ici.
+        if self.robot_parle:
+            delta = "[JE PARLE] " + delta
+        self.vu = self.transcript
+        self.en_vol = True
+        self.t_vol = time.time()
+        threading.Thread(target=self._interroger, args=(delta,), daemon=True).start()
+
+    def _appliquer(self, action, texte, delta, dt):
+        """L'action découle mécaniquement de l'état perçu."""
+        self.en_vol = False
+        self.stats.append((action, dt))
+        if action == "error":
+            # Traité AVANT d'écrire l'historique : sinon la troncature à
+            # MICRO_TOURS s'applique d'abord et le retrait des deux entrées
+            # fantômes emporte deux vrais micro-tours avec lui.
+            self.log(f"⚠  réseau ({dt:.2f}s) {texte}")
+            self.vu = ""            # l'énoncé n'est pas perdu : il repartira
+            return
+        self.micro_tours += [{"role": "user", "content": delta},
+                             {"role": "assistant",
+                              "content": {"parler": "FINI " + texte, "parle": "PARLE",
+                                          "reflechit": "REFLECHIT",
+                                          "coupe": "COUPE"}.get(action, "PARLE")}]
+        self.micro_tours[:] = self.micro_tours[-MICRO_TOURS:]
+
+        if action == "parler":
+            self._dire(texte)
+        elif action == "coupe":
+            if self.voix.speaking():
+                self.voix.stop()
+                self.log("✂  coupé, tu reprends la parole")
+                if self.trace:
+                    self.trace.ev("coupure")
+        elif action == "reflechit":
+            self.log(f"…  ({dt:.2f}s) elle réfléchit")
+        else:
+            self.log(f"⏳ ({dt:.2f}s) elle parle encore")
 
     # ---------- boucle principale ----------
     def run(self):
+        prochain = time.time() + TICK_S
         try:
             while True:
                 try:
-                    kind, payload, t = self.q.get(timeout=0.1)
+                    kind, payload, t = self.q.get(timeout=0.05)
                 except queue.Empty:
                     kind = None
                 now = time.time()
 
-                if self.robot_parle and not self.voix.speaking():
-                    self.robot_parle = False
-                    if self.trace:
-                        self.trace.ev("parole_fin", texte=self.texte_dit,
-                                      duree=round(now - self.parle_depuis, 2))
-
                 if kind == "eof":
                     break
-
                 elif kind == "decision":
-                    action, texte, source, dt = payload
-                    self.en_vol = False
-                    self.stats.append((action, dt))
-                    if action == "error":
-                        self.log(f"⚠  réseau ({dt:.2f}s) {texte}")
-                        self.mots_vus = 0        # l'énoncé n'est PAS perdu : on réessaiera
-                    elif action == "speak":
-                        self.pret = (texte, source)
-                        self.log(f"✓  prêt ({dt:.2f}s) {texte[:60]}")
-                    elif action == "hmm":
-                        self.log(f"~  ({dt:.2f}s) mhm")
-                        self.voix.say("mmh")
-                        self._debut_parole("mmh")
-                        self.parle_depuis = now
-                    else:
-                        self.log(f"⏳ ({dt:.2f}s) j'attends la suite")
-
+                    self._appliquer(*payload)
                 elif kind in ("partial", "final"):
-                    txt = payload
-                    # L'écho est arrêté en amont, au niveau du bloc audio, par
-                    # audio.Porte : ce qui arrive ici a déjà passé la porte.
-                    if txt and txt != self.transcript:
-                        nouveaux = len(txt.split()) - len(self.transcript.split())
-                        self.transcript, self.dernier_mot = txt, now
-                        self.log(f"…  {txt[-70:]}")
-                        # barge-in : on parle et la personne repart -> on se tait
-                        if self.voix.speaking() and nouveaux >= 2:
-                            self.voix.stop()
-                            self.robot_parle = False
-                            self.log("✂  coupé, tu reprends la parole")
-                            if self.trace:
-                                self.trace.ev("coupure", motif="barge-in",
-                                              texte_coupe=self.texte_dit,
-                                              transcript=txt)
+                    if payload and payload != self.transcript:
+                        self.transcript = payload
+                        self.log(f"…  {payload[-70:]}")
 
-                # la personne s'est arrêtée et la réponse est déjà calculée
-                if self.pret and self.dernier_mot and now - self.dernier_mot >= PAUSE_FIN:
-                    texte, source = self.pret
-                    if source == self.transcript:
-                        self._dire(texte)
-                    else:
-                        self.pret = None         # le transcript a changé : périmé
-                        self.mots_vus = 0
+                # Barge-in local, sans réseau : la porte a mesuré une vraie voix
+                # par-dessus notre parole. Passer par le modèle coûterait un tick
+                # plus un aller-retour, soit plus d'une seconde et demie.
+                if (self.porte is not None and self.porte.barge_in
+                        and self.voix.speaking()):
+                    self.voix.stop()
+                    self.porte.barge_in = False
+                    self.log("✂  coupé, tu reprends la parole")
+                    if self.trace:
+                        self.trace.ev("coupure", origine="porte")
 
-                if self._peut_interroger(now):
-                    self._lancer(now)
+                self.robot_parle = self.voix.speaking()
+                if not self.robot_parle and self.parle_depuis is not None:
+                    if self.trace:
+                        self.trace.ev("parole_fin", texte=self.texte_dit)
+                    self.parle_depuis = None
+
+                if now >= prochain:
+                    # horloge ponctuelle avec rattrapage, mais SANS rafale : si un
+                    # tick a débordé, le suivant part tout de suite, on n'empile pas
+                    # les ticks manqués.
+                    prochain = max(now, prochain + TICK_S)
+                    self._tick()
         except KeyboardInterrupt:
             self.log("[arrêt]")
         finally:
@@ -271,7 +298,15 @@ class Session:
 def main():
     ap = argparse.ArgumentParser(description="microturn — conversation en flux continu")
     ap.add_argument("fichier", nargs="?", help="WAV à rejouer (sinon micro)")
-    ap.add_argument("--moteur", default="whisper", choices=["whisper", "vosk"])
+    ap.add_argument("--moteur", default="whisper",
+                    choices=["whisper", "vosk", "rejeu"],
+                    help="rejeu : relit les transcriptions d'une session tracée, "
+                         "pour comparer deux réglages sur des entrées identiques")
+    ap.add_argument("--modele", default=None, metavar="NOM",
+                    help="modèle de décision (défaut : %s)" % llm.MODEL)
+    ap.add_argument("--vitesse", type=float, default=1.0,
+                    help="rejeu accéléré ; au-delà de 1.0 les latences mesurées "
+                         "ne veulent plus rien dire")
     ap.add_argument("--mic", default="default")
     ap.add_argument("--tts", default=None, choices=["piper", "espeak"])
     ap.add_argument("--muet", action="store_true", help="ne pas prononcer (mesure seule)")
@@ -282,8 +317,14 @@ def main():
                          f"× FACTEUR (défaut {audio.FACTEUR_ECHO}, 0 = désactivée)")
     a = ap.parse_args()
 
-    s = Session(a.moteur, a.fichier, a.mic, engine=a.tts,
-                trace_dir=a.trace, porte=a.porte, muet=a.muet)
+    kw = {}
+    if a.moteur == "rejeu":
+        if not a.fichier:
+            raise SystemExit("--moteur rejeu attend un dossier de session")
+        kw = {"session": a.fichier, "vitesse": a.vitesse}
+        a.fichier = None
+    s = Session(a.moteur, a.fichier, a.mic, engine=a.tts, trace_dir=a.trace,
+                porte=a.porte, muet=a.muet, modele=a.modele, **kw)
     st = s.run()
     if st:
         par = {}

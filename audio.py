@@ -76,7 +76,15 @@ DECROISSANCE = 0.98    # oubli du pic d'écho, par bloc de parole robot : demi-v
                        # 4,3 s, soit la durée d'une réponse. L'estimation suit
                        # donc le pic RÉCENT et pas le pic de la session, sinon un
                        # claquement de porte fermerait la porte pour de bon.
-RECALIBRE_BLOCS = 8    # 1 s de porte ouverte d'affilée pendant que le robot parle
+# Nombre de blocs consécutifs au-dessus du seuil qui signent une VRAIE voix
+# pendant que le robot parle. 3 blocs = 375 ms : assez pour ne pas déclencher
+# sur un choc, assez court pour couper avant d'être pénible.
+BARGE_IN_BLOCS = 3
+# Au-delà, c'est que le niveau d'écho a changé (volume monté, micro déplacé) et
+# qu'il faut le remesurer. Il DOIT rester bien au-dessus de BARGE_IN_BLOCS,
+# sinon un barge-in réussi serait pris pour une dérive et refermerait la porte
+# sur la personne qui vient de parler.
+RECALIBRE_BLOCS = 24   # 3 s de porte ouverte d'affilée pendant que le robot parle
                        # ne peut PAS être un barge-in : la boucle l'aurait coupé
                        # au bout de 100 ms. C'est donc que l'écho a changé de
                        # niveau (volume monté, enceinte déplacée) — on remesure.
@@ -122,6 +130,7 @@ class Porte:
         self.n_calib = 0
         self.n_echo = 0          # blocs sonores mesurés pendant la parole robot
         self.n_ouverts = 0       # blocs consécutifs laissés passer pendant qu'il parle
+        self.barge_in = False    # une vraie voix couvre notre propre parole
         self.bloc = 0
         self.jusqua = 0          # fin de la queue de garde, en numéro de bloc
         self.ouverte = True      # pour ne tracer que les changements d'état
@@ -150,6 +159,11 @@ class Porte:
             ouvre = pret and n > self.echo * self.facteur
             if ouvre:
                 self.n_ouverts += 1
+                # Se taire est la seule action qui doit être instantanée. La
+                # faire décider par le modèle coûterait un tick plus un
+                # aller-retour réseau, soit plus d'une seconde et demie.
+                if self.n_ouverts >= BARGE_IN_BLOCS:
+                    self.barge_in = True
                 if self.n_ouverts >= RECALIBRE_BLOCS:
                     self._recalibrer(n)     # ce n'était pas une voix, c'est l'écho
                     ouvre = False           # qui a changé : on repart de sa mesure

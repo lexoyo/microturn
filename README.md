@@ -1,103 +1,121 @@
 # microturn
 
-Un compagnon vocal qui écoute en continu, et qui décide **lui-même** quand répondre.
+Un compagnon vocal qui écoute en continu et décide **lui-même** quand répondre.
 
 Pas de détecteur de parole, pas de mot-clé, pas de bouton. La transcription arrive
-mot par mot, et c'est le modèle de langage qui tranche, au fil du texte : attendre,
-glisser un signe d'écoute, ou prendre la parole.
+au fil de l'eau, et toutes les 1,2 seconde le modèle de langage dit ce qu'il perçoit
+— *elle parle, elle a fini, elle réfléchit, elle me coupe* — et seulement dans le
+deuxième cas, ce qu'il faut répondre.
 
 ```
-micro ──▶ Vosk (partiels mot à mot) ──▶ décideur LLM ──▶ piper ──▶ haut-parleur
-                                            │
-                                 <WAIT> · <HMM> · réponse
+micro ──▶ whisper ──▶ décideur ──▶ piper ──▶ haut-parleur
+             │            │
+       transcription   PARLE · FINI · REFLECHIT · COUPE
 ```
 
-## D'où ça vient
+## L'idée, et d'où elle vient
 
-L'idée est celle de [DuplexCascade](https://github.com/sbintuitions/DuplexCascade) (MIT) :
-supprimer le VAD en confiant la décision de tour de parole au LLM, qui émet des tokens
-de contrôle à partir du flux de transcription. Leur implémentation s'appuie sur les
-modèles Kyutai, qui demandent plus de 3 Go de RAM — hors d'atteinte de la cible visée ici.
-On reprend donc le mécanisme, pas le code, et on l'obtient par prompting plutôt que par
-apprentissage : moins finement, mais avec n'importe quel modèle instruct.
+Un détecteur de parole tranche sur un seuil de silence : au-delà de tant de
+millisecondes, il décide que la personne a fini. Ça ne peut pas marcher, parce
+qu'une pause de réflexion et une fin de phrase durent la même chose. Les gens
+respirent, hésitent, cherchent leurs mots.
+
+[DuplexCascade](https://arxiv.org/abs/2603.09180) (Yang, Fujita, Sudo — MIT)
+propose de supprimer le détecteur et de confier ce jugement au modèle de langage,
+qui lui dispose du **contenu** et pas seulement du signal. Leur implémentation
+s'appuie sur les modèles Kyutai, qui demandent plus de 3 Go de mémoire : hors
+d'atteinte de la cible visée ici. On reprend donc le mécanisme, pas le code — et
+on l'obtient par **prompting** là où eux le font par fine-tuning.
+
+Deux choix leur sont directement empruntés, et ils comptent :
+
+**Le silence est une donnée.** Quand rien n'a été dit depuis le tick précédent,
+on ne se tait pas : on envoie `SILENCE` au modèle. Il *voit* qu'il ne s'est rien
+passé, et peut compter les silences successifs — c'est ce qui remplace le seuil.
+
+**Les jetons décrivent l'état de la personne, pas l'action à faire.** On demande
+une perception (« où en est-elle ? »), pas une décision de politique (« dois-je
+parler ? »). C'est une tâche bien mieux posée pour un modèle générique.
 
 ## La contrainte qui décide de tout
 
-La cible est un **Raspberry Pi 3B** : 905 Mio de RAM, quatre Cortex-A53 à 1,2 GHz, pas de
-GPU, et un throttling thermique qui s'enclenche après 25 secondes de charge sur les quatre
-cœurs. Chaque mégaoctet et chaque cycle comptent. C'est ce qui explique tous les choix :
+La cible est un **Raspberry Pi 3B** : 905 Mio de mémoire, quatre Cortex-A53 à
+1,2 GHz, pas de GPU, et un throttling thermique qui s'enclenche après 25 secondes
+de charge sur les quatre cœurs. Chaque mégaoctet et chaque cycle comptent.
 
 | Étage | Choix | Pourquoi |
 |---|---|---|
-| STT | **Vosk** small FR (66 Mo) | streaming natif mot par mot ; whisper travaille par blocs et ne rend rien avant la fin d'un segment |
-| Décision | **LLM distant** (OpenRouter) | zéro ressource locale, ~0,5 s ; un modèle local prendrait les cœurs dont Vosk a besoin |
-| TTS | **piper** (ou `espeak-ng`) | piper pour la voix, espeak quand il ne reste que 5 Mo |
+| Transcription | **whisper.cpp `tiny` q5**, modèle résident | Sur le Pi : RTF **0,62** en greedy, contre 1,86 pour Vosk sur le même audio, et 103 Mo contre 241 |
+| Décision | **Modèle distant** (OpenRouter) | Zéro ressource locale, ~0,4 s. En local, SmolLM2-135M met 7,6 s sur le Pi — inutilisable |
+| Parole | **piper**, ou `espeak-ng` | espeak pèse 5 Mo et parle en 0,07 s ; sur le Pi c'est le mode réaliste |
+
+Le passage de whisper en **greedy** (`best_of=1`, sans repli de température) divise
+son temps par deux sur le Pi : 1,17 → 0,62 de RTF. C'est le réglage le plus rentable
+du projet, et il est gratuit.
 
 ## Mesuré
 
 Sur un i7-7500U (2 cœurs, 7,5 Go) :
 
-- Vosk — RTF **0,39** à un mètre, **0,64** à trois mètres ; premier mot en **0,7 à 1,5 s** ;
-  chargement du modèle 0,66 s
-- Décideur — **0,51 s** en moyenne. `llama-3.2-3b` répond juste 4 fois sur 5 ;
-  `llama-3.2-1b` temporise systématiquement et n'est pas utilisable
+- whisper `tiny` q5, `audio_ctx=1152` — RTF **0,11**, chargé une fois en 0,08 s
+- décideur `llama-3.2-3b` — **0,36 s** en moyenne, connexion HTTPS réutilisée
 - piper `fr_FR-siwis-medium` — premier son à **0,97 s**, RTF 0,21
 
-Soit environ **1,5 s** entre la fin d'une phrase et le début de la réponse.
+Sur une vraie session de 145 secondes, le passage à l'horloge a fait tomber la part
+de prises de parole de **76 % à 13 %** des décisions, à nombre de réponses constant.
 
 ## Installation
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install vosk
-mkdir -p models && cd models
-curl -LO https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip
-unzip vosk-model-small-fr-0.22.zip && cd ..
+python3 -m venv .venv
+.venv/bin/pip install pywhispercpp numpy
+mkdir -p models
+curl -L -o models/ggml-tiny-q5_1.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin
 echo "OPENROUTER_API_KEY=sk-or-..." > .env && chmod 600 .env
 ```
 
-`arecord`, `aplay` et `ffmpeg` doivent être présents ; `piper` est optionnel
-(sinon `espeak-ng`).
+`arecord`, `aplay` et `ffmpeg` doivent être présents. `piper` est optionnel — sans
+lui, `--tts espeak` suffit. Le moteur `vosk` est conservé pour comparaison et
+demande `pip install vosk` plus son modèle français.
 
 ## Usage
 
 ```bash
-.venv/bin/python pipeline.py                    # micro, conversation en direct
-.venv/bin/python pipeline.py samples/01.wav     # rejoue un enregistrement
-.venv/bin/python stt.py samples/01.wav          # l'étage STT seul, pour voir les partiels
-.venv/bin/python llm.py "quelle heure il est"   # le décideur seul
+.venv/bin/python pipeline.py                       # conversation, au micro
+.venv/bin/python pipeline.py --trace sessions/     # idem, en gardant tout
+.venv/bin/python pipeline.py extrait.wav --muet    # rejouer un enregistrement
 ```
 
-Options utiles : `--tts piper|espeak`, `--mic hw:0,0`, `--muet` (mesure sans parler).
-Le modèle se change par `MICROTURN_MODEL`.
+Options : `--modele` pour changer de décideur, `--tts piper|espeak`, `--porte` pour
+le seuil anti-écho, `--mic` pour choisir l'entrée.
 
-### `--trace DOSSIER` — rejouer et comprendre après coup
+## Analyser une session
+
+C'est la partie qui rend le reste utilisable. Avec `--trace`, une session écrit
+l'audio d'entrée (rejouable tel quel), un journal horodaté de chaque hypothèse de
+transcription, de chaque prompt envoyé et de chaque réponse brute, et un fichier de
+métadonnées contenant les réglages, la machine et **l'empreinte du code**.
 
 ```bash
-.venv/bin/python pipeline.py --trace traces/          # enregistre la session
-.venv/bin/python pipeline.py traces/20260829-0030/entree.wav   # la rejoue
+.venv/bin/python tests/reference.py sessions/<date>   # ce qui a VRAIMENT été dit
+.venv/bin/python pipeline.py --moteur rejeu sessions/<date> --modele X --muet
 ```
 
-Écrit `entree.wav` (le flux micro complet, rejouable tel quel), `session.jsonl`
-(un événement par ligne : transcriptions, **prompt exact** envoyé au modèle et
-**réponse brute** avec sa latence, décisions, paroles, coupures, niveaux audio)
-et `meta.json` (configuration, durée, résumé chiffré). Tout est écrit par un seul
-thread derrière une queue : la boucle et le thread audio ne touchent pas au disque.
-Sans l'option, le module n'est même pas importé.
+Le mode **rejeu** relit les transcriptions enregistrées au lieu de refaire tourner
+whisper. C'est ce qui rend une comparaison honnête : deux modèles reçoivent alors
+exactement les mêmes entrées, aux mêmes instants, et tout écart vient de ce qu'on
+fait varier. Sans ça, on comparerait deux bruits.
 
-### `--porte FACTEUR` — anti-écho auto-calibré
-
-Sans casque, le micro réentend le robot et il finit par se répondre à lui-même.
-Pendant qu'il parle, le seul son possible est son propre écho : on y **mesure**
-le niveau reçu, et on ne transmet plus au STT que ce qui le dépasse d'un facteur
-(2,0 par défaut, `0` désactive). Aucun réglage manuel, et le barge-in continue de
-marcher — la voix directe passe la porte, l'écho non. Les niveaux mesurés et les
-blocs jetés partent dans la trace, pour rerégler le facteur après coup.
+Le protocole complet est dans [`PROTOCOLE.md`](PROTOCOLE.md), et les pistes non
+tranchées dans [`IDEES.md`](IDEES.md).
 
 ## État
 
-Prototype. La boucle tourne de bout en bout, mais **le décideur n'est pas encore consulté
-pendant la parole** : on attend que le partiel se stabilise, ce qui revient à un VAD
-déguisé — précisément ce que le projet cherche à éviter. C'est le prochain chantier.
+Prototype qui tourne, pas un produit. Ce qui marche : la boucle complète, la
+décision par jetons d'état, la trace, le rejeu déterministe, une porte anti-écho
+auto-calibrée. Ce qui reste ouvert : le portage sur le Pi, la comparaison de
+plusieurs modèles, et le réglage du prompt — le décideur est encore trop prudent
+sur les questions courtes.
 
-Hors périmètre pour l'instant : l'interruption complète, les backchannels, plusieurs
-locuteurs, et le portage sur Pi.
+Rien n'entre dans ce dépôt sans être mesuré sur une session enregistrée.

@@ -35,7 +35,7 @@ class Journal:
         self.meta = dict(meta or {})
         self.meta["date"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         self.perdus = 0
-        self.res = {"decisions": {}, "appels_economises": 0,
+        self.res = {"decisions": {},
                     "blocs_transmis": 0, "blocs_jetes": 0, "_lat": []}
         self.q = queue.Queue(maxsize=TAILLE_QUEUE)
         self._meta_sur_disque()          # écrit dès le départ : une session tuée
@@ -88,8 +88,6 @@ class Journal:
         if t == "decision":
             d = self.res["decisions"]
             d[rec["action"]] = d.get(rec["action"], 0) + 1
-            if rec.get("source") == "locale":
-                self.res["appels_economises"] += 1
         elif t == "llm_reponse":
             self.res["_lat"].append(rec["latence"])
         elif t == "niveaux":
