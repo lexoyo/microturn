@@ -145,11 +145,44 @@ class Speaker:
         return [play]                        # piper N'EST PAS dans la liste : on ne
                                              # le tue jamais, c'est tout l'intérêt
 
-    @staticmethod
-    def _feed(proc, text):
+    # Premier morceau court, suivants plus longs. Mesuré sur le Pi : piper ne
+    # diffuse RIEN au fil de la synthèse — il fabrique la phrase entière puis la
+    # sort d'un bloc, donc la latence avant le premier son EST la durée de
+    # synthèse complète (2966 ms pour 41 caractères en voix `medium`).
+    #
+    # Découper la rend proportionnelle au seul premier morceau. Ça ne marche que
+    # parce que le ratio synthèse/audio est sous 1 (0,58 en `low`, 0,93 en
+    # `medium`) : les morceaux suivants sont prêts avant que le précédent ait
+    # fini de se jouer. Au-dessus de 1, on entendrait des trous.
+    PREMIER_CAR = 16
+    SUITE_CAR = 60
+
+    @classmethod
+    def _morceaux(cls, texte):
+        """Découpe sur la ponctuation forte, sinon au mot le plus proche."""
+        reste, out = texte.strip(), []
+        cible = cls.PREMIER_CAR
+        while reste:
+            if len(reste) <= cible:
+                out.append(reste)
+                break
+            # une ponctuation dans la zone ? c'est la meilleure coupure
+            coupe = max((reste.rfind(c, 0, cible + 12) for c in ".,;:!?"), default=-1)
+            if coupe < cible // 2:
+                coupe = reste.rfind(" ", 0, cible)
+            if coupe <= 0:
+                coupe = cible
+            out.append(reste[:coupe + 1].strip())
+            reste = reste[coupe + 1:].strip()
+            cible = cls.SUITE_CAR
+        return [m for m in out if m]
+
+    @classmethod
+    def _feed(cls, proc, text):
         try:
-            proc.stdin.write((text + "\n").encode())
-            proc.stdin.flush()               # et NON close() : le processus resservira
+            for m in cls._morceaux(text):
+                proc.stdin.write((m + "\n").encode())
+                proc.stdin.flush()           # et NON close() : le processus resservira
         except (BrokenPipeError, ValueError):
             pass                             # coupé par stop() entre-temps
 
