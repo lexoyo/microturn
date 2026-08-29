@@ -20,7 +20,11 @@ Deux choix de mise en œuvre qui comptent :
 import http.client, json, os, threading, time
 
 ICI = os.path.dirname(os.path.abspath(__file__))
-LOCALES = os.path.join(ICI, "locales")
+# Surchargeable pour que PLUSIEURS mesures tournent en même temps : chacune se
+# donne une copie du catalogue, la patche, et ne dérange personne. Sans ça, deux
+# mesures concurrentes se disputent `locales/fr.toml` et l'une des deux évalue
+# un prompt qu'elle n'a pas écrit.
+LOCALES = os.environ.get("MICROTURN_LOCALES") or os.path.join(ICI, "locales")
 
 # Mesuré sur 12 cas, les deux classes comptées séparément : les Llama 3.2 (1b
 # comme 3b) ne disent JAMAIS « c'est fini » — 0 question détectée sur 5, quel que

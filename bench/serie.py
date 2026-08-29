@@ -7,18 +7,23 @@ patché, mesuré, restauré ; une variante qui plante ne contamine pas la suivan
 
     python bench/serie.py variantes.py
 """
-import importlib.util, json, os, shutil, subprocess, sys, time
+import importlib.util, json, os, shutil, subprocess, sys, tempfile, time
 
 ICI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOML = os.path.join(ICI, "locales", "fr.toml")
+# Chaque série travaille sur SA copie du catalogue : deux séries peuvent alors
+# tourner en parallèle sans que l'une mesure le prompt de l'autre.
+BAC = tempfile.mkdtemp(prefix="locales_")
+shutil.copytree(os.path.join(ICI, "locales"), BAC, dirs_exist_ok=True)
+TOML = os.path.join(BAC, "fr.toml")
 SESSIONS = ["sessions/20260829-032332", "sessions/20260829-073852"]
 
 
 def mesure(note):
+    env = dict(os.environ, MICROTURN_LOCALES=BAC)
     r = subprocess.run(
         [sys.executable, os.path.join(ICI, "bench", "sessions.py"),
          "--sessions", *SESSIONS, "--note", note],
-        cwd=ICI, capture_output=True, text=True)
+        cwd=ICI, capture_output=True, text=True, env=env)
     for l in r.stdout.splitlines():
         if "JUSTESSE" in l or "TOR " in l:
             yield l.strip()
@@ -30,7 +35,7 @@ def main():
     spec.loader.exec_module(mod)
 
     sauve = TOML + ".sauve"
-    shutil.copy2(TOML, sauve)
+    shutil.copy2(TOML, sauve)   # dans le bac, pas dans le dépôt
     resultats = []
     try:
         for nom, patch in mod.VARIANTES:
