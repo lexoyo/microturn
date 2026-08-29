@@ -1,0 +1,70 @@
+# English catalogue for microturn. See locales/fr.toml for why the tokens are in
+# the language of the conversation. This catalogue is what makes it possible to run
+# the researchers' benchmark, whose corpus is English, without touching the rest of
+# the system.
+#
+# The noise example below is NOT a translation of the French one: a transcription
+# error in English does not look like a translated French one. It should be a real
+# whisper failure on English audio — the current one is a placeholder.
+
+# {tick} is replaced by the real clock period: hard-coding it would make the prompt
+# lie the moment we change it for an experiment.
+systeme = """
+You are listening to someone speaking. Every {tick} seconds you receive the words \
+transcribed since the last check, or (silence) if nothing was said.
+
+Your first word is always one of these four:
+
+STILL_TALKING  the sentence is not over: they are talking, or pausing to breathe or find a word
+FINISHED       the sentence is over and they are waiting for your answer
+THINKING       it is silent AND the line starts with [I just answered]
+CUTTING_IN     they start talking again while the line starts with [I am speaking]
+
+After FINISHED, and only then, continue on the same line with what to say out loud, \
+one short spoken sentence. FINISHED always carries an answer.
+
+FINISHED is for a complete question or request. STILL_TALKING is for anything that \
+could continue: a fragment, a subject with no verb, a sentence cut mid-way.
+
+The transcript is automatic and often wrong. You do not need to understand the words \
+to do your job. When they make no sense, that is a recognition error: answer \
+STILL_TALKING.
+
+When in doubt, STILL_TALKING.\
+"""
+
+[jetons]
+parle     = "STILL_TALKING"
+parler    = "FINISHED"
+reflechit = "THINKING"
+coupe     = "CUTTING_IN"
+
+[etats]
+parle = "[I am speaking]"
+vient = "[I just answered]"
+muet  = "[I have not spoken]"
+
+[divers]
+silence    = "(silence)"
+whisper    = "en"
+espeak     = "en"
+voix_piper = "en_US-amy-medium"
+
+[[exemples]]
+entree = "[I have not spoken] can you"
+sortie = "STILL_TALKING"
+[[exemples]]
+entree = "[I have not spoken] (silence)"
+sortie = "STILL_TALKING"
+[[exemples]]
+entree = "[I have not spoken] a year and more you not enough fan this thread"
+sortie = "STILL_TALKING"
+[[exemples]]
+entree = "[I have not spoken] turn on the living room light"
+sortie = "FINISHED It's on."
+[[exemples]]
+entree = "[I just answered] (silence)"
+sortie = "THINKING"
+[[exemples]]
+entree = "[I have not spoken] what time is it"
+sortie = "FINISHED It's nearly midnight."

@@ -115,6 +115,30 @@ supprime — 12 exemples payés 50 fois par minute, ça se justifie ou ça saute
 
 ---
 
+## 2 bis. Passer à une vraie bibliothèque d'internationalisation
+
+**Statut : écarté pour l'instant, à revoir si le nombre de langues augmente.**
+Question d'Alex, 29/08/2026.
+
+Les catalogues `locales/<langue>.txt` sont maison. Pourquoi pas `gettext` ou
+`babel` ?
+
+**Une objection d'Alex, et elle est juste** : les jetons *sont* des traductions
+(`A_FINI` / `FINISHED`), et les deux prompts disent aujourd'hui la même chose.
+L'argument « ce ne sont pas des traductions » était une justification a posteriori.
+Le seul endroit où ça ne se traduit pas est marginal : l'exemple de bruit de
+transcription doit être un vrai extrait de la langue concernée — l'anglais actuel
+a été inventé en traduisant le français mot à mot, ce qui n'a pas de sens.
+
+**Les raisons qui tiennent sont des raisons de commodité** : `gettext` vise des
+chaînes courtes d'interface, et un prompt de vingt lignes dans un `msgid` est
+ingérable ; il impose une compilation `.po` → `.mo` avant chaque exécution ; et
+ce serait une dépendance pour deux fichiers édités par une seule personne.
+
+**Quand y revenir** : dès qu'il y a plus de trois ou quatre langues, ou qu'une
+personne extérieure contribue un catalogue. L'outillage — éditeurs dédiés,
+détection des entrées manquantes ou périmées — vaudrait alors la cérémonie.
+
 ## 3. La taille du modèle change-t-elle quelque chose ?
 
 **Statut : à tester.** Trois modèles très différents sur la même session.

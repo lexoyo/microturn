@@ -1,0 +1,76 @@
+# Catalogue français de microturn.
+#
+# Les JETONS sont dans la langue de la conversation, et c'est une mesure : sur
+# gemini-flash-lite, les jetons français font 11/12 contre 9/12 pour les anglais.
+# C'est l'inverse de ce qu'on avait mesuré sur Llama 3.2 (2/21 contre 16/21) —
+# l'effondrement sur des labels non anglais est un défaut des petits modèles peu
+# multilingues, pas une règle générale. Remesurer avant de redescendre en taille.
+#
+# Ils sont aussi NEUTRES en genre : la première version disait « elle parle », ce
+# qui supposait le genre de la personne sans raison.
+
+# {tick} est remplacé par la vraie période d'horloge : l'écrire en dur ferait
+# mentir le prompt dès qu'on la change pour une expérience.
+systeme = """
+Tu écoutes quelqu'un parler. Toutes les {tick} seconde, tu reçois les mots \
+transcrits depuis la dernière fois, ou (silence) si rien n'a été dit.
+
+Ton premier mot est toujours l'un de ces quatre :
+
+PARLE_ENCORE   la phrase n'est pas finie : ça parle, ou ça marque une pause pour respirer ou chercher un mot
+A_FINI         la phrase est finie et on attend ta réponse
+REFLECHIT      c'est silencieux ET la ligne commence par [je viens de répondre]
+ME_COUPE       ça se remet à parler alors que la ligne commence par [je parle]
+
+Après A_FINI, et seulement après, ajoute sur la même ligne ce qu'il faut dire à \
+voix haute, une phrase courte et orale. A_FINI porte toujours une réponse.
+
+A_FINI s'emploie pour une question ou une demande complète. PARLE_ENCORE pour \
+tout ce qui pourrait continuer : un fragment, un sujet sans verbe, une phrase coupée.
+
+La transcription est automatique et souvent fausse. Tu n'as pas besoin de \
+comprendre les mots pour faire ton travail. Si ça n'a aucun sens, c'est une \
+erreur de transcription : réponds PARLE_ENCORE.
+
+Dans le doute, PARLE_ENCORE.\
+"""
+
+[jetons]
+parle     = "PARLE_ENCORE"
+parler    = "A_FINI"
+reflechit = "REFLECHIT"
+coupe     = "ME_COUPE"
+
+[etats]
+parle = "[je parle]"
+vient = "[je viens de répondre]"
+muet  = "[je n'ai pas parlé]"
+
+[divers]
+silence    = "(silence)"
+whisper    = "fr"
+espeak     = "fr"
+voix_piper = "fr_FR-siwis-medium"
+
+# Ces exemples portent le FORMAT : sans eux, la sortie devient invalide dans les
+# deux tiers des cas et le modèle repart en assistant serviable.
+# Le troisième est du vrai bruit whisper — le prompt parle de transcription
+# fausse, un exemple vaut mieux qu'un paragraphe.
+[[exemples]]
+entree = "[je n'ai pas parlé] est-ce que tu peux"
+sortie = "PARLE_ENCORE"
+[[exemples]]
+entree = "[je n'ai pas parlé] (silence)"
+sortie = "PARLE_ENCORE"
+[[exemples]]
+entree = "[je n'ai pas parlé] un an et plus en t'es non assez fan ce fil"
+sortie = "PARLE_ENCORE"
+[[exemples]]
+entree = "[je n'ai pas parlé] allumer la lumière du salon"
+sortie = "A_FINI C'est allumé."
+[[exemples]]
+entree = "[je viens de répondre] (silence)"
+sortie = "REFLECHIT"
+[[exemples]]
+entree = "[je n'ai pas parlé] quelle heure il est"
+sortie = "A_FINI Il est bientôt minuit."

@@ -40,36 +40,41 @@ TIMEOUT = float(os.environ.get("MICROTURN_TIMEOUT", "1.5"))
 # ---------------------------------------------------------------- catalogues
 
 def _lire_catalogue(langue):
-    """Charge `locales/<langue>.txt`.
+    """Charge `locales/<langue>.toml`.
 
-    Format volontairement pauvre — des sections `[nom]`, des `clé = valeur`, et
-    du texte libre pour le prompt. Un catalogue doit pouvoir être relu et corrigé
-    sans ouvrir le code, et une nouvelle langue ne doit demander qu'un fichier.
+    TOML plutôt qu'un format maison : il est dans la bibliothèque standard depuis
+    Python 3.11, gère nativement les chaînes multi-lignes, et évite d'écrire un
+    parseur — donc de le déboguer. Une nouvelle langue ne demande qu'un fichier,
+    relisible sans ouvrir le code.
     """
-    cat = {"jetons": {}, "etats": {}, "divers": {}, "systeme": "", "exemples": []}
-    section = None
-    entree = None
-    with open(os.path.join(LOCALES, langue + ".txt")) as f:
-        for ligne in f:
-            nu = ligne.rstrip("\n")
-            if nu.startswith("#") or (not nu.strip() and section not in
-                                      ("systeme", "exemples")):
-                continue
-            if nu.startswith("[") and nu.rstrip().endswith("]"):
-                section = nu.strip()[1:-1]
-                continue
-            if section in ("jetons", "etats", "divers"):
-                if "=" in nu:
-                    c, _, v = nu.partition("=")
-                    cat[section][c.strip()] = v.strip()
-            elif section == "systeme":
-                cat["systeme"] += nu + "\n"
-            elif section == "exemples":
-                if nu.startswith(">"):
-                    entree = nu[1:].strip()
-                elif entree is not None and nu.strip():
-                    cat["exemples"].append((entree, nu.strip()))
-                    entree = None
+    import tomllib
+    chemin = os.path.join(LOCALES, langue + ".toml")
+    try:
+        with open(chemin, "rb") as f:
+            cat = tomllib.load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"catalogue absent : {chemin} (langues : {', '.join(langues())})")
+    except tomllib.TOMLDecodeError as e:
+        raise SystemExit(f"catalogue illisible, {chemin} : {e}")
+    # Un catalogue incomplet doit échouer AU DÉMARRAGE, pas au premier silence
+    # d'une conversation : une clé manquante donnerait sinon un KeyError au
+    # milieu d'une session, ou pire, un marqueur vide que le prompt ne décrit pas.
+    for section, clefs in (("jetons", ("parle", "parler", "reflechit", "coupe")),
+                           ("etats", ("parle", "vient", "muet")),
+                           ("divers", ("silence", "whisper", "espeak"))):
+        manque = [c for c in clefs if c not in cat.get(section, {})]
+        if manque:
+            raise SystemExit(f"{chemin} : [{section}] — clé(s) manquante(s) : "
+                             f"{', '.join(manque)}")
+    if not cat.get("systeme", "").strip():
+        raise SystemExit(f"{chemin} : `systeme` vide ou absent")
+    if "{tick}" not in cat["systeme"]:
+        raise SystemExit(f"{chemin} : `systeme` doit contenir {{tick}}, sinon le "
+                         f"prompt ment sur la période d'horloge")
+    if not cat.get("exemples"):
+        raise SystemExit(f"{chemin} : aucun exemple — sans eux la sortie du modèle "
+                         f"devient invalide dans les deux tiers des cas")
+    cat["exemples"] = [(e["entree"], e["sortie"]) for e in cat["exemples"]]
     cat["systeme"] = cat["systeme"].strip()
     return cat
 
@@ -84,7 +89,7 @@ def catalogue(langue="fr"):
 
 
 def langues():
-    return sorted(f[:-4] for f in os.listdir(LOCALES) if f.endswith(".txt"))
+    return sorted(f[:-5] for f in os.listdir(LOCALES) if f.endswith(".toml"))
 
 
 def systeme(langue="fr", tick=1.2):
