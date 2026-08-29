@@ -51,6 +51,8 @@ muet  = "[je n'ai pas parlé]"
 
 [divers]
 silence    = "(silence)"
+silence_repete = "(toujours rien, depuis {n} fois)"
+bruit_sans_texte = "(ça parle, mais je ne comprends pas)"
 whisper    = "fr"
 espeak     = "fr"
 voix_piper = "fr_FR-siwis-medium"

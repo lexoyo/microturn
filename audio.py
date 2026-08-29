@@ -140,6 +140,7 @@ class Porte:
         self.n_ouverts = 0       # blocs consécutifs laissés passer pendant qu'il parle
         self.barge_in = False    # une vraie voix couvre notre propre parole
         self.bloc = 0
+        self.depuis_tick = 0        # blocs transmis depuis le dernier tick
         self.jusqua = 0          # fin de la queue de garde, en numéro de bloc
         self.ouverte = True      # pour ne tracer que les changements d'état
         self._raz_fenetre()
@@ -200,6 +201,13 @@ class Porte:
         if ouvre:
             self.jusqua = self.bloc + QUEUE_BLOCS
         passe = ouvre or self.bloc <= self.jusqua
+        # Compteur remis à zéro par le pipeline à chaque tick. Il sert à dire au
+        # modèle la différence entre « c'est silencieux » et « ça parle, mais le
+        # STT ne rend rien de neuf ». On envoyait le même mot pour les deux, ce
+        # qui est un mensonge : mesuré, la personne parlait pendant vingt
+        # secondes de « (silence) » consécutifs.
+        if passe:
+            self.depuis_tick += 1
         self._tracer(n, passe, robot_parle)
         return passe
 

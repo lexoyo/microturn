@@ -61,7 +61,8 @@ def _lire_catalogue(langue):
     # milieu d'une session, ou pire, un marqueur vide que le prompt ne décrit pas.
     for section, clefs in (("jetons", ("parle", "parler", "reflechit", "coupe")),
                            ("etats", ("parle", "vient", "muet")),
-                           ("divers", ("silence", "whisper", "espeak"))):
+                           ("divers", ("silence", "silence_repete", "bruit_sans_texte",
+                                       "whisper", "espeak"))):
         manque = [c for c in clefs if c not in cat.get(section, {})]
         if manque:
             raise SystemExit(f"{chemin} : [{section}] — clé(s) manquante(s) : "
@@ -71,6 +72,10 @@ def _lire_catalogue(langue):
     if "{tick}" not in cat["systeme"]:
         raise SystemExit(f"{chemin} : `systeme` doit contenir {{tick}}, sinon le "
                          f"prompt ment sur la période d'horloge")
+    if "{n}" not in cat["divers"]["silence_repete"]:
+        raise SystemExit(f"{chemin} : `silence_repete` doit contenir {{n}}, "
+                         f"sinon le modèle ne sait pas depuis combien de tours "
+                         f"il n'entend rien")
     if not cat.get("exemples"):
         raise SystemExit(f"{chemin} : aucun exemple — sans eux la sortie du modèle "
                          f"devient invalide dans les deux tiers des cas")

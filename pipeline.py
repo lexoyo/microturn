@@ -93,6 +93,9 @@ class Session:
         self.langue = langue
         cat = llm.catalogue(langue)
         self.silence = cat["divers"]["silence"]
+        self.repete = cat["divers"]["silence_repete"]
+        self.bruit_sans_texte = cat["divers"]["bruit_sans_texte"]
+        self.silences = 0           # longueur de la série de silences en cours
         self.jetons = cat["jetons"]
         self.etats = cat["etats"]
         # En muet on garde un locuteur qui DURE : sans lui `speaking()` reste
@@ -172,7 +175,7 @@ class Session:
             return
         etat = "appel en cours" if self.en_vol else "en attente"
         vu = self.transcript[-40:] if self.transcript else "rien entendu"
-        self.log(f"·  {etat}, {vu!r}")
+        self.log(f"·  {etat} — transcript stt : {vu!r}")
 
     # ---------- parole ----------
     def _dire(self, texte):
@@ -202,6 +205,38 @@ class Session:
         milieu de la phrase."""
         return mot.lower().strip(".,;:!?…\"'«»()")
 
+    def _envoye(self, delta):
+        """Ce qui est PARTI au modèle, rendu lisible pour l'écran.
+
+        Les lignes `…` montrent le transcript complet de whisper ; le modèle,
+        lui, ne reçoit que le delta. L'écart entre les deux a trompé Alex et
+        moi le même soir : on lisait une question entière à l'écran et on en
+        concluait qu'il refusait d'y répondre, alors qu'on lui envoyait
+        « (silence) ». Une ligne de décision doit montrer son entrée."""
+        e = self.etats
+        court = {e["parle"]: "il parle", e["vient"]: "a répondu",
+                 e["muet"]: "muet"}
+        for marqueur, abrege in court.items():
+            if delta.startswith(marqueur):
+                reste = delta[len(marqueur):].strip()
+                return f"[{abrege}] {reste[:58]}"
+        return delta[:70]
+
+    def _rien(self):
+        """Le marqueur qui décrit HONNÊTEMENT un tick sans texte neuf.
+
+        On envoyait « (silence) » dans les deux cas, ce qui est faux la moitié
+        du temps : whisper redonne souvent la même chaîne pendant que la
+        personne parle encore. Mesuré sur une session réelle — vingt secondes de
+        « (silence) » d'affilée alors qu'elle disait « Allo ? Allo ? ».
+
+        La porte, elle, sait s'il y a eu du son : c'est une mesure, pas une
+        heuristique. Sans porte (ou en rejeu) l'information n'existe pas, et on
+        retombe sur le silence — le seul cas où l'ambiguïté est inévitable."""
+        if self.porte is not None and self.porte.depuis_tick > 0:
+            return self.bruit_sans_texte
+        return self.silence
+
     def _delta(self):
         """Ce qui est arrivé DEPUIS le tick précédent, ou SILENCE.
 
@@ -212,9 +247,9 @@ class Session:
         mc = self.transcript.split()
         mv = self.vu.split()
         if not mc:
-            return self.silence
+            return self._rien()
         if not mv:
-            return " ".join(mc).strip() or self.silence
+            return " ".join(mc).strip() or self._rien()
         # Ancrage par la QUEUE, pas par la tête. Un préfixe commun tombe à zéro
         # dès que whisper corrige un mot du début, insère une hésitation ou fait
         # glisser sa fenêtre au-delà de PLAFOND_S — et on renvoyait alors toute
@@ -229,12 +264,12 @@ class Session:
             queue = cv[-taille:]
             for i in range(len(cc) - taille, -1, -1):
                 if cc[i:i + taille] == queue:
-                    return " ".join(mc[i + taille:]).strip() or self.silence
+                    return " ".join(mc[i + taille:]).strip() or self._rien()
         # Plus aucun repère : la fenêtre a entièrement changé. Ne jamais rendre
         # plus de mots qu'il n'en est apparu depuis le tick précédent, sinon on
         # présente au modèle un énoncé ancien comme s'il était neuf.
         neufs = max(0, len(mc) - len(mv))
-        return " ".join(mc[len(mc) - neufs:]).strip() or self.silence
+        return " ".join(mc[len(mc) - neufs:]).strip() or self._rien()
 
     def _est_echo(self, delta):
         """Reconnaît sa propre voix dans ce que le STT vient de rendre.
@@ -286,6 +321,8 @@ class Session:
             else:
                 return              # un seul appel en vol ; le texte s'accumule
         delta = self._delta()
+        if self.porte is not None:
+            self.porte.depuis_tick = 0
         # Sans ça, COUPE est indécidable : le prompt le définit comme « elle se
         # remet à parler alors que je suis en train de parler », information
         # qu'on ne transmettait jamais. C'est aussi la première source de
@@ -317,7 +354,7 @@ class Session:
         # alors qu'un appel plus récent était encore en vol — d'où un troisième
         # appel, une file derrière le verrou, et le chien de garde en cascade.
         if seq != self.seq:
-            self.log(f"⌛ ({dt:.2f}s) décision périmée, ignorée")
+            self.log(f"⌛ ({dt:.2f}s) périmée, ignorée · {self._envoye(delta)}")
             return
         self.en_vol = False
         self.stats.append((action, dt))
@@ -328,6 +365,28 @@ class Session:
             self.log(f"⚠  réseau ({dt:.2f}s) {texte}")
             self.vu = ""            # l'énoncé n'est pas perdu : il repartira
             return
+        # Une série de silences est REPLIÉE en un seul tour qui porte leur
+        # nombre, au lieu d'occuper une ligne chacun. Mesuré : à 147 s, douze
+        # `(silence)` consécutifs avaient chassé la question d'Alex hors d'un
+        # historique qui ne tient que douze tours — il ne pouvait pas y
+        # répondre, il ne la voyait plus. L'horizon utile tombait à quatorze
+        # secondes. Compter plutôt que jeter garde l'information de durée, qui
+        # est justement ce qui distingue une respiration d'un tour fini.
+        muet = action == "parle" and delta.strip().endswith(
+            (self.silence, self.bruit_sans_texte))
+        if muet and self.silences and len(self.micro_tours) >= 2:
+            self.silences += 1
+            n = self.silences
+            marqueur = (self.bruit_sans_texte
+                        if delta.strip().endswith(self.bruit_sans_texte)
+                        else self.silence)
+            self.micro_tours[-2]["content"] = delta[:-len(marqueur)] + \
+                self.repete.replace("{n}", str(n))
+            self.stats.append(("silence_replie", 0.0))
+            self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}"
+                     f"  [replié ×{n}]")
+            return
+        self.silences = 1 if muet else 0
         self.micro_tours += [{"role": "user", "content": delta},
                              {"role": "assistant",
                               # Les mêmes labels que le prompt : l'historique en montrait
@@ -359,17 +418,18 @@ class Session:
                 # Trente-trois secondes d'affilée sans qu'aucune ligne ne sorte,
                 # alors que le décideur répondait toutes les 1,2 s — impossible
                 # de distinguer ça d'un plantage.
-                self.log(f"⏳ ({dt:.2f}s) elle parle encore")
+                self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}")
         elif action == "reflechit":
-            self.log(f"…  ({dt:.2f}s) elle réfléchit")
+            self.log(f"⋯  ({dt:.2f}s) réfléchit · {self._envoye(delta)}")
         elif action == "parler_sans_texte":
             # Une décision de parler dont la réponse manque. La confondre avec
             # l'attente rendait le système muet ET faussait le ratio, en silence.
-            self.log(f"⚠  ({dt:.2f}s) a décidé de répondre, sans réponse")
+            self.log(f"⚠  ({dt:.2f}s) a décidé de répondre, sans réponse "
+                     f"· {self._envoye(delta)}")
         elif action == "format":
             self.log(f"⚠  ({dt:.2f}s) hors format : {texte[:50]}")
         else:
-            self.log(f"⏳ ({dt:.2f}s) elle parle encore")
+            self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}")
 
     # ---------- boucle principale ----------
     def run(self):
@@ -401,7 +461,9 @@ class Session:
                 elif kind in ("partial", "final"):
                     if payload and payload != self.transcript:
                         self.transcript = payload
-                        self.log(f"…  {payload[-70:]}")
+                        # préfixe explicite : c'est ce que WHISPER entend, à ne
+                        # pas confondre avec ce qui part au modèle (le delta)
+                        self.log(f"stt {payload[-70:]}")
 
                 # Barge-in local, sans réseau : la porte a mesuré une vraie voix
                 # par-dessus notre parole. Passer par le modèle coûterait un tick
@@ -437,6 +499,16 @@ class Session:
         self.stop_evt.set()
         self.voix.stop()
         audio.close_stream(self.stream)
+        # Attendre la fin de la passe en cours AVANT de rendre la main : le
+        # thread de décodage est dans du C qui tient une référence au modèle,
+        # et l'interpréteur qui sort le libère sous ses pieds. Le temps d'une
+        # passe suffit (1 à 2 s ici, davantage sur un Pi), on laisse de la marge
+        # sans jamais bloquer pour de bon.
+        th = getattr(self.eng, "th", None)
+        if th is not None:
+            th.join(timeout=8)
+            if th.is_alive():
+                self.log("⚠  le moteur STT n'a pas rendu la main")
         if self.trace:
             dossier = self.trace.close(
                 bruit_final=round(self.porte.bruit or 0, 1) if self.porte else None,

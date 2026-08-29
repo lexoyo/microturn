@@ -49,6 +49,8 @@ muet  = "[I have not spoken]"
 
 [divers]
 silence    = "(silence)"
+silence_repete = "(still nothing, for {n} checks)"
+bruit_sans_texte = "(someone is talking, but I cannot make it out)"
 whisper    = "en"
 espeak     = "en"
 voix_piper = "en_US-amy-medium"

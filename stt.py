@@ -337,7 +337,13 @@ def start(nom, path=None, mic="default", porte=None, trace=None,
     stream = None if nom == "rejeu" else audio.open_stream(path, mic)
     cap = audio.Capteur(stream, porte, trace, robot_parle) if stream else None
     q, stop = queue.Queue(), threading.Event()
-    threading.Thread(target=eng.run, args=(cap, q, stop), daemon=True).start()
+    th = threading.Thread(target=eng.run, args=(cap, q, stop), daemon=True)
+    th.start()
+    # Le thread est exposé pour pouvoir être JOINT à la fermeture. Sans ça, la
+    # sortie de l'interpréteur libère le modèle whisper.cpp pendant qu'une passe
+    # tourne encore dedans : « Segmentation fault (core dumped) » après un
+    # Ctrl-C, une fois la trace correctement écrite.
+    eng.th = th
     return q, stop, stream, eng
 
 
