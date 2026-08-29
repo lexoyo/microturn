@@ -20,7 +20,8 @@ millisecondes, il décide que la personne a fini. Ça ne peut pas marcher, parce
 qu'une pause de réflexion et une fin de phrase durent la même chose. Les gens
 respirent, hésitent, cherchent leurs mots.
 
-[DuplexCascade](https://arxiv.org/abs/2603.09180) (Yang, Fujita, Sudo — MIT)
+[DuplexCascade](https://arxiv.org/abs/2603.09180) (Yang, Fujita, Sudo — SB
+Intuitions et université de Tokyo, code sous licence MIT)
 propose de supprimer le détecteur et de confier ce jugement au modèle de langage,
 qui lui dispose du **contenu** et pas seulement du signal. Leur implémentation
 s'appuie sur les modèles Kyutai, qui demandent plus de 3 Go de mémoire : hors
