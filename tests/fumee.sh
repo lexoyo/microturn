@@ -24,12 +24,12 @@ essai "modules importables"        $PY -c "import audio, stt, llm, tts, journal,
 essai "pipeline --help"            $PY pipeline.py --help
 essai "stt --help"                 $PY stt.py --help
 echo "=== chaîne complète sur un vrai enregistrement ==="
-essai "pipeline (muet)"            $PY pipeline.py samples/01-normal.wav --muet
-essai "pipeline (muet + trace)"    $PY pipeline.py samples/01-normal.wav --muet --trace /tmp/fumee_trace
-essai "pipeline (vosk)"            $PY pipeline.py samples/01-normal.wav --muet --moteur vosk
+essai "pipeline (muet)"            $PY pipeline.py samples/00-fumee.wav --muet
+essai "pipeline (muet + trace)"    $PY pipeline.py samples/00-fumee.wav --muet --trace /tmp/fumee_trace
+essai "pipeline (vosk)"            $PY pipeline.py samples/00-fumee.wav --muet --moteur vosk
 essai "tampon vidé, porte fermée" $PY tests/reset_tampon.py
 echo "=== étages isolés ==="
-essai "décideur (réseau)"          $PY llm.py "tu peux allumer la lumière du salon"
+essai "décideur (réseau)"          $PY llm.py fr "[je n'ai pas parlé] tu peux allumer la lumière du salon"
 essai "filtre d'artefacts"         $PY -c "
 import stt, sys
 cas=[('(musique) (musique)',0),('[Rire]',0),('... ... ... ...',0),
