@@ -480,3 +480,35 @@ de grandeur publiés : un Pi 3B en charge tire 2 à 4 W, soit ~0,2 Wh pour une
 session de 3 min 44 ; un 70B coûte ~0,39 J par token de sortie sur H100 FP8,
 soit ~0,6 Wh pour la même session. **Le décideur distant pèse donc trois fois le
 Pi entier** — et le choix d'un petit modèle divise cette part par dix.
+
+## Configuration retenue — les meilleures options passent par défaut
+
+| poste | défaut | pourquoi |
+|---|---|---|
+| STT | **sherpa-onnx, 2 threads** | seul à tenir le temps réel sur Pi 3B (244 ms/bloc de 300) ; 0,807 contre 0,715 |
+| repli STT | whisper `tiny`, fenêtre 10 s, ctx 512 | coût par passe 0,81 s au lieu de 1,35 |
+| décideur | **gemini-2.5-flash-lite** | 0,807, meilleur sur les pauses (3/22), 5× moins cher que llama pour 0,017 d'écart |
+| TTS | piper **résident et préchauffé** | 8 s par réponse, et plus rien sur la première |
+| horloge | tick 1,2 s, horizon 20 micro-tours | 0,6 s ne gagne rien ; 20 divise le contexte par deux à score égal |
+| prompt | `systeme` / `systeme_sherpa` | la phrase sur la casse vaut +0,063 avec sherpa, −0,103 avec whisper |
+
+### Non-régression des quatre changements passés en force
+
+Mesurée sur les deux sessions après piper résident, préchauffage, cascade de
+contrainte et filtre sans accents : **0,715**, identique à la valeur d'avant.
+Rien n'a été cassé — mais trois défauts restent invisibles au rejeu muet et
+n'apparaîtront qu'en session réelle : le PCM d'une phrase coupée qui fuirait sur
+la suivante, la syllabe de préchauffage, et la dégradation irréversible de la
+contrainte sur une erreur réseau.
+
+### R1/R2 — raccourcir les réponses coûte cher
+
+| variante | justesse | verdict |
+|---|---|---|
+| base sherpa | 0,807 | — |
+| R1 · « dix mots au plus » | 0,744 | **−0,063**, rejeté |
+| R2 · « une phrase, sans préambule » | — | patch sans effet |
+
+Les réponses font 68 caractères en moyenne, soit 4,8 s de parole. Les raccourcir
+par le prompt coûte 0,063 de justesse : le modèle tronque la réponse plutôt que
+de la resserrer. Le temps d'antenne se réduira autrement, ou pas.

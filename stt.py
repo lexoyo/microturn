@@ -33,7 +33,11 @@ VOSK_DIR = "models/vosk-model-small-fr-0.22"
 # Une fenêtre GLISSANTE serait moins chère mais perdrait le début de la phrase —
 # le décideur ne verrait qu'une lucarne mouvante et ne pourrait pas trancher.
 # Coût d'une passe = RTF × durée du tour, d'où PLAFOND_S qui borne le pire cas.
-PLAFOND_S = 20.0                # au-delà, on coupe le tour de force
+PLAFOND_S = 10.0                # au-delà, on coupe le tour de force. 10 s et non
+                                # 20 : `audio_ctx` suit, et le coût par passe
+                                # tombe de 1,35 s à 0,81 s (4,3 s sur le Pi
+                                # contre 7 à 12,3). Ne sert plus qu'au repli
+                                # whisper : le défaut est sherpa.
 PAS_S = 0.5                     # plancher ; la vraie cadence est celle du décodage
 
 # Sur du silence ou du souffle, whisper invente des balises de sous-titrage.
@@ -320,9 +324,102 @@ class Rejeu:
         """Rien à vider : les événements sont figés, on ne les recalcule pas."""
 
 
+
+SHERPA_DIR = os.environ.get(
+    "MICROTURN_SHERPA", "models/sherpa-onnx-streaming-zipformer-fr-2023-04-14")
+
+
+class Sherpa:
+    """Transducteur zipformer streaming — l'inverse de la fenêtre glissante.
+
+    Whisper est un encodeur-décodeur NON CAUSAL : pour obtenir le texte à
+    l'instant T il faut lui redonner tout l'audio du tour, et le coût monte avec
+    la durée. Mesuré sur le Pi 3B : 4,3 s par passe, et jusqu'à 12,3 s sur un
+    tour long, pour un budget de 1,2 s. Un transducteur garde son état — il
+    consomme l'audio par blocs et ne re-décode jamais rien. Mesuré sur la même
+    machine : 244 ms par bloc de 300 ms, à DEUX threads (le Pi throttle à 83 °C
+    dès trois, et perd en fréquence plus qu'il ne gagne en parallélisme).
+
+    Ce qu'on perd : la ponctuation et la casse. Whisper rend « Ça va ? », sherpa
+    rend « ÇA VA ». Le point d'interrogation est justement ce qui aide le modèle
+    à trancher une fin de tour — d'où `systeme_sherpa` dans le catalogue, qui le
+    prévient. Mesuré : +0,063 de justesse avec cette phrase, et −0,103 si on la
+    donne à tort à whisper.
+    """
+
+    dernier_cout = 0.0
+
+    def __init__(self, path=SHERPA_DIR, langue="fr", threads=2):
+        import sherpa_onnx
+        t0 = time.time()
+        suffixe = "epoch-29-avg-9-with-averaged-model.int8.onnx"
+        self.reglages = {"modele": path, "threads": threads, "int8": True,
+                         "bloc_ms": 300, "endpoint": True}
+        self.rec = sherpa_onnx.OnlineRecognizer.from_transducer(
+            tokens=os.path.join(path, "tokens.txt"),
+            encoder=os.path.join(path, f"encoder-{suffixe}"),
+            decoder=os.path.join(path, f"decoder-{suffixe}"),
+            joiner=os.path.join(path, f"joiner-{suffixe}"),
+            num_threads=threads, sample_rate=audio.RATE, feature_dim=80,
+            enable_endpoint_detection=True,
+            rule1_min_trailing_silence=2.4,
+            rule2_min_trailing_silence=1.2,
+            rule3_min_utterance_length=20)
+        self.flux = self.rec.create_stream()
+        self.fige = ""
+        self.charge_s = time.time() - t0
+
+    _raz = False
+
+    def run(self, cap, q, stop):
+        t0 = time.time()
+        vu = ""
+        while not stop.is_set():
+            if self._raz:
+                # Fin de tour : on repart à vide, sinon le transcript
+                # recontiendrait ce à quoi on vient de répondre.
+                self.rec.reset(self.flux)
+                self.fige, vu, self._raz = "", "", False
+            data = cap.lire()
+            if data is None:
+                break
+            if not data:
+                continue               # jeté par la porte
+            t1 = time.time()
+            self.flux.accept_waveform(
+                audio.RATE,
+                np.frombuffer(data, np.int16).astype(np.float32) / 32768)
+            while self.rec.is_ready(self.flux):
+                self.rec.decode_stream(self.flux)
+            self.dernier_cout = time.time() - t1
+            # La détection de fin d'énoncé fige le texte et relance le décodeur :
+            # sans elle le transducteur accumule tout depuis le début, et le
+            # delta envoyé au modèle n'a plus de sens.
+            if self.rec.is_endpoint(self.flux):
+                bout = self.rec.get_result(self.flux)
+                if bout:
+                    self.fige = (self.fige + " " + bout).strip()
+                self.rec.reset(self.flux)
+                vu = ""
+                continue
+            txt = (self.fige + " " + self.rec.get_result(self.flux)).strip()
+            if txt and txt != vu:
+                vu = txt
+                if cap.trace is not None:
+                    cap.trace.ev("partial", texte=txt,
+                                 cout=round(self.dernier_cout, 3))
+                q.put(("partial", txt, time.time() - t0))
+        q.put(("eof", "", time.time() - t0))
+
+    def reset(self):
+        self._raz = True
+
+
 def moteur(nom, **kw):
     if nom == "rejeu":
         return Rejeu(**kw)
+    if nom == "sherpa":
+        return Sherpa(**kw)
     return Whisper(**kw) if nom == "whisper" else Vosk(**kw)
 
 

@@ -725,8 +725,11 @@ class Session:
 def main():
     ap = argparse.ArgumentParser(description="microturn — conversation en flux continu")
     ap.add_argument("fichier", nargs="?", help="WAV à rejouer (sinon micro)")
-    ap.add_argument("--moteur", default="whisper",
-                    choices=["whisper", "vosk", "rejeu"],
+    # sherpa par défaut : seul moteur qui tienne le temps réel sur un Pi 3B
+    # (244 ms par bloc de 300 ms à 2 threads, contre 4,3 s par passe pour
+    # whisper), et meilleur en justesse avec son prompt (0,807 contre 0,715).
+    ap.add_argument("--moteur", default="sherpa",
+                    choices=["whisper", "vosk", "sherpa", "rejeu"],
                     help="rejeu : relit les transcriptions d'une session tracée, "
                          "pour comparer deux réglages sur des entrées identiques")
     ap.add_argument("--langue", default="fr", choices=["fr", "en"],
