@@ -17,7 +17,7 @@ Your first word is always one of these four:
 
 STILL_TALKING  the sentence is not over: they are talking, or pausing to breathe or find a word
 FINISHED       the sentence is over and they are waiting for your answer
-THINKING       it is silent, and the line starts with [I am speaking] or [I just answered]
+THINKING       it is silent AND the line starts with [I just answered]
 CUTTING_IN     they start talking again while the line starts with [I am speaking]
 
 After FINISHED, and only then, continue on the same line with what to say out loud, \
@@ -51,6 +51,7 @@ muet  = "[I have not spoken]"
 silence    = "(silence)"
 silence_repete = "(still nothing, for {n} checks)"
 bruit_sans_texte = "(someone is talking, but I cannot make it out)"
+tour_en_cours    = "— their turn so far: {texte}"
 whisper    = "en"
 espeak     = "en"
 voix_piper = "en_US-amy-medium"
@@ -73,9 +74,6 @@ sortie = "THINKING"
 # The two cases the pipeline sends routinely and that nothing described:
 # while we are speaking and they stay silent, and when they start again right
 # after our answer. Measured at 15 % of turns, with the model contradicting itself.
-[[exemples]]
-entree = "[I am speaking] (silence)"
-sortie = "THINKING"
 [[exemples]]
 entree = "[I just answered] and also can you"
 sortie = "STILL_TALKING"

@@ -40,7 +40,12 @@ BATTEMENT_S = 3.0
 # être EXACTEMENT ceux que le prompt décrit, sinon le modèle voit des marqueurs
 # qu'on ne lui a jamais présentés (c'est arrivé : « SILENCE » envoyé 53 fois
 # quand le prompt annonçait « (silence) »).
-MICRO_TOURS = 24         # historique gardé ; au-delà le prompt gonfle sans fin
+# 24 tours, c'est douze échanges, soit QUATORZE SECONDES d'horizon. Mesuré le
+# 29/08/2026 : une question posée en quarante secondes en sortait entièrement,
+# et le modèle ne pouvait pas y répondre puisqu'il ne la voyait plus. 48 porte
+# l'horizon à une demi-minute. Le surcoût en tokens est en grande partie servi
+# par le cache implicite, le préfixe étant constant.
+MICRO_TOURS = 48
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
 # `audio.Porte` qui traite l'écho maintenant, en le mesurant au lieu de parier
@@ -95,6 +100,7 @@ class Session:
         self.silence = cat["divers"]["silence"]
         self.repete = cat["divers"]["silence_repete"]
         self.bruit_sans_texte = cat["divers"]["bruit_sans_texte"]
+        self.tour_en_cours = cat["divers"]["tour_en_cours"]
         self.silences = 0           # longueur de la série de silences en cours
         self.jetons = cat["jetons"]
         self.etats = cat["etats"]
@@ -351,6 +357,27 @@ class Session:
         # même oubli que pour COUPE, corrigé plus tôt. Sans cette information il
         # prend n'importe quel silence pour une réflexion post-réponse : observé
         # 54 fois pour 4 réponses, et dans cet état il n'écoute plus rien.
+        # Le modèle ne reçoit que le DELTA — les quelques mots apparus depuis le
+        # tick précédent. Il ne voit donc jamais la phrase entière : « Allo ? »
+        # tout seul, jamais « comment tu t'appelles, tu me dis ? Allo ? ». Il
+        # applique alors la règle du fragment et se tait. Mesuré : trois
+        # questions consécutives sans réponse pendant quarante secondes.
+        # On lui rappelle le tour en cours quand il apporte plus que le delta.
+        # Le rappel vient APRÈS le delta, et SANS parenthèses. Première version :
+        # « (depuis le début de son tour : …) » placé devant. Résultat mesuré,
+        # 3/9 inchangé — et la trace montre pourquoi : tous les marqueurs entre
+        # parenthèses du système veulent dire « rien entendu » ((silence),
+        # (toujours rien…), (ça parle mais je ne comprends pas)). Le modèle a
+        # appris cette forme et lisait le rappel comme un marqueur de silence,
+        # donc répondait REFLECHIT alors que la question entière était sous ses
+        # yeux. Deux sens opposés ne doivent pas avoir la même apparence.
+        vu_mots = self.transcript.split()
+        # Le rappel vaut SURTOUT quand le delta est un marqueur de silence :
+        # c'est là que le modèle n'a rien d'autre à se mettre sous la dent. La
+        # condition qui l'excluait a fait tomber le score de 3/9 à 2/9.
+        if len(vu_mots) > len(delta.split()) + 2:
+            delta = delta + " " + self.tour_en_cours.replace(
+                "{texte}", " ".join(vu_mots[-60:]))
         e = self.etats
         if self.robot_parle:
             delta = e["parle"] + " " + delta

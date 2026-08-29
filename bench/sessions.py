@@ -46,10 +46,50 @@ def reference(dossier):
         if r.returncode != 0 or not os.path.exists(chemin):
             return None
     with open(chemin) as f:
-        return json.load(f)
+        d = json.load(f)
+    # tests/reference.py écrit {"modele": ..., "segments": [...]}
+    return d["segments"] if isinstance(d, dict) else d
 
 
-def occasions(segments):
+def _mots(texte):
+    return {m.strip(".,;:!?…\"'«»()").lower() for m in texte.split() if m}
+
+
+def dit_par_le_robot(dossier):
+    """Les phrases que le SYSTÈME a prononcées, d'après la trace d'origine.
+
+    entree.wav contient les deux voix — c'est voulu, la trace enregistre avant
+    la porte pour rester rejouable. La référence transcrit donc aussi le robot,
+    et une phrase comme « Tu t'appelles comment ? » PRONONCÉE PAR LUI serait
+    comptée comme une question d'Alex restée sans réponse.
+
+    On compare les TEXTES, pas les temps. Une première version écartait les
+    segments qui recouvrent une fenêtre de parole du robot : comme les segments
+    de référence font sept à quinze secondes et une réponse trois à quatre,
+    presque tout segment en recouvre une. Elle supprimait un tiers du
+    dénominateur, dont deux vraies questions d'Alex.
+    """
+    phrases, debut, mots = [], None, None
+    try:
+        for ligne in open(os.path.join(dossier, "session.jsonl")):
+            try:
+                e = json.loads(ligne)
+            except ValueError:
+                continue
+            if e.get("type") == "parole_debut" and e.get("texte"):
+                debut, mots = e["t"], _mots(e["texte"])
+            elif e.get("type") == "parole_fin" and debut is not None:
+                if mots:
+                    phrases.append((debut, e["t"], mots))
+                debut = mots = None
+        if debut is not None and mots:          # coupé par la fin de session
+            phrases.append((debut, debut + 5.0, mots))
+    except OSError:
+        return []
+    return phrases
+
+
+def occasions(segments, robot=()):
     """Les deux situations que le banc distingue, dérivées de la référence.
 
     On adopte les définitions de Full-Duplex-Bench pour que les chiffres tirés
@@ -74,6 +114,22 @@ def occasions(segments):
         texte = (seg.get("texte") or seg.get("text") or "").strip()
         t1 = seg.get("t1", seg.get("end"))
         if t1 is None:
+            continue
+        # Un segment est la voix du robot s'il RESSEMBLE à une phrase qu'il a
+        # dite ET s'il tombe AU MOMENT où il la disait. Les deux critères sont
+        # nécessaires, et chacun seul se trompe :
+        #   - le temps seul écartait un tiers des segments, car ceux de la
+        #     référence font sept à quinze secondes et recouvrent presque
+        #     toujours une réponse de trois ou quatre ;
+        #   - le texte seul écartait « Salut ça va ? » d'Alex, entièrement
+        #     contenu dans « Salut ! Ça va bien, merci. Et toi ? » du robot.
+        # La ressemblance est un Jaccard, symétrique : une question courte
+        # incluse dans une longue réponse ne le franchit pas.
+        mots = _mots(texte)
+        if mots and any(
+                len(mots & p) / max(1, len(mots | p)) >= 0.6
+                and float(t1) > d and f > float(seg.get("t0", seg.get("start", 0)))
+                for d, f, p in robot):
             continue
         if texte.endswith("?"):
             fins.append((float(t1), texte))
@@ -111,7 +167,7 @@ def evalue(dossier, muet=True):
     segs = reference(dossier)
     if not segs:
         return {"erreur": "pas de transcription de référence"}
-    fins, pauses = occasions(segs)
+    fins, pauses = occasions(segs, dit_par_le_robot(dossier))
     if not fins and not pauses:
         return {"erreur": "ni fin de tour ni pause dans la référence"}
 

@@ -61,7 +61,7 @@ def _lire_catalogue(langue):
     # milieu d'une session, ou pire, un marqueur vide que le prompt ne décrit pas.
     for section, clefs in (("jetons", ("parle", "parler", "reflechit", "coupe")),
                            ("etats", ("parle", "vient", "muet")),
-                           ("divers", ("silence", "silence_repete", "bruit_sans_texte",
+                           ("divers", ("silence", "silence_repete", "bruit_sans_texte", "tour_en_cours",
                                        "whisper", "espeak"))):
         manque = [c for c in clefs if c not in cat.get(section, {})]
         if manque:

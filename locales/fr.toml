@@ -19,7 +19,7 @@ Ton premier mot est toujours l'un de ces quatre :
 
 PARLE_ENCORE   la phrase n'est pas finie : ça parle, ou ça marque une pause pour respirer ou chercher un mot
 A_FINI         la phrase est finie et on attend ta réponse
-REFLECHIT      c'est silencieux, et la ligne commence par [je parle] ou [je viens de répondre]
+REFLECHIT      c'est silencieux ET la ligne commence par [je viens de répondre]
 ME_COUPE       ça se remet à parler alors que la ligne commence par [je parle]
 
 Après A_FINI, et seulement après, ajoute sur la même ligne ce qu'il faut dire à \
@@ -53,6 +53,7 @@ muet  = "[je n'ai pas parlé]"
 silence    = "(silence)"
 silence_repete = "(toujours rien, depuis {n} fois)"
 bruit_sans_texte = "(ça parle, mais je ne comprends pas)"
+tour_en_cours    = "— depuis le début de son tour, elle a dit : {texte}"
 whisper    = "fr"
 espeak     = "fr"
 voix_piper = "fr_FR-siwis-medium"
@@ -79,9 +80,6 @@ sortie = "REFLECHIT"
 # Les deux cas que le pipeline envoie couramment et que rien ne décrivait :
 # pendant qu'on parle et que l'autre se tait, et quand l'autre repart juste
 # après notre réponse. Mesuré à 15 % des tours, avec un modèle qui s'y contredit.
-[[exemples]]
-entree = "[je parle] (silence)"
-sortie = "REFLECHIT"
 [[exemples]]
 entree = "[je viens de répondre] et aussi est-ce que tu peux"
 sortie = "PARLE_ENCORE"
