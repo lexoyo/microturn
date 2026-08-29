@@ -127,12 +127,23 @@ class Whisper:
                 data = cap.lire()
                 if data is None:
                     break
-                if not data:
-                    continue           # jeté par la porte (écho ou silence) —
-                                       # le tube, lui, a bien été vidé
+                # Le drapeau est consommé AVANT tout `continue` : sinon un tour
+                # fermé pendant que la porte jette (ce qui est le cas normal —
+                # elle jette pendant qu'on parle) ne vide jamais le tampon. La
+                # phrase à laquelle on venait de répondre y restait, whisper la
+                # re-transcrivait, on y répondait encore : boucle infinie qui
+                # survivait au micro coupé.
+                raz = self._raz
+                if raz:
+                    self._raz = False
+                if not data:               # jeté par la porte (écho ou silence) —
+                    if raz:                # le tube, lui, a bien été vidé
+                        with garde:
+                            buf = np.empty(0, dtype=np.float32)
+                    continue
                 bloc = np.frombuffer(data, np.int16).astype(np.float32) / 32768
                 with garde:
-                    if self._raz:
+                    if raz:
                         # Le vidage se fait ICI, dans le lecteur, et pas dans le
                         # thread de décodage : celui-ci est presque toujours au
                         # milieu d'une passe (plus d'une seconde ici, plusieurs
@@ -141,7 +152,6 @@ class Whisper:
                         # jeter la parole de l'utilisateur juste au moment où il
                         # est le plus susceptible de couper.
                         buf = bloc
-                        self._raz = False
                     else:
                         buf = np.concatenate([buf, bloc])
                     trop = len(buf) - int(PLAFOND_S * audio.RATE)

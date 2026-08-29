@@ -27,6 +27,7 @@ echo "=== chaîne complète sur un vrai enregistrement ==="
 essai "pipeline (muet)"            $PY pipeline.py samples/01-normal.wav --muet
 essai "pipeline (muet + trace)"    $PY pipeline.py samples/01-normal.wav --muet --trace /tmp/fumee_trace
 essai "pipeline (vosk)"            $PY pipeline.py samples/01-normal.wav --muet --moteur vosk
+essai "tampon vidé, porte fermée" $PY tests/reset_tampon.py
 echo "=== étages isolés ==="
 essai "décideur (réseau)"          $PY llm.py "tu peux allumer la lumière du salon"
 essai "filtre d'artefacts"         $PY -c "
