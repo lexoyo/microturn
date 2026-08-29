@@ -32,6 +32,10 @@ import audio, llm, stt, tts
 # (0,934 contre 0,858 à 0,6 s) ; ils ont retenu 0,6 s pour la latence, mais notre
 # problème est la justesse, pas la réactivité — et ça divise les appels par deux.
 TICK_S = 1.2
+# Au-delà de ce silence à l'écran, la boucle dit qu'elle est vivante et ce
+# qu'elle attend. Assez long pour ne pas noyer les vraies lignes, assez court
+# pour qu'un blocage se voie tout de suite.
+BATTEMENT_S = 3.0
 # Le marqueur de silence et les états viennent de la langue choisie : ils doivent
 # être EXACTEMENT ceux que le prompt décrit, sinon le modèle voit des marqueurs
 # qu'on ne lui a jamais présentés (c'est arrivé : « SILENCE » envoyé 53 fois
@@ -147,12 +151,28 @@ class Session:
         self.en_vol = False         # un appel réseau est en cours
         self.t_vol = 0.0            # depuis quand
         self.seq = 0                # numéro de l'appel en cours
+        self.t_log = time.time()    # dernière ligne affichée, pour le battement
         self.micro_tours = []       # historique alterné vu par le modèle
         self.stats = []
 
     def log(self, s):
+        self.t_log = time.time()
         if self.verbose:
             print(f"{time.time()-self.t0:6.2f}s  {s}", flush=True)
+
+    def battement(self):
+        """Signe de vie quand aucune action ne produit de ligne.
+
+        Un écran muet est indistinguable d'un plantage. C'est arrivé pour de
+        bon : trente-trois secondes sans une ligne alors que le décideur
+        répondait toutes les 1,2 s. La boucle dit donc où elle en est, même
+        quand il ne se passe rien — c'est le seul moyen de faire la différence
+        entre « il réfléchit » et « il est mort »."""
+        if time.time() - self.t_log < BATTEMENT_S:
+            return
+        etat = "appel en cours" if self.en_vol else "en attente"
+        vu = self.transcript[-40:] if self.transcript else "rien entendu"
+        self.log(f"·  {etat}, {vu!r}")
 
     # ---------- parole ----------
     def _dire(self, texte):
@@ -332,6 +352,14 @@ class Session:
                 self.log("✂  coupé, tu reprends la parole")
                 if self.trace:
                     self.trace.ev("coupure")
+            else:
+                # Sans cette ligne l'écran devient AVEUGLE : `parle` est l'action
+                # de très loin la plus fréquente, et depuis qu'elle a rejoint la
+                # branche de coupure elle ne passait plus par le `else` final.
+                # Trente-trois secondes d'affilée sans qu'aucune ligne ne sorte,
+                # alors que le décideur répondait toutes les 1,2 s — impossible
+                # de distinguer ça d'un plantage.
+                self.log(f"⏳ ({dt:.2f}s) elle parle encore")
         elif action == "reflechit":
             self.log(f"…  ({dt:.2f}s) elle réfléchit")
         elif action == "parler_sans_texte":
@@ -361,6 +389,8 @@ class Session:
                 except queue.Empty:
                     kind = None
                 now = time.time()
+
+                self.battement()
 
                 if kind == "eof":
                     if echeance is None:
