@@ -54,6 +54,11 @@ class Speaker:
         self._synth = None                   # piper, résident
         self._sortie = None                  # l'`aplay` du moment
         self._gen = 0                        # phrase courante ; sert à jeter le PCM périmé
+        # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
+        # tombe sur la PREMIÈRE réponse de la conversation, celle qui donne le
+        # ton. On le paie au démarrage, pendant qu'il ne se passe rien.
+        if self.engine != "espeak":
+            threading.Thread(target=self._prechauffer, daemon=True).start()
 
     # -- piper RÉSIDENT --------------------------------------------------
     # Mesuré sur le Pi 3B : relancer piper à chaque phrase coûte 8 s, dont la
@@ -64,6 +69,15 @@ class Speaker:
     # Le prix à payer : on ne peut plus tuer piper pour couper la parole, car il
     # sert aussi la phrase suivante. On tue donc `aplay` seul, et un compteur de
     # génération fait jeter au lecteur le PCM devenu sans objet.
+
+    def _prechauffer(self):
+        """Démarre piper et lui fait produire du son qu'on jette."""
+        try:
+            synth = self._piper()
+            synth.stdin.write(b"a\n")       # une syllabe, juste pour charger
+            synth.stdin.flush()
+        except Exception:
+            pass                             # le préchauffage ne doit rien casser
 
     def _piper(self):
         """Le processus résident, démarré à la première phrase."""
