@@ -206,8 +206,14 @@ def evalue(dossier, muet=True):
 
     trace = os.path.join("/tmp", "rejeu_" + os.path.basename(dossier.rstrip("/")))
     subprocess.run(["rm", "-rf", trace])
+    # `--deterministe` : horloge virtuelle, appel bloquant. Sans lui le rejeu
+    # tournait en temps réel et un appel réseau lent faisait sauter des ticks —
+    # deux passes du même code donnaient 118 puis 123 décisions, et 0,762 puis
+    # 0,691 de justesse. On mesurait le réseau. Avec, le nombre de ticks est
+    # fixe et il ne reste que le non-déterminisme du modèle lui-même : une à
+    # deux décisions sur 126, toujours sur les mêmes cas limites.
     cmd = [sys.executable, os.path.join(ICI, "pipeline.py"), "--moteur", "rejeu",
-           dossier, "--trace", trace]
+           dossier, "--trace", trace, "--deterministe"]
     if muet:
         cmd.append("--muet")
     t0 = time.time()

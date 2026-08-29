@@ -111,14 +111,22 @@ class HorlogeVirtuelle:
     ailleurs, en conditions réelles (`llm.py` garde la vraie horloge).
     """
 
-    def __init__(self):
+    def __init__(self, vrai):
         self.t = 0.0
+        self._vrai = vrai
 
     def time(self):
         return self.t
 
+    def monotonic(self):
+        return self.t
+
     def sleep(self, _s):
         """Le temps ne passe pas tout seul : dormir ne fait rien avancer."""
+
+    def __getattr__(self, nom):
+        """Tout le reste — `strftime`, `struct_time`… — vient du vrai module."""
+        return getattr(self._vrai, nom)
 
 
 class Session:
@@ -553,14 +561,31 @@ class Session:
         de score à ce qu'on a changé, et à rien d'autre.
         """
         global time
+        journal = sys.modules.get("journal")
         evts = sorted(getattr(self.eng, "evts", []))
         if not evts:
             raise SystemExit("--deterministe : uniquement avec --moteur rejeu")
         self.synchrone = True
         fin = evts[-1][0] + 2 * TICK_S
-        horloge = HorlogeVirtuelle()
         vrai_temps = time
-        time = horloge          # tout pipeline.py lit désormais l'horloge virtuelle
+        horloge = HorlogeVirtuelle(vrai_temps)
+        # Trois modules à convertir, pas un seul :
+        #   pipeline — les ticks et les fenêtres temporelles ;
+        #   tts      — la durée simulée de la parole. Sans lui, `speaking()`
+        #              compte en temps réel pendant que la conversation avance
+        #              en temps virtuel : le rejeu va 2,4× plus vite, donc le
+        #              robot « parle » 2,4× plus longtemps. Mesuré : 8 coupures
+        #              au lieu de 3, et la justesse qui tombe de 0,634 à 0,551.
+        #   journal  — l'horodatage de la trace, que la métrique compare aux
+        #              instants de la référence. Compressé, il décalait tout.
+        # `llm` garde le VRAI temps : la latence réseau, elle, est réelle.
+        time = horloge
+        modules = [tts, journal] if journal is not None else [tts]
+        anciens = [(m, m.time) for m in modules]
+        for m in modules:
+            m.time = horloge
+        if self.trace is not None:
+            self.trace.t0 = 0.0
         try:
             i, k = 0, 1
             while horloge.t < fin:
@@ -584,6 +609,8 @@ class Session:
                 k += 1
         finally:
             time = vrai_temps
+            for m, vrai in anciens:
+                m.time = vrai
             self.close()
         return self.stats
 

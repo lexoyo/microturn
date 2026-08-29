@@ -22,7 +22,8 @@ en croyant l'avoir trouvé.
 
 | # | commit | ce qui change | justesse | fins | pauses | latence | verdict |
 |---|--------|---------------|----------|------|--------|---------|---------|
-| 1 | 5e05e6e | **base**, mesurée sur DEUX sessions au lieu d'une | **0,634** | 11/17 | 11/29 | 7,32 / 5,03 s | référence de toute la suite |
+| 1 | 5e05e6e | **base**, mesurée sur DEUX sessions au lieu d'une | 0,634 | 11/17 | 11/29 | 7,32 / 5,03 s | mesure en temps réel, non reproductible |
+| 2 | 736b868 | rejeu **déterministe** : horloge virtuelle, appel bloquant | **0,681** | 12/17 | 10/29 | 5,8 / 4,0 s | **nouvelle base.** 2 coupures au lieu de 3 |
 
 ### Ce que la deuxième session change
 
@@ -49,3 +50,31 @@ invisible avec une seule session.
 le score bouge de 7 points. C'est la confirmation directe du problème : tant que
 la granularité de la mesure vaut plus que les gains cherchés, un verdict isolé ne
 vaut rien. D'où le test n° 2 (trois passes) avant tout le reste.
+
+
+### Le rejeu déterministe, et le piège qu'il cachait
+
+Le rejeu tournait en temps réel : un appel réseau lent faisait sauter des ticks,
+et deux passes du même code donnaient 118 puis 123 décisions. Corrigé par une
+horloge virtuelle — l'appel bloque, aucun tick ne saute.
+
+Vérification sur cinq passes : **126 décisions à chaque fois**, et une à deux
+décisions divergentes sur 126, toujours aux mêmes indices. Ce qui reste est le
+non-déterminisme propre du modèle à température 0. En prime, le rejeu passe de
+149 s à 63 s : toute la file de tests devient deux fois moins chère.
+
+**Première version fausse, et de peu :** j'avais patché l'horloge du seul module
+`pipeline`. Résultat mesuré 0,551, et j'ai failli conclure que le déterminisme
+dégradait le système. Deux modules manquaient :
+
+- `tts` comptait la durée de parole simulée en temps réel, pendant que la
+  conversation avançait en temps virtuel 2,4× plus vite. Le robot « parlait »
+  2,4× trop longtemps : 8 coupures au lieu de 3 ;
+- `journal` horodatait la trace en temps réel — les instants allaient de 0 à
+  63 s pour 149 s d'audio, et la métrique les comparait à une référence en
+  secondes de conversation. Tout était décalé du même facteur.
+
+`llm` garde volontairement la vraie horloge : la latence réseau est réelle.
+
+**Leçon :** un temps simulé doit l'être partout où il est lu, sinon deux
+horloges coexistent et le système mesuré n'est plus celui qui tourne.
