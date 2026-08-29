@@ -49,6 +49,16 @@ def main():
             if nouveau == texte:
                 print(f"✗ {nom} : le patch n'a rien changé", flush=True)
                 continue
+            # Le catalogue porte plusieurs prompts (`systeme`, `systeme_sherpa`).
+            # Patcher celui que la session n'utilise PAS ne change rien au score,
+            # et se voit seulement à des mesures identiques au millième. On le
+            # dit tout de suite plutôt que de rendre trois faux verdicts.
+            for cle in ("systeme_sherpa",):
+                a = texte.split(cle + ' = """')
+                b = nouveau.split(cle + ' = """')
+                if len(a) > 1 and len(b) > 1 and a[1] == b[1]:
+                    print(f"   ⚠ {nom} : `{cle}` INCHANGÉ — sans effet sur une "
+                          f"session sherpa", flush=True)
             open(TOML, "w", encoding="utf-8").write(nouveau)
             t0 = time.time()
             lignes = list(mesure(nom))

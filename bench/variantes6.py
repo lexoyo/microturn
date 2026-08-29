@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Candidats 55, 57, 58 — issus des sessions réelles. QC dans CANDIDATS.md."""
+"""Candidats 55, 57, 58 — issus des sessions réelles. QC dans CANDIDATS.md.
+
+⚠ Le catalogue porte DEUX prompts depuis le catalogue par moteur : `systeme` et
+`systeme_sherpa`. Une variante qui ne patche que le premier ne change rien à une
+mesure faite sur une session sherpa — les trois premières mesures ont rendu le
+même score au millième, ce qui est le seul signe qu'un patch est inopérant.
+`serie.py` refuse un patch sans effet, mais ici le fichier CHANGEAIT : c'est
+juste la mauvaise clé qui changeait."""
 
 
 def v55_backchannel(t):
@@ -11,7 +18,7 @@ def v55_backchannel(t):
     return t.replace(
         "  <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)",
         "  <|assistant_backchannel|> (tu as compris, mais tu n'as rien à dire encore : "
-        "utilise-le plutôt que de relancer avec « je t'écoute » ou « vas-y »)")
+        "utilise-le plutôt que de relancer avec « je t'écoute » ou « vas-y »)")   # les DEUX prompts
 
 
 def v57_identite(t):
