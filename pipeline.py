@@ -16,7 +16,7 @@ interroge le modèle pendant que la personne parle, on garde la réponse au chau
 et on la prononce dès qu'elle s'arrête. La latence perçue devient le temps de
 détection de la fin, pas le temps de l'aller-retour réseau.
 """
-import argparse, glob, hashlib, os, platform, queue, subprocess, sys, threading, time
+import argparse, glob, hashlib, json, os, platform, queue, subprocess, sys, threading, time
 import audio, llm, stt, tts
 
 # UNE seule constante de temps, et c'est tout le turn-taking.
@@ -459,14 +459,16 @@ class Session:
                      f"  [replié ×{n}]")
             return
         self.silences = 1 if muet else 0
+        # Le MÊME format que les exemples et que la sortie contrainte. L'historique
+        # était resté en texte brut (`<|user finish talking|> Ça va bien`) alors que
+        # les exemples sont en JSON : le modèle lisait deux conventions pour la même
+        # chose, et la mauvaise était la plus proche de sa réponse. Vu dans
+        # PROMPTS-ENVOYES.txt, invisible depuis le prompt seul.
+        rep = ({"m": self.jetons["parler"], "r": texte} if action == "parler"
+               else {"m": self.jetons.get(action, self.jetons["parle"])})
         self.micro_tours += [{"role": "user", "content": delta},
                              {"role": "assistant",
-                              # Les mêmes labels que le prompt : l'historique en montrait
-                              # d'autres, en français, plus nombreux et plus récents que
-                              # les exemples — la configuration mesurée comme la pire.
-                              "content": (self.jetons["parler"] + " " + texte)
-                              if action == "parler"
-                              else self.jetons.get(action, self.jetons["parle"])}]
+                              "content": json.dumps(rep, ensure_ascii=False)}]
         self.micro_tours[:] = self.micro_tours[-MICRO_TOURS:]
 
         if action == "parler":

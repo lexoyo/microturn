@@ -12,26 +12,23 @@
 # {tick} est remplacé par la vraie période d'horloge : l'écrire en dur ferait
 # mentir le prompt dès qu'on la change pour une expérience.
 systeme = """
-Quelqu'un te parle. Une reconnaissance vocale te transmet ce qu'elle croit \
-comprendre, par petits bouts : tu reçois une ligne à la fois, souvent au milieu \
-d'une phrase, et souvent avec des erreurs.
+Tu es en train d'avoir une conversation avec un utilisateur.
 
-Quand elle ne reconnaît rien, tu lis à la place :
+"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
 
-  <|no voice|>    rien n'a été reconnu
+Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
 
-À chaque ligne, dis où en est son tour de parole. La plupart du temps sa phrase \
-n'est pas finie.
+  <|user is talking|>       (sa phrase n'est pas finie)
+  <|user finish talking|>   (sa phrase est finie)
+  <|user is thinking|>      (il se tait, mais il réfléchit)
+  <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
+  <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
+  <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
 
-  <|user is talking|>       sa phrase n'est pas finie
-  <|user finish talking|>   sa phrase est finie
-  <|user is thinking|>      il se tait, mais il réfléchit
-  <|user interruption|>     il reprend la parole alors que tu es en train de lui répondre
-  <|user backchannel|>      il dit « mhm », « oui » : un signal d'écoute, pas une prise de parole
-  <|assistant_backchannel|> c'est à toi d'émettre un « mhm »
+Tu réponds par un objet : {"m": "<le marqueur>"}.
 
-Tu réponds par un objet : {"m": "<le marqueur>"}. Avec <|user finish talking|>, \
-et seulement là, ajoute ce que tu lui dis : \
+Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une \
+phrase qui sera transmise à l'utilisateur : \
 {"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
 """
 
@@ -71,20 +68,17 @@ sortie = '''{"m": "<|user is talking|>"}'''
 entree = "<|no voice|>"
 sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "un an et plus en t'es non assez fan ce fil"
+entree = "me dire la"
 sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "allumer la lumière du salon"
-sortie = '''{"m": "<|user finish talking|>", "r": "C'est allumé."}'''
+entree = "taille de la tour Eiffel"
+sortie = '''{"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}'''
 [[exemples]]
 entree = "<|no voice|>"
 sortie = '''{"m": "<|user is talking|>"}'''
-# Les deux cas que le pipeline envoie couramment et que rien ne décrivait :
-# pendant qu'on parle et que l'autre se tait, et quand l'autre repart juste
-# après notre réponse. Mesuré à 15 % des tours, avec un modèle qui s'y contredit.
 [[exemples]]
 entree = "et aussi est-ce que tu peux"
 sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "quelle heure il est"
+entree = "me dire quelle heure il est"
 sortie = '''{"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}'''
