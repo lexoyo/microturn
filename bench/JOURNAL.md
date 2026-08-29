@@ -348,3 +348,27 @@ ASR streaming qui rend le dernier mot en 250 ms au lieu de 4,3 secondes.
 Le test à 2 threads a démarré à **54,8 °C**, les autres à chaud. Une partie de
 l'écart peut venir de là. À refaire à froid pour les trois réglages avant d'en
 faire un résultat publiable.
+
+## État après le catalogue à un prompt par moteur
+
+Même session (`073852`), même code, seul le moteur et son prompt changent :
+
+| configuration | justesse | fins | pauses ratées | latence vécue |
+|---|---|---|---|---|
+| whisper `tiny` + `systeme` | 0,715 | 6/8 | 7/22 | 5,55 s |
+| sherpa + `systeme` (le mauvais prompt) | 0,705 | 4/8 | 2/22 | 4,35 s |
+| **sherpa + `systeme_sherpa`** | **0,761** | 6/8 | 5/22 | **3,55 s** |
+
+**sherpa avec son propre prompt gagne sur les deux axes** : +0,046 de justesse
+et **deux secondes de latence en moins**. Et c'est le seul moteur qui tienne le
+temps réel sur un Pi 3B (244 ms par bloc de 300 ms, à 2 threads).
+
+La ligne du milieu chiffre ce que coûterait un prompt unique : sherpa nourri du
+prompt de whisper tombe à 0,705, sous whisper lui-même. Le catalogue à plusieurs
+prompts n'est pas une commodité, c'est ce qui rend le moteur utilisable.
+
+**Point à surveiller : 9 coupures**, contre 2 pour whisper. sherpa répond en
+3,55 s au lieu de 5,55, donc il parle pendant que l'autre reprend son souffle.
+Même effet que sur la borne haute à ASR parfait (26 coupures). C'est le prochain
+défaut à traiter, et il n'apparaît que maintenant qu'on est assez rapide pour
+couper quelqu'un.
