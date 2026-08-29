@@ -14,6 +14,9 @@
 systeme = """
 Tu es en train d'avoir une conversation avec un utilisateur.
 
+Le texte que tu reçois est en majuscules et sans ponctuation : c'est \
+la reconnaissance vocale qui est ainsi, pas l'utilisateur qui crie.
+
 "<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
 
 Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
@@ -81,7 +84,7 @@ entree = "taille de la tour Eiffel"
 sortie = '''{"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}'''
 [[exemples]]
 entree = "<|no voice|>"
-sortie = '''{"m": "<|user is thinking|>"}'''
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
 entree = "et aussi est-ce que tu peux"
 sortie = '''{"m": "<|user is talking|>"}'''

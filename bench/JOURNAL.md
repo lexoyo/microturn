@@ -240,3 +240,37 @@ le préfixe entier à chaque tick — 183 fois pour 3 min 44 de conversation.
 C'est aussi un contre-argument au test 3 (horizon réduit) : diviser le contexte
 par deux nous a fait passer *sous* le seuil de cache. À vérifier si le coût
 devient un critère.
+
+## Les quatre ASR, même audio (`073852`)
+
+| ASR | justesse | fins | pauses ratées | latence vécue | RTF Pi |
+|---|---|---|---|---|---|
+| whisper `tiny` | 0,653 | 5/8 | 7/22 | 4,95 s | 0,62 |
+| vosk | 0,722 | 5/8 | 4/22 | 5,95 s | 1,86 ✗ |
+| **sherpa-onnx** | 0,744 | 5/8 | **3/22** | **3,75 s** | à mesurer |
+| whisper `tiny` + `audio_ctx` accordé | **0,801** | **7/8** | 6/22 | 4,35 s | — |
+
+sherpa gagne sur la latence (−1,2 s) et sur les pauses (deux fois moins ratées),
+et perd sur les fins de tour. Cause identifiée avant la mesure : il rend
+`EST CE QUE TU SAIS COMMENT JE M'APPELLE`, sans le point d'interrogation qui est
+justement le signal d'une fin de phrase.
+
+## Adapter le prompt à une transcription nue
+
+| variante | justesse | verdict |
+|---|---|---|
+| sherpa, prompt inchangé | 0,744 | référence |
+| **S1 · dire que le texte est en majuscules sans ponctuation** | **0,807** | **gardé** (+0,063) |
+| S2 · mettre les exemples eux-mêmes en majuscules | 0,784 | +0,040, moins bon que S1 |
+
+**Une phrase récupère tout ce que la ponctuation avait coûté.** sherpa + S1 est à
+0,807 avec 3,75 s de latence, contre 0,801 et 4,35 s pour le meilleur whisper :
+justesse équivalente, **six dixièmes de seconde de moins**, et un coût qui ne
+monte pas avec la durée du tour.
+
+**Et c'est la première fois qu'une RÈGLE bat une DONNÉE.** Jusqu'ici les cinq
+règles ajoutées au prompt n'avaient rien valu, et les gains venaient d'exemples
+corrigés. L'exception s'explique : S1 décrit une propriété de l'ENTRÉE, que les
+exemples ne peuvent pas montrer sans cesser d'être lisibles — S2 l'a tenté et
+fait moins bien. Une règle gagne quand elle dit quelque chose qu'un exemple ne
+peut pas dire.
