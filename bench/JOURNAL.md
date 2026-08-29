@@ -417,3 +417,25 @@ d'une phrase coupée ressortirait au début de la suivante.
 | **total estimé** | **~13 s** | **~1 s** |
 
 À vérifier bout en bout sur le Pi : ces chiffres sont mesurés poste par poste.
+
+## Rendre le système prudent : les trois variantes échouent
+
+Base sherpa 0,761. Défaut visé : 5 pauses ratées sur 22.
+
+| variante | justesse | verdict |
+|---|---|---|
+| P1 · une règle : « dans le doute, il n'a pas fini » | 0,686 | **−0,075**, régression nette |
+| P2 · une donnée : un fragment puis un silence | 0,715 | **−0,046**, régression |
+| P3 · resserrer la définition de « finie » | 0,744 | −0,017, dans le bruit |
+
+**Les trois font perdre. Aucune n'améliore.** Et je m'étais avancé : j'avais
+parié sur P2, au motif que tous les gains étaient venus d'exemples. Le pari
+était mauvais, et l'exemple ajouté fait plus de mal que la règle resserrée.
+
+L'interprétation la plus simple : le prompt est à son plateau. On lui demande
+d'être prudent sur les pauses, il devient prudent partout, et perd des fins de
+tour sans gagner assez sur les silences.
+
+**Conséquence : les pauses ne se corrigeront pas dans le prompt.** Le levier
+restant est dans le code — exiger N ticks de silence consécutifs avant
+d'autoriser une prise de parole, ce qui ne demande rien au modèle.
