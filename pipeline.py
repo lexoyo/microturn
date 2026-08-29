@@ -32,7 +32,10 @@ import audio, llm, stt, tts
 # (0,934 contre 0,858 à 0,6 s) ; ils ont retenu 0,6 s pour la latence, mais notre
 # problème est la justesse, pas la réactivité — et ça divise les appels par deux.
 TICK_S = 1.2
-SILENCE = "(silence)"      # ce qu'on envoie quand rien n'a été dit depuis le tick
+# Le marqueur de silence et les états viennent de la langue choisie : ils doivent
+# être EXACTEMENT ceux que le prompt décrit, sinon le modèle voit des marqueurs
+# qu'on ne lui a jamais présentés (c'est arrivé : « SILENCE » envoyé 53 fois
+# quand le prompt annonçait « (silence) »).
 MICRO_TOURS = 24         # historique gardé ; au-delà le prompt gonfle sans fin
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
@@ -74,7 +77,12 @@ def _machine():
 class Session:
     def __init__(self, moteur="whisper", path=None, mic="default",
                  engine=None, verbose=True, trace_dir=None, porte=audio.FACTEUR_ECHO,
-                 muet=False, modele=None, **kw):
+                 muet=False, modele=None, langue="fr", **kw):
+        self.langue = langue
+        cat = llm.catalogue(langue)
+        self.silence = cat["divers"]["silence"]
+        self.jetons = cat["jetons"]
+        self.etats = cat["etats"]
         self.voix = tts.Speaker(engine or tts.ENGINE)
         self.muet = muet
         if muet:
@@ -90,7 +98,7 @@ class Session:
                 "modele_stt": stt.WHISPER_MODEL if moteur == "whisper" else stt.VOSK_DIR,
                 "llm": modele or llm.MODEL,
                 "tts": self.voix.engine, "voix": self.voix.voice,
-                "source": path or f"micro {mic}", "muet": muet,
+                "source": path or f"micro {mic}", "muet": muet, "langue": langue,
                 "parametres": {
                     "TICK_S": TICK_S, "MICRO_TOURS": MICRO_TOURS,
                     "porte_facteur": porte,
@@ -100,10 +108,13 @@ class Session:
                 "version_code": _empreinte_code(),
                 "machine": _machine()})
         self.porte = audio.Porte(porte, self.trace) if porte > 0 else None
-        self.decideur = llm.Decideur(model=modele or llm.MODEL, trace=self.trace)
+        self.decideur = llm.Decideur(model=modele or llm.MODEL, trace=self.trace,
+                                     langue=langue, tick=TICK_S)
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
-            robot_parle=lambda: self.robot_parle, **kw)
+            robot_parle=lambda: self.robot_parle,
+            **({"langue": cat["divers"]["whisper"]}
+               if moteur == "whisper" else {}), **kw)
         if self.trace is not None and hasattr(self.eng, "reglages"):
             # les réglages du moteur ne sont connus qu'après sa construction, et
             # ce sont eux qui font varier le RTF du simple au double (audio_ctx,
@@ -165,12 +176,12 @@ class Session:
         mc = self.transcript.split()
         mv = self.vu.split()
         if not mc:
-            return SILENCE
+            return self.silence
         k = 0
         while k < len(mc) and k < len(mv) and self._cle(mc[k]) == self._cle(mv[k]):
             k += 1
         reste = " ".join(mc[k:]).strip()
-        return reste or SILENCE
+        return reste or self.silence
 
     def _interroger(self, delta):
         """Tourne dans son thread. Ne DOIT jamais mourir sans reposer sa réponse :
@@ -201,12 +212,13 @@ class Session:
         # même oubli que pour COUPE, corrigé plus tôt. Sans cette information il
         # prend n'importe quel silence pour une réflexion post-réponse : observé
         # 54 fois pour 4 réponses, et dans cet état il n'écoute plus rien.
+        e = self.etats
         if self.robot_parle:
-            delta = "[I am speaking] " + delta
+            delta = e["parle"] + " " + delta
         elif self.parle_fin and time.time() - self.parle_fin < 6.0:
-            delta = "[I just answered] " + delta
+            delta = e["vient"] + " " + delta
         else:
-            delta = "[I have not spoken] " + delta
+            delta = e["muet"] + " " + delta
         self.vu = self.transcript
         self.en_vol = True
         self.t_vol = time.time()
@@ -228,9 +240,9 @@ class Session:
                               # Les mêmes labels que le prompt : l'historique en montrait
                               # d'autres, en français, plus nombreux et plus récents que
                               # les exemples — la configuration mesurée comme la pire.
-                              "content": {"parler": "DONE " + texte, "parle": "SPEAKING",
-                                          "reflechit": "THINKING",
-                                          "coupe": "INTERRUPTING"}.get(action, "SPEAKING")}]
+                              "content": (self.jetons["parler"] + " " + texte)
+                              if action == "parler"
+                              else self.jetons.get(action, self.jetons["parle"])}]
         self.micro_tours[:] = self.micro_tours[-MICRO_TOURS:]
 
         if action == "parler":
@@ -240,7 +252,7 @@ class Session:
             # qu'on parle coupe la synthèse. Faire dépendre l'interruption du
             # seul label INTERRUPTING la rendait impossible — il n'a jamais été
             # émis une seule fois sur 153 décisions.
-            if self.voix.speaking() and not delta.strip().endswith(SILENCE):
+            if self.voix.speaking() and not delta.strip().endswith(self.silence):
                 self.voix.stop()
                 self.log("✂  coupé, tu reprends la parole")
                 if self.trace:
@@ -325,6 +337,9 @@ def main():
                     choices=["whisper", "vosk", "rejeu"],
                     help="rejeu : relit les transcriptions d'une session tracée, "
                          "pour comparer deux réglages sur des entrées identiques")
+    ap.add_argument("--langue", default="fr", choices=["fr", "en"],
+                    help="langue de la conversation : change les jetons, le prompt, "
+                         "whisper et la voix. `en` sert au banc des chercheurs")
     ap.add_argument("--modele", default=None, metavar="NOM",
                     help="modèle de décision (défaut : %s)" % llm.MODEL)
     ap.add_argument("--vitesse", type=float, default=1.0,
@@ -347,7 +362,8 @@ def main():
         kw = {"session": a.fichier, "vitesse": a.vitesse}
         a.fichier = None
     s = Session(a.moteur, a.fichier, a.mic, engine=a.tts, trace_dir=a.trace,
-                porte=a.porte, muet=a.muet, modele=a.modele, **kw)
+                porte=a.porte, muet=a.muet, modele=a.modele,
+                langue=a.langue, **kw)
     st = s.run()
     if st:
         par = {}

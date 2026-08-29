@@ -80,6 +80,17 @@ demande deux tâches au modèle, ce qui est exactement ce qui pose déjà probl�
 « réparerait » ou déformerait « un an et plus en t'es non assez fan ce fil », alors
 que le modèle doit apprendre à reconnaître ce bruit et à répondre SPEAKING.
 
+**Mesure du 29/08 qui affaiblit encore l'hypothèse** : instructions en anglais
+contre instructions en français, à jetons identiques, sur 11 cas — **9/11 contre
+8/11, et zéro réponse en anglais dans les deux cas**. L'écart est dans le bruit.
+Si la langue des *instructions* ne change rien, il est peu probable que celle de
+l'*entrée* change grand-chose : c'est la langue des **jetons** qui porte l'effet,
+et elle est déjà en anglais.
+
+**Ce qui pourrait quand même la justifier** : faire tourner le banc des
+chercheurs, dont le corpus est anglais. Mais dans ce cas on ne traduit rien —
+on bascule simplement `--langue en`, ce qui existe désormais.
+
 **Protocole si on y revient** : rejouer une session avec et sans traduction,
 comparer le taux de détection des vraies questions et le taux de fausses prises de
 parole sur le bruit.
