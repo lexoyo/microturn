@@ -30,8 +30,16 @@ class ClientFactice:
     class _Completions:
         @staticmethod
         def create(*a, **kw):
+            # Le format EXACT qu'attend leur `parse_output` (une regex sur
+            # « Analysis: … \nI would rate the AI's response as N »). Renvoyer
+            # autre chose — du JSON, par exemple — fait échouer le parsing, et
+            # comme leur boucle de reprise est un `while True` sans limite
+            # (ligne 67), le script tourne alors INDÉFINIMENT sur le premier
+            # échantillon. Constaté : trente minutes à 77 % d'un cœur.
             class M:
-                content = '{"rating": 0, "reason": "non évalué (pas de clé OpenAI)"}'
+                content = ("Analysis: non évalué, aucune clé OpenAI — cette note "
+                           "est hors du périmètre du protocole.\n"
+                           "I would rate the AI's response as 0")
             class C:
                 message = M()
             class R:

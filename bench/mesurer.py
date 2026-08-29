@@ -50,7 +50,7 @@ def chiffres(sortie):
     return out
 
 
-def une_passe(tache, n, refaire):
+def une_passe(tache, n, refaire, modele=None):
     dossier, script, _ = TACHES[tache]
     corpus = os.path.join(DATA, dossier)
     if not os.path.isdir(corpus):
@@ -61,6 +61,8 @@ def une_passe(tache, n, refaire):
         cmd += ["--echantillon", str(n)]
     if refaire:
         cmd += ["--refaire"]
+    if modele:
+        cmd += ["--modele", modele]
     r = lancer(cmd, cwd=ICI)
     if r.returncode != 0:
         return {"erreur": f"rendu: {r.stderr.strip()[:200]}"}
@@ -122,6 +124,10 @@ def main():
     ap.add_argument("--echantillon", type=int, default=15)
     ap.add_argument("--passes", type=int, default=1)
     ap.add_argument("--note", default="", help="ce qu'on teste, pour le journal")
+    ap.add_argument("--modele", default=None,
+                    help="modèle du décideur ; « simule » pour le décideur "
+                         "déterministe hors ligne, qui donne le bruit de la "
+                         "mécanique seule")
     a = ap.parse_args()
 
     taches = [t.strip() for t in a.taches.split(",") if t.strip()]
@@ -147,7 +153,7 @@ def main():
             # retrouvait les output.wav de l'itération précédente, les gardait,
             # et on évaluait l'ancien code en croyant mesurer le nouveau. Dix
             # itérations auraient donné dix fois le même chiffre.
-            r = une_passe(tache, a.echantillon, refaire=True)
+            r = une_passe(tache, a.echantillon, refaire=True, modele=a.modele)
             if "erreur" in r:
                 print(f"  {tache:12} ÉCHEC — {r['erreur']}")
                 break
@@ -183,7 +189,7 @@ def main():
               "Une moyenne partielle sous ce nom serait trompeuse.")
 
     rapport = {"code": empreinte, "modifie": sale, "note": a.note,
-               "justesse": justesse,
+               "modele": a.modele, "justesse": justesse,
                "echantillon": a.echantillon, "passes": a.passes,
                "date": time.strftime("%Y-%m-%dT%H:%M:%S"), "resultats": resultats}
     chemin = os.path.join(ICI, "bench", "derniere_mesure.json")
