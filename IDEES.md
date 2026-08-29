@@ -224,3 +224,35 @@ entière d'un bloc, aucun réglage ne nous rendra interruptibles.
 
 **À vérifier d'abord** : est-ce que `Speaker.stop()` coupe vraiment net, y compris
 le tampon d'ALSA ? Sinon le reste est sans objet.
+
+---
+
+## 9. Servir un LLM local pour l'étage de décision
+
+**Statut : à tester, pas avant la fin de la boucle en cours.** Idée d'Alex
+(29/08/2026) : servir le modèle avec ollama ou llamafile plutôt que de dépendre
+d'une API.
+
+**Pourquoi ça compte.** Aujourd'hui le décideur est distant (OpenRouter). C'est
+acceptable pour prototyper, mais ça condamne le système à avoir besoin du
+réseau — donc à ne jamais tenir la promesse « tout en local sur un Pi ».
+
+**Ce qu'on sait déjà.** `RESULTATS.md` §7 a écarté `llama-3.2-3b` : jamais un
+seul jeton de fin de tour sur cinq questions. Mais on n'a testé qu'un modèle, et
+la conclusion tirée alors — « les petits modèles peu multilingues s'effondrent
+sur des labels non anglais » — désigne un défaut de CE modèle, pas une loi.
+
+**La piste sérieuse** : DuplexCascade fine-tune **Qwen2-7B-Instruct** en LoRA,
+sur 8×H100 pendant **5 heures** — soit 40 heures-GPU, de l'ordre de la centaine
+d'euros en location. Ce n'est pas hors de portée. Tester d'abord Qwen2-7B-Instruct
+tel quel en prompting : s'il émet les jetons là où Llama échouait, la question
+devient « faut-il vraiment entraîner ? », et le banc y répondra par un chiffre.
+
+**Réserve de taille.** Un 7B quantifié en Q4 pèse ~4 Go ; le Pi 3B a 1 Go de RAM.
+Même DuplexCascade ne tournerait pas sur la cible affichée du projet. Soit on
+change de cible (Pi 5, 8 Go), soit on cherche beaucoup plus petit, soit on
+assume que la décision reste distante. C'est un arbitrage pour Alex, pas une
+question technique.
+
+**Ne pas le faire pendant une boucle de mesure** : changer de modèle de décision
+au milieu rendrait tous les écarts illisibles.
