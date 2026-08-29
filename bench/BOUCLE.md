@@ -151,3 +151,25 @@ alors ce qu'on règle.
 
 Court. Chiffres avant/après avec leur écart-type, ce qui a marché, ce qui n'a
 pas marché, ce qui reste ouvert. Les questions en **choix multiples**.
+
+## QC avant l'ajout à la liste — règle posée par Alex le 29/08/2026
+
+**Chaque nouveau test passe une QC AVANT d'entrer dans `CANDIDATS.md`**, et
+chaque nouveau prompt en passe une avant d'être mesuré. Pas après coup : une QC
+qui arrive après la mesure ne fait que commenter un chiffre déjà obtenu, souvent
+pour le justifier.
+
+Quatre questions, toujours les mêmes :
+
+1. **Qu'est-ce que ce test peut montrer que je ne sais pas déjà ?** Si la réponse
+   est « confirmer ce que je pense », le test ne vaut pas son coût. Deux tests
+   ont été lancés ici sur cette base et n'ont rien appris.
+2. **De combien doit bouger le score pour que je conclue ?** Le bruit est de
+   ±0,017. Un test dont l'effet attendu est plus petit ne peut pas conclure, quoi
+   qu'il rende.
+3. **Qu'est-ce que ce changement rend faux ailleurs ?** La phrase « le texte est
+   en majuscules » est vraie avec sherpa et fausse avec whisper : elle couple le
+   prompt au moteur, et rien dans le catalogue ne le sait.
+4. **Sur quoi je me repose sans l'avoir mesuré ?** Le RTF de sherpa sur le Pi
+   était extrapolé à 0,37 ; mesuré, il est à 1,151. Un facteur trois, sur le
+   chiffre qui décide de l'architecture.
