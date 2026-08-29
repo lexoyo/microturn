@@ -1,9 +1,9 @@
 Prompts réellement envoyés au modèle
 trace : /tmp/rejeu_20260829-032332
-119 appels dans la session, 3 rendus ici
+123 appels dans la session, 2 rendus ici
 
 ========================================================================
-APPEL 1 — 16 messages, modèle google/gemini-2.5-flash-lite
+APPEL 1 — 2 messages, modèle google/gemini-2.5-flash-lite
 ========================================================================
 ┌─ system ────────────────────────────────────────────
 │ Tu es en train d'avoir une conversation avec un utilisateur.
@@ -22,25 +22,30 @@ APPEL 1 — 16 messages, modèle google/gemini-2.5-flash-lite
 │ Tu réponds par un objet : {"m": "<le marqueur>"}.
 │ 
 │ Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une phrase qui sera transmise à l'utilisateur : {"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
+│ 
+│ ### EXEMPLE DE CONVERSATION
+│ 
+│   utilisateur: est-ce que tu peux
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: <|no voice|>
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: me dire la
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: taille de la tour Eiffel
+│   assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
+│   utilisateur: <|no voice|>
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: et aussi est-ce que tu peux
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: me dire quelle heure il est
+│   assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
+│ 
+│ ### PUIS LA CONVERSATION RÉELLE, dans le même format
 └─────────────────────────────────────────────────────
-     user: est-ce que tu peux
-assistant: {"m": "<|user is talking|>"}
-     user: <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user: me dire la
-assistant: {"m": "<|user is talking|>"}
-     user: taille de la tour Eiffel
-assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
-     user: <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user: et aussi est-ce que tu peux
-assistant: {"m": "<|user is talking|>"}
-     user: me dire quelle heure il est
-assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
      user:  <|no voice|>
 
 ========================================================================
-APPEL 40 — 34 messages, modèle google/gemini-2.5-flash-lite
+APPEL 62 — 30 messages, modèle google/gemini-2.5-flash-lite
 ========================================================================
 ┌─ system ────────────────────────────────────────────
 │ Tu es en train d'avoir une conversation avec un utilisateur.
@@ -59,21 +64,26 @@ APPEL 40 — 34 messages, modèle google/gemini-2.5-flash-lite
 │ Tu réponds par un objet : {"m": "<le marqueur>"}.
 │ 
 │ Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une phrase qui sera transmise à l'utilisateur : {"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
+│ 
+│ ### EXEMPLE DE CONVERSATION
+│ 
+│   utilisateur: est-ce que tu peux
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: <|no voice|>
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: me dire la
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: taille de la tour Eiffel
+│   assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
+│   utilisateur: <|no voice|>
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: et aussi est-ce que tu peux
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: me dire quelle heure il est
+│   assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
+│ 
+│ ### PUIS LA CONVERSATION RÉELLE, dans le même format
 └─────────────────────────────────────────────────────
-     user: est-ce que tu peux
-assistant: {"m": "<|user is talking|>"}
-     user: <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user: me dire la
-assistant: {"m": "<|user is talking|>"}
-     user: taille de la tour Eiffel
-assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
-     user: <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user: et aussi est-ce que tu peux
-assistant: {"m": "<|user is talking|>"}
-     user: me dire quelle heure il est
-assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
      user:  <|no voice|>
 assistant: {"m": "<|user is talking|>"}
      user:  C'est...
@@ -81,62 +91,7 @@ assistant: {"m": "<|user is talking|>"}
      user:  <|no voice|>
 assistant: {"m": "<|user is talking|>"}
      user:  ça va !
-assistant: {"m": "<|user finish talking|>", "r": "Ça va bien, merci ! Et toi ?"}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  comment tu t'appelles ?
-assistant: {"m": "<|user finish talking|>", "r": "Je suis un grand modèle linguistique, entraîné par Google."}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  Moi je m'appelle ton tout.
-assistant: {"m": "<|user finish talking|>", "r": "Enchanté, Ton Tout !"}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  <|no voice|>
-
-========================================================================
-APPEL 80 — 54 messages, modèle google/gemini-2.5-flash-lite
-========================================================================
-┌─ system ────────────────────────────────────────────
-│ Tu es en train d'avoir une conversation avec un utilisateur.
-│ 
-│ "<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
-│ 
-│ Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
-│ 
-│   <|user is talking|>       (sa phrase n'est pas finie)
-│   <|user finish talking|>   (sa phrase est finie)
-│   <|user is thinking|>      (il se tait, mais il réfléchit)
-│   <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
-│   <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
-│   <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
-│ 
-│ Tu réponds par un objet : {"m": "<le marqueur>"}.
-│ 
-│ Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une phrase qui sera transmise à l'utilisateur : {"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
-└─────────────────────────────────────────────────────
-     user: est-ce que tu peux
-assistant: {"m": "<|user is talking|>"}
-     user: <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user: me dire la
-assistant: {"m": "<|user is talking|>"}
-     user: taille de la tour Eiffel
-assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
-     user: <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user: et aussi est-ce que tu peux
-assistant: {"m": "<|user is talking|>"}
-     user: me dire quelle heure il est
-assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  C'est...
-assistant: {"m": "<|user is talking|>"}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  ça va !
-assistant: {"m": "<|user finish talking|>", "r": "Ça va bien, merci ! Et toi ?"}
+assistant: {"m": "<|user finish talking|>", "r": "Je suis ravi de l'entendre !"}
      user:  <|no voice|>
 assistant: {"m": "<|user is talking|>"}
      user:  comment tu t'appelles ?
@@ -158,13 +113,3 @@ assistant: {"m": "<|user is talking|>"}
      user:  d'y moi, comment comme je m'appelle d'y moi, comment
 assistant: {"m": "<|user is talking|>"}
      user:  <|no voice|> comme je m'appelle d'y moi, comment
-assistant: {"m": "<|user is talking|>"}
-     user:  je m'appelle ? ton ton comment je m'appelle ? dis moi comment je m'appelle ?
-assistant: {"m": "<|user finish talking|>", "r": "Tu t'appelles Ton Ton."}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  Je viens de te le dire.
-assistant: {"m": "<|user finish talking|>", "r": "Ah oui, désolé ! Tu t'appelles Ton Ton."}
-     user:  <|no voice|>
-assistant: {"m": "<|user is talking|>"}
-     user:  <|no voice|>

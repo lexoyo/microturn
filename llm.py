@@ -69,6 +69,10 @@ def _lire_catalogue(langue):
                              f"{', '.join(manque)}")
     if not cat.get("systeme", "").strip():
         raise SystemExit(f"{chemin} : `systeme` vide ou absent")
+    if "{exemples}" not in cat["systeme"]:
+        raise SystemExit(f"{chemin} : `systeme` doit contenir {{exemples}} — les "
+                         f"exemples vivent dans le prompt, sans ancre ils "
+                         f"disparaîtraient sans un mot")
     # `silence_repete` peut valoir le même marqueur que `silence` : c'est le
     # design de DuplexCascade, qui n'a qu'un seul <|no voice|> et ne compte pas
     # les silences. La contrainte sur {n} ne vaut donc que si les deux diffèrent.
@@ -97,15 +101,28 @@ def langues():
     return sorted(f[:-5] for f in os.listdir(LOCALES) if f.endswith(".toml"))
 
 
+def rendre_exemples(langue="fr"):
+    """Les exemples en texte, tels qu'ils apparaissent DANS le message système."""
+    return "\n".join(f"  utilisateur: {u}\n  assistant: {a}"
+                     for u, a in catalogue(langue)["exemples"])
+
+
 def systeme(langue="fr", tick=1.2):
     """Le prompt de la langue, avec la vraie période d'horloge — l'écrire en dur
-    ferait mentir le prompt dès qu'on la change pour une expérience."""
+    ferait mentir le prompt dès qu'on la change pour une expérience.
+
+    Les exemples sont DANS ce texte, pas envoyés comme messages : en messages
+    alternés, le modèle les voit au même niveau que la vraie conversation et
+    croit qu'elle a commencé par eux. Observé — il relançait « Salut ! Comment
+    puis-je t'aider ? » en plein milieu d'une session déjà entamée."""
     virgule = "," if langue == "fr" else "."
     # .replace et non .format : `.format` interprète TOUTES les accolades, donc
     # un « { » littéral dans le catalogue (un exemple JSON, une notation {mot})
     # faisait planter au démarrage sur un KeyError nu. La présence de {tick} est
     # déjà garantie par la validation du catalogue.
-    return catalogue(langue)["systeme"].replace("{tick}", str(tick).replace(".", virgule))
+    return (catalogue(langue)["systeme"]
+            .replace("{tick}", str(tick).replace(".", virgule))
+            .replace("{exemples}", rendre_exemples(langue)))
 
 
 # ------------------------------------------------------------------ décodage
@@ -270,10 +287,9 @@ class Decideur:
         Une erreur est renvoyée telle quelle, JAMAIS confondue avec « ça parle » :
         l'appelant doit pouvoir réessayer au lieu de perdre l'énoncé.
         """
+        # Les exemples sont dans le système (cf. `systeme()`), pas ici : ce qui
+        # suit est la conversation RÉELLE, et rien d'autre.
         msgs = [{"role": "system", "content": self.systeme}]
-        for u, a in self.exemples:
-            msgs += [{"role": "user", "content": u},
-                     {"role": "assistant", "content": a}]
         msgs += (history or [])
         msgs.append({"role": "user", "content": transcript})
         # `stop` interdit structurellement une sortie multi-lignes ; `temperature`
