@@ -12,7 +12,7 @@ Deux moteurs, choisis par MICROTURN_TTS :
 Aucun shell n'est utilisé : les processus sont chaînés directement, ce qui évite
 le quoting, un /bin/sh par phrase, et les surprises de `echo` sous dash (Pi OS).
 """
-import json, os, subprocess, threading, time
+import json, os, subprocess, threading, time, wave
 
 ENGINE = os.environ.get("MICROTURN_TTS", "piper")
 PIPER = os.path.expanduser(os.environ.get("MICROTURN_PIPER", "~/.local/bin/piper"))
@@ -120,6 +120,141 @@ class Speaker:
                 p.wait()
             except Exception:
                 pass
+
+
+class Enregistreur:
+    """Locuteur qui écrit dans un tampon au lieu de jouer, pour un banc d'essai.
+
+    Full-Duplex-Bench attend, pour chaque `input.wav`, un `output.wav` de MÊME
+    DURÉE : silence là où le système se tait, sa réponse exactement là où il l'a
+    prononcée. Ni `--muet` (qui ne produit rien) ni `--moteur rejeu` (qui ne lit
+    aucun son) ne peuvent le faire — d'où ce troisième mode.
+
+    Deux choix qui décident de l'honnêteté du résultat :
+
+    - Les positions sont comptées en ÉCHANTILLONS D'ENTRÉE, pas en secondes
+      d'horloge murale. Sinon la latence réseau du moment déplace les réponses
+      et deux passes sur le même corpus ne se comparent plus.
+    - Le segment commence quand piper a fini de produire son PCM, pas quand
+      `say()` rend la main. piper ne diffuse pas au fil de l'eau : entre les
+      deux il y a près d'une seconde ici, et cinq à huit sur un Pi. Placer le
+      son au retour de `say()` avancerait toutes les réponses d'autant, et
+      donnerait une latence flatteuse et fausse.
+    """
+
+    def __init__(self, horloge, voice=VOICE, langue="fr", rate_sortie=16000,
+                 engine=ENGINE):
+        self.horloge = horloge          # -> position courante, en échantillons
+        self.engine = engine
+        self.voice = voice
+        self.langue = langue
+        self.rate = voice_rate(voice)
+        self.rate_sortie = rate_sortie
+        self.segments = []              # (debut_echantillon, pcm int16)
+        self.lock = threading.RLock()
+        self._en_synthese = False
+        self._courant = None            # index du segment en train d'être « dit »
+
+    # -- synthèse hors ligne, rendue à la cadence de l'entrée --
+    def _pcm(self, text):
+        if self.engine == "espeak":
+            p = subprocess.run(["espeak-ng", "-v", self.langue, "-s", "165",
+                                "--stdout", text],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            brut = p.stdout
+            return brut[44:] if brut[:4] == b"RIFF" else brut   # saute l'en-tête
+        p = subprocess.run([PIPER, "-m", self.voice, "--output-raw"],
+                           input=(text + "\n").encode(),
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return p.stdout
+
+    def _reechantillonne(self, pcm):
+        """Du taux de la voix vers celui de l'entrée, en linéaire.
+
+        Les voix piper sont à 22 050 Hz (16 000 pour les `low`), l'entrée à
+        16 000 : coller le PCM tel quel décalerait toute la suite du fichier.
+        """
+        import numpy as np
+        a = np.frombuffer(pcm, dtype=np.int16)
+        if self.rate == self.rate_sortie or len(a) == 0:
+            return a
+        n = int(len(a) * self.rate_sortie / self.rate)
+        pos = np.linspace(0, len(a) - 1, n)
+        return np.interp(pos, np.arange(len(a)), a).astype(np.int16)
+
+    def say(self, text):
+        text = (text or "").strip()
+        if not text:
+            return
+        with self.lock:
+            self._tronquer_locked()      # une nouvelle phrase coupe la précédente
+            self._en_synthese = True
+        threading.Thread(target=self._synthese, args=(text,), daemon=True).start()
+
+    def _synthese(self, text):
+        try:
+            son = self._reechantillonne(self._pcm(text))
+        except Exception:
+            son = None
+        with self.lock:
+            self._en_synthese = False
+            if son is None or len(son) == 0:
+                return
+            # le son commence MAINTENANT : la synthèse vient de se terminer
+            self.segments.append([self.horloge(), son])
+            self._courant = len(self.segments) - 1
+
+    def _tronquer_locked(self):
+        """Coupe le segment en cours à la position courante — c'est le barge-in.
+
+        Sans ça, `output.wav` contiendrait une réponse que le système n'a
+        jamais fini de dire, et le banc mesurerait une parole qui n'a pas eu
+        lieu."""
+        if self._courant is None:
+            return
+        debut, son = self.segments[self._courant]
+        garde = max(0, self.horloge() - debut)
+        if garde < len(son):
+            self.segments[self._courant][1] = son[:garde]
+        self._courant = None
+
+    def stop(self):
+        with self.lock:
+            self._en_synthese = False
+            self._tronquer_locked()
+
+    def speaking(self):
+        with self.lock:
+            if self._en_synthese:
+                return True              # piper travaille : on « parle » déjà
+            if self._courant is None:
+                return False
+            debut, son = self.segments[self._courant]
+            if self.horloge() < debut + len(son):
+                return True
+            self._courant = None
+            return False
+
+    def wait(self):
+        while self.speaking():
+            time.sleep(0.02)
+
+    def rendre(self, chemin, total):
+        """Écrit un WAV de `total` échantillons, aux positions mesurées."""
+        import numpy as np
+        piste = np.zeros(total, dtype=np.int32)
+        for debut, son in self.segments:
+            if len(son) == 0 or debut >= total:
+                continue
+            fin = min(total, debut + len(son))
+            piste[debut:fin] += son[:fin - debut]
+        piste = np.clip(piste, -32768, 32767).astype(np.int16)
+        with wave.open(chemin, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(self.rate_sortie)
+            w.writeframes(piste.tobytes())
+        return len([s for _, s in self.segments if len(s)])
 
 
 class Silencieux:

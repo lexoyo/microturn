@@ -272,12 +272,20 @@ class Capteur:
         self.porte = porte
         self.trace = trace
         self.robot_parle = robot_parle or (lambda: False)
+        # Horloge AUDIO : le nombre d'échantillons d'entrée réellement consommés.
+        # Tout le reste du programme est en time.time(), ce qui suffit pour
+        # décider mais pas pour écrire un fichier de sortie aligné : deux passes
+        # sur le même corpus donneraient deux découpages différents selon la
+        # latence réseau du moment. Ici, la même entrée donne toujours les mêmes
+        # positions.
+        self.lus = 0
 
     def lire(self):
         """Rend le prochain bloc PCM, b'' si la porte l'a jeté, None à la fin."""
         data = self.stream.stdout.read(CHUNK)
         if not data:
             return None
+        self.lus += len(data) // 2       # 16 bits mono
         if self.trace is not None:
             self.trace.pcm(data)         # avant la porte : entree.wav doit être
         if self.porte is None:           # le flux réel, pour pouvoir le rejouer

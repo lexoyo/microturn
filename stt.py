@@ -344,6 +344,7 @@ def start(nom, path=None, mic="default", porte=None, trace=None,
     # tourne encore dedans : « Segmentation fault (core dumped) » après un
     # Ctrl-C, une fois la trace correctement écrite.
     eng.th = th
+    eng.cap = cap        # porte l'horloge audio (échantillons lus), pour --rendu
     return q, stop, stream, eng
 
 

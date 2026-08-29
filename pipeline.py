@@ -89,7 +89,7 @@ def _machine():
 class Session:
     def __init__(self, moteur="whisper", path=None, mic="default",
                  engine=None, verbose=True, trace_dir=None, porte=audio.FACTEUR_ECHO,
-                 muet=False, modele=None, langue="fr", **kw):
+                 muet=False, modele=None, langue="fr", rendu=None, **kw):
         self.langue = langue
         cat = llm.catalogue(langue)
         self.silence = cat["divers"]["silence"]
@@ -106,8 +106,17 @@ class Session:
         # (`voix_piper`, `espeak`) n'étaient lues par personne.
         _voix = tts.voix_pour(cat["divers"].get("voix_piper"))
         _lg = cat["divers"].get("espeak", langue)
-        self.voix = (tts.Silencieux(voice=_voix, langue=_lg) if muet
-                     else tts.Speaker(engine or tts.ENGINE, voice=_voix, langue=_lg))
+        self.rendu = rendu
+        if rendu:
+            # Banc d'essai : on synthétise dans un tampon pour produire un
+            # output.wav aligné sur l'entrée, au lieu de jouer.
+            self.voix = tts.Enregistreur(self._horloge, voice=_voix, langue=_lg,
+                                         rate_sortie=audio.RATE,
+                                         engine=engine or tts.ENGINE)
+        elif muet:
+            self.voix = tts.Silencieux(voice=_voix, langue=_lg)
+        else:
+            self.voix = tts.Speaker(engine or tts.ENGINE, voice=_voix, langue=_lg)
         self.muet = muet
         self.robot_parle = False
         self.trace = None
@@ -157,6 +166,13 @@ class Session:
         self.t_log = time.time()    # dernière ligne affichée, pour le battement
         self.micro_tours = []       # historique alterné vu par le modèle
         self.stats = []
+
+    def _horloge(self):
+        """Position courante en échantillons d'entrée. Zéro avant le démarrage
+        du moteur — `self.eng` n'existe pas encore quand le locuteur est
+        construit, d'où l'indirection."""
+        cap = getattr(getattr(self, "eng", None), "cap", None)
+        return cap.lus if cap is not None else 0
 
     def log(self, s):
         self.t_log = time.time()
@@ -404,8 +420,16 @@ class Session:
             # qu'on parle coupe la synthèse. Faire dépendre l'interruption du
             # seul label INTERRUPTING la rendait impossible — il n'a jamais été
             # émis une seule fois sur 153 décisions.
+            # Les DEUX marqueurs de « rien de neuf » protègent de la coupure.
+            # N'en tester qu'un a suffi à casser le système : le jour où
+            # `bruit_sans_texte` a été ajouté, il n'était couvert par aucune
+            # garde, et comme la porte laisse toujours filtrer un peu d'écho
+            # pendant qu'on parle, il apparaissait à chaque réponse. Résultat :
+            # quatre coupures sur quatre prises de parole, moins d'une seconde
+            # après le début, sans qu'Alex ait dit un mot.
             if (self.voix.speaking()
-                    and not delta.strip().endswith(self.silence)
+                    and not delta.strip().endswith(
+                        (self.silence, self.bruit_sans_texte))
                     and not self._est_echo(delta)):
                 self.voix.stop()
                 self.log("✂  coupé, tu reprends la parole")
@@ -504,6 +528,11 @@ class Session:
         # et l'interpréteur qui sort le libère sous ses pieds. Le temps d'une
         # passe suffit (1 à 2 s ici, davantage sur un Pi), on laisse de la marge
         # sans jamais bloquer pour de bon.
+        if self.rendu:
+            total = self._horloge()
+            n = self.voix.rendre(self.rendu, total)
+            self.log(f"rendu: {self.rendu} — {total/audio.RATE:.2f} s, "
+                     f"{n} prise(s) de parole")
         th = getattr(self.eng, "th", None)
         if th is not None:
             th.join(timeout=8)
@@ -534,6 +563,10 @@ def main():
                          "ne veulent plus rien dire")
     ap.add_argument("--mic", default="default")
     ap.add_argument("--tts", default=None, choices=["piper", "espeak"])
+    ap.add_argument("--rendu", metavar="SORTIE.wav",
+                    help="écrit un WAV de la même durée que l'entrée, avec les "
+                         "réponses à leur place — le format attendu par "
+                         "Full-Duplex-Bench")
     ap.add_argument("--muet", action="store_true", help="ne pas prononcer (mesure seule)")
     ap.add_argument("--trace", metavar="DOSSIER",
                     help="enregistre la session (audio, événements, méta) pour la rejouer")
@@ -549,7 +582,7 @@ def main():
         kw = {"session": a.fichier, "vitesse": a.vitesse}
         a.fichier = None
     s = Session(a.moteur, a.fichier, a.mic, engine=a.tts, trace_dir=a.trace,
-                porte=a.porte, muet=a.muet, modele=a.modele,
+                porte=a.porte, muet=a.muet, rendu=a.rendu, modele=a.modele,
                 langue=a.langue, **kw)
     st = s.run()
     if st:

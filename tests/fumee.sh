@@ -27,6 +27,17 @@ echo "=== chaîne complète sur un vrai enregistrement ==="
 essai "pipeline (muet)"            $PY pipeline.py samples/00-fumee.wav --muet
 essai "pipeline (muet + trace)"    $PY pipeline.py samples/00-fumee.wav --muet --trace /tmp/fumee_trace
 essai "pipeline (vosk)"            $PY pipeline.py samples/00-fumee.wav --muet --moteur vosk
+essai "rendu au format du banc"   $PY -c "
+import subprocess, sys, wave
+sortie = '/tmp/fumee_rendu.wav'
+subprocess.run([sys.executable, 'pipeline.py', 'samples/00-fumee.wav',
+                '--rendu', sortie], stdout=subprocess.DEVNULL,
+               stderr=subprocess.DEVNULL, check=True)
+a = wave.open('samples/00-fumee.wav'); b = wave.open(sortie)
+# Full-Duplex-Bench exige EXACTEMENT la même durée que l'entrée : un écart
+# d'une trame décale toutes les frontières et fausse chaque métrique.
+sys.exit(0 if a.getnframes() == b.getnframes()
+           and a.getframerate() == b.getframerate() else 1)"
 essai "tampon vidé, porte fermée" $PY tests/reset_tampon.py
 echo "=== étages isolés ==="
 essai "décideur (réseau)"          $PY llm.py fr "[je n'ai pas parlé] tu peux allumer la lumière du salon"
