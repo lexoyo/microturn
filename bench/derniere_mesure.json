@@ -1,0 +1,24 @@
+{
+  "code": "e631b64",
+  "modifie": false,
+  "note": "bruit de mesure, config de base",
+  "echantillon": 10,
+  "passes": 3,
+  "date": "2026-08-29T04:29:39",
+  "resultats": {
+    "pause": {
+      "sens_favorable": "bas",
+      "valeurs": {
+        "Average take turn": {
+          "moyenne": 0.1333,
+          "ecart_type": 0.1155,
+          "passes": [
+            0.0,
+            0.2,
+            0.2
+          ]
+        }
+      }
+    }
+  }
+}

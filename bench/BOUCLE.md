@@ -22,6 +22,32 @@ Le refaire aussi avec `--modele simule` : la différence entre les deux
 mécanique (cadencement temps réel, whisper). Si le second est déjà grand, c'est
 lui qu'il faut réduire avant toute autre chose.
 
+## La QC, avant le plan et avant la méthode
+
+Posé par Alex le 29/08/2026, après que deux QC successives aient chacune trouvé
+un défaut bloquant que le travail lui-même n'aurait pas révélé :
+
+- la première a trouvé que `mesurer.py` ne refaisait pas les rendus à la
+  première passe d'une nouvelle itération : j'aurais évalué l'ancien code dix
+  fois de suite en croyant mesurer le nouveau ;
+- la seconde a trouvé que mon plan d'optimisation vérifiait le parallélisme en
+  comparant des scores dont le bruit (±0,116) rendait toute comparaison
+  impossible — et surtout que j'allais optimiser la vitesse d'une mesure sans
+  avoir vérifié qu'elle mesurait quelque chose.
+
+**Règle : avant d'exécuter un plan, le passer en revue comme s'il était d'un
+autre.** Deux questions, toujours les mêmes :
+
+1. **La méthode** — si ce que je m'apprête à mesurer était entièrement faux,
+   est-ce que je m'en apercevrais ? Qu'est-ce qui, dans mon dispositif, pourrait
+   produire un chiffre plausible mais vide de sens ?
+2. **Le plan** — chaque étape a-t-elle un critère de réussite que le bruit de
+   mesure permet réellement de trancher ? Une vérification incapable d'échouer
+   n'est pas une vérification.
+
+Une QC qui ne trouve rien est suspecte : les deux premières ont trouvé quelque
+chose à chaque fois.
+
 ## Une itération
 
 1. **Choisir UNE hypothèse** dans la file ci-dessous. Une seule.
