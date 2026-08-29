@@ -187,13 +187,16 @@ class Session:
         # il sert d'étalon — il donne le bruit de mesure de la mécanique seule,
         # sans le non-déterminisme du modèle distant ni la latence réseau.
         fabrique = llm.Simule if (modele or "") == "simule" else llm.Decideur
-        # Le prompt ne dépend QUE de la langue (arbitrage d'Alex, 29/08). Une
-        # phrase décrivant ce que rend le moteur — « le texte est en majuscules
-        # sans ponctuation », vraie pour sherpa — vaut +0,063 avec lui et coûte
-        # 0,103 avec whisper, qui ponctue. Plutôt qu'un prompt à deux visages,
-        # le défaut est whisper et le prompt est écrit pour lui.
+        # Le catalogue porte un prompt PAR MOTEUR (`systeme`, `systeme_sherpa`) :
+        # « le texte est en majuscules sans ponctuation » vaut +0,063 avec sherpa
+        # et coûte 0,103 avec whisper, qui ponctue. Le code ne fait que choisir
+        # la clé ; les prompts restent entièrement dans `locales/`.
+        # Un rejeu hérite du moteur de la session d'origine.
+        m = moteur
+        if m == "rejeu" and "sherpa" in str(kw.get("session", "")):
+            m = "sherpa"
         self.decideur = fabrique(model=modele or llm.MODEL, trace=self.trace,
-                                 langue=langue, tick=TICK_S)
+                                 langue=langue, tick=TICK_S, moteur=m)
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
             robot_parle=lambda: self.robot_parle,

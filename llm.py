@@ -71,12 +71,21 @@ def _lire_catalogue(langue):
         if manque:
             raise SystemExit(f"{chemin} : [{section}] — clé(s) manquante(s) : "
                              f"{', '.join(manque)}")
+    # `systeme` est le prompt par défaut ; `systeme_<moteur>` le remplace quand ce
+    # moteur tourne. Tous les prompts vivent dans le catalogue, aucun n'est
+    # assemblé par le code : une phrase vraie pour un moteur est fausse pour un
+    # autre (mesuré : +0,063 avec sherpa, −0,103 avec whisper), et c'est une
+    # donnée, pas une règle métier.
+    for clef in [c for c in cat if c == "systeme" or c.startswith("systeme_")]:
+        if not cat.get(clef, "").strip():
+            raise SystemExit(f"{chemin} : `{clef}` vide")
+        if "{exemples}" not in cat[clef]:
+            raise SystemExit(f"{chemin} : `{clef}` doit contenir {{exemples}} — les "
+                             f"exemples vivent dans le prompt, sans ancre ils "
+                             f"disparaîtraient sans un mot")
+        cat[clef] = cat[clef].strip()
     if not cat.get("systeme", "").strip():
         raise SystemExit(f"{chemin} : `systeme` vide ou absent")
-    if "{exemples}" not in cat["systeme"]:
-        raise SystemExit(f"{chemin} : `systeme` doit contenir {{exemples}} — les "
-                         f"exemples vivent dans le prompt, sans ancre ils "
-                         f"disparaîtraient sans un mot")
     # `silence_repete` peut valoir le même marqueur que `silence` : c'est le
     # design de DuplexCascade, qui n'a qu'un seul <|no voice|> et ne compte pas
     # les silences. La contrainte sur {n} ne vaut donc que si les deux diffèrent.
@@ -111,7 +120,7 @@ def rendre_exemples(langue="fr"):
                      for u, a in catalogue(langue)["exemples"])
 
 
-def systeme(langue="fr", tick=1.2):
+def systeme(langue="fr", tick=1.2, moteur=None):
     """Le prompt de la langue, avec la vraie période d'horloge — l'écrire en dur
     ferait mentir le prompt dès qu'on la change pour une expérience.
 
@@ -124,7 +133,11 @@ def systeme(langue="fr", tick=1.2):
     # un « { » littéral dans le catalogue (un exemple JSON, une notation {mot})
     # faisait planter au démarrage sur un KeyError nu. La présence de {tick} est
     # déjà garantie par la validation du catalogue.
-    return (catalogue(langue)["systeme"]
+    cat = catalogue(langue)
+    # `systeme_sherpa` s'il existe, `systeme` sinon. Le choix est une lecture de
+    # clé, pas une construction : le catalogue reste la seule source du prompt.
+    brut = cat.get(f"systeme_{moteur}") or cat["systeme"]
+    return (brut
             .replace("{tick}", str(tick).replace(".", virgule))
             .replace("{exemples}", rendre_exemples(langue)))
 
@@ -252,10 +265,10 @@ class Decideur:
     """Une connexion HTTPS réutilisée, protégée par un verrou (un appel à la fois)."""
 
     def __init__(self, model=MODEL, timeout=TIMEOUT, trace=None, langue="fr",
-                 tick=1.2):
+                 tick=1.2, moteur=None):
         self.model, self.timeout, self.trace = model, timeout, trace
         self.langue = langue
-        self.systeme = systeme(langue, tick)
+        self.systeme = systeme(langue, tick, moteur)
         self.exemples = catalogue(langue)["exemples"]
         self.jetons = catalogue(langue)["jetons"]
         self.conn = None

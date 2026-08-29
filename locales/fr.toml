@@ -38,6 +38,41 @@ phrase qui sera transmise à l'utilisateur : \
 ### PUIS LA CONVERSATION RÉELLE, dans le même format
 """
 
+# Le même prompt, pour un moteur qui rend le texte NU (sherpa-onnx et tout
+# transducteur) : une phrase de plus, et elle vaut +0,063 de justesse.
+# Mesurée dans les deux sens le 29/08/2026 — la même phrase coûte 0,103 à
+# whisper, qui ponctue : le modèle cesse de chercher une ponctuation qui est
+# pourtant là. Elle ne peut donc pas être commune aux deux.
+systeme_sherpa = """
+Tu es en train d'avoir une conversation avec un utilisateur.
+
+Le texte que tu reçois est en majuscules et sans ponctuation : c'est \
+la reconnaissance vocale qui est ainsi, pas l'utilisateur qui crie.
+
+"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
+
+Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
+
+  <|user is talking|>       (sa phrase n'est pas finie)
+  <|user finish talking|>   (sa phrase est finie)
+  <|user is thinking|>      (il se tait, mais il réfléchit)
+  <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
+  <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
+  <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
+
+Tu réponds par un objet : {"m": "<le marqueur>"}.
+
+Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une \
+phrase qui sera transmise à l'utilisateur : \
+{"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
+
+### EXEMPLE DE CONVERSATION
+
+{exemples}
+
+### PUIS LA CONVERSATION RÉELLE, dans le même format
+"""
+
 [jetons]
 parle       = "<|user is talking|>"
 parler      = "<|user finish talking|>"
