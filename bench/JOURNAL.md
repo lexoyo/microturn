@@ -597,3 +597,38 @@ d'informations » — qui est fait exactement pour ça, et qui n'est jamais sort
 Une première analyse était fausse et corrigée : comparer les longueurs de
 transcript ne dit rien, puisqu'il est remis à zéro après chaque réponse. Le bon
 signal est le délai avant la reprise.
+
+## Les 2 s avant le son : ce n'est pas le tampon ALSA
+
+Alex, en session : « deux secondes entre le moment où il écrit qu'il va dire
+quelque chose et le moment où je l'entends ». Testé sur le HDMI du Pi, quatre
+tailles de tampon :
+
+```
+  défaut     1,64 s de bout en bout
+  500 000 µs 1,64 s
+  200 000 µs 1,56 s
+  100 000 µs 1,54 s
+```
+
+**Cent microsecondes de tampon ne gagnent qu'un dixième de seconde.** Le tampon
+n'est pas coupable, et `MICROTURN_APLAY_BUFFER` reste à 0 par défaut.
+
+La mesure ci-dessus est un temps de bout en bout, durée de l'audio comprise
+(~1,3 s) : la latence de démarrage d'ALSA est donc d'environ 0,3 s. Le reste
+vient d'ailleurs, et on l'a déjà mesuré — **piper met 806 ms à rendre son
+premier échantillon** sur une phrase de 41 caractères, même résident.
+
+Donc la décomposition des ~2 s ressenties :
+
+| poste | durée |
+|---|---|
+| premier échantillon de piper | ~0,8 s |
+| démarrage d'ALSA | ~0,3 s |
+| le reste (phrase plus longue qu'au test) | ~0,9 s |
+
+Le levier n'est ni le tampon ni le moteur : c'est que **piper synthétise la
+phrase entière avant de rendre la main**. Découper la réponse et ne synthétiser
+que les premiers mots d'abord ramènerait ce premier échantillon à ~200 ms. C'est
+le pendant TTS du streaming LLM qu'on a écarté ce matin — sauf qu'ici le gain
+est vingt fois plus grand.

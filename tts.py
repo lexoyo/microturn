@@ -21,6 +21,12 @@ PIPER = os.path.expanduser(os.environ.get("MICROTURN_PIPER", "~/.local/bin/piper
 # part dans DEVNULL, le robot parle dans le vide sans un message. Trouvé en
 # session réelle, invisible en rejeu.
 APLAY = os.environ.get("MICROTURN_APLAY", "")
+# Taille du tampon de sortie ALSA, en microsecondes. Par défaut `aplay` en prend
+# un très large — mesuré ~2 s sur la sortie HDMI du Pi, entre la décision de
+# parler et le premier son. C'est de la latence pure, invisible dans nos traces
+# puisqu'elle se produit après tout ce qu'on mesure.
+# 0 = laisser ALSA choisir (comportement d'avant).
+APLAY_BUFFER_US = int(os.environ.get("MICROTURN_APLAY_BUFFER", "0"))
 VOICE = os.path.expanduser(os.environ.get(
     "MICROTURN_VOICE", "~/.local/share/piper/fr_FR-siwis-medium.onnx"))
 
@@ -127,6 +133,9 @@ class Speaker:
         cmd = ["aplay", "-q", "-r", str(self.rate), "-f", "S16_LE", "-c", "1"]
         if APLAY:
             cmd += ["-D", APLAY]
+        if APLAY_BUFFER_US:
+            cmd += ["--buffer-time", str(APLAY_BUFFER_US),
+                    "--period-time", str(max(1000, APLAY_BUFFER_US // 4))]
         play = subprocess.Popen(cmd + ["-"],
                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
