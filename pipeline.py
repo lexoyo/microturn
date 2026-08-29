@@ -51,6 +51,10 @@ SEUIL_VOIX = 328
 # l'horizon à une demi-minute. Le surcoût en tokens est en grande partie servi
 # par le cache implicite, le préfixe étant constant.
 MICRO_TOURS = 20
+# Nombre de ticks sans texte neuf exigés avant d'autoriser une prise de parole.
+# 0 = pas de garde (défaut). Voir le candidat 59 : ça coûte 1,2 s de latence par
+# tick, sur une latence mesurée à 0,33 s — le remède peut être pire que le mal.
+TICKS_SILENCE = int(os.environ.get("MICROTURN_TICKS_SILENCE", "0"))
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
 # `audio.Porte` qui traite l'écho maintenant, en le mesurant au lieu de parier
@@ -523,6 +527,20 @@ class Session:
         self.micro_tours[:] = self.micro_tours[-MICRO_TOURS:]
 
         if action == "parler":
+            # Candidat 59 : n'ouvrir la bouche qu'après TICKS_SILENCE ticks sans
+            # texte neuf. Cinq réponses sur seize tombaient dans le tour d'Alex,
+            # et les trois variantes de prompt (P1/P2/P3) ont toutes échoué à
+            # rendre le modèle plus prudent. Le levier restant est mécanique.
+            #
+            # Le prix est lourd et connu d'avance : chaque tick ajoute 1,2 s à
+            # une latence qu'on vient de descendre à 0,33 s. À zéro, on retrouve
+            # exactement le comportement d'avant.
+            if TICKS_SILENCE and self.silences < TICKS_SILENCE:
+                self.log(f"⏸  ({dt:.2f}s) réponse retenue, {self.silences}/"
+                         f"{TICKS_SILENCE} tick(s) de silence")
+                if self.trace:
+                    self.trace.ev("retenue", texte=texte, silences=self.silences)
+                return
             self._dire(texte)
         elif action in ("coupe", "parle"):
             # Comme DuplexCascade : n'importe quel tick où elle parle pendant
