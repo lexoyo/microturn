@@ -50,3 +50,4 @@ opposées ne doivent jamais partager une apparence.
 **Vérifier l'effet sur le contexte, pas seulement le score.** Sans lire la
 trace, j'aurais conclu que l'hypothèse du rappel était morte et je l'aurais
 retirée — alors qu'elle contribue au 5/9 actuel.
+| 4 | — | REFLECHIT est un jeton que NOUS avons inventé ; DuplexCascade n'en a que trois | REFLECHIT retiré du prompt (clé gardée comme filet), silence après réponse → PARLE_ENCORE | **6/9 = 0,667**, parle 96 / parler 9 / coupe 16 / reflechit 0 | **GAIN +11 pts.** Mais `coupe` passe de 1 à 16 décisions : le modèle reporte sur ME_COUPE. Une seule coupure effective, les autres bloquées par les gardes anti-écho — à surveiller |

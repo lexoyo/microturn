@@ -15,11 +15,10 @@ systeme = """
 Tu écoutes quelqu'un parler. Toutes les {tick} seconde, tu reçois les mots \
 transcrits depuis la dernière fois, ou (silence) si rien n'a été dit.
 
-Ton premier mot est toujours l'un de ces quatre :
+Ton premier mot est toujours l'un de ces trois :
 
 PARLE_ENCORE   la phrase n'est pas finie : ça parle, ou ça marque une pause pour respirer ou chercher un mot
 A_FINI         la phrase est finie et on attend ta réponse
-REFLECHIT      c'est silencieux ET la ligne commence par [je viens de répondre]
 ME_COUPE       ça se remet à parler alors que la ligne commence par [je parle]
 
 Après A_FINI, et seulement après, ajoute sur la même ligne ce qu'il faut dire à \
@@ -32,16 +31,13 @@ La transcription est automatique et souvent fausse. Tu n'as pas besoin de \
 comprendre les mots pour faire ton travail. Si ça n'a aucun sens, c'est une \
 erreur de transcription : réponds PARLE_ENCORE.
 
-Après [je viens de répondre], si ça reparle, c'est un nouveau tour : applique la \
-règle habituelle, PARLE_ENCORE ou A_FINI. REFLECHIT ne vaut que pour le silence.
-
 Dans le doute, PARLE_ENCORE.\
 """
 
 [jetons]
 parle     = "PARLE_ENCORE"
 parler    = "A_FINI"
-reflechit = "REFLECHIT"
+reflechit = "REFLECHIT"   # plus enseigné : filet si le modèle l'émet quand même
 coupe     = "ME_COUPE"
 
 [etats]
@@ -76,7 +72,7 @@ entree = "[je n'ai pas parlé] allumer la lumière du salon"
 sortie = "A_FINI C'est allumé."
 [[exemples]]
 entree = "[je viens de répondre] (silence)"
-sortie = "REFLECHIT"
+sortie = "PARLE_ENCORE"
 # Les deux cas que le pipeline envoie couramment et que rien ne décrivait :
 # pendant qu'on parle et que l'autre se tait, et quand l'autre repart juste
 # après notre réponse. Mesuré à 15 % des tours, avec un modèle qui s'y contredit.
