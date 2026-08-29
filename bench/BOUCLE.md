@@ -41,26 +41,54 @@ lui qu'il faut réduire avant toute autre chose.
 
 ## La file, dans l'ordre
 
-L'ordre va du mieux fondé au plus spéculatif. Ne pas picorer.
+Révisée le 29/08/2026. La première version enchaînait le réglage des dix-neuf
+constantes ; Alex a demandé si dix itérations avaient encore du sens ainsi. Non :
+elles n'auraient couvert que du réglage fin, YAMNet n'aurait jamais été atteint,
+et surtout elles auraient poli des détails pendant que le système ne répond pas
+aux questions qu'on lui pose. Trois blocs, donc.
 
-1. **`MICRO_TOURS = 24`** — mesuré comme trop court : douze tours, soit quatorze
-   secondes d'horizon, et une question de quarante secondes en sortait. Tester
-   36 et 48. Coût attendu : plus de tokens par appel, à surveiller.
-2. **La fenêtre `6.0` s de « je viens de répondre »** (`pipeline.py`, en dur,
-   même pas dans `meta.json`). C'est la deuxième constante de tour de parole du
-   système et elle produit à elle seule la moitié des `reflechit`.
-3. **`TICK_S = 1.2`** — la seule valeur héritée d'une mesure (l'optimum de
-   DuplexCascade), mais mesurée sur LEUR système, pas le nôtre. Tester 0,8 et
-   1,6.
-4. **Le chien de garde `4 * TICK_S`** — arbitraire.
-5. **`PLAFOND_S = 20`** (fenêtre whisper) — arbitraire, et il gouverne le coût
-   de chaque passe.
-6. **Le seuil de `_est_echo`** (`len(inconnus) <= len(mots) // 2`) — écrit à la
-   va-vite, « moitié » sans raison. Ne se teste qu'avec la porte active.
-7. **Les huit constantes de la porte** — à ne toucher qu'après, et seulement si
-   les corpus avec chevauchement (`user_interruption`) montrent un problème.
-8. **YAMNet** en source de vérité pour « est-ce que quelqu'un parle », en
-   remplacement du seuil RMS. C'est le plus gros chantier, donc le dernier.
+### Bloc A — la ligne de base (2 à 3 itérations)
+
+Rien à modifier. Établir les chiffres sur les quatre tâches, avec leur
+écart-type. C'est ce qui manque totalement : sans point de départ, aucune
+itération suivante ne veut rien dire.
+
+Prédiction posée AVANT la mesure, pour ne pas la réécrire après : pause
+handling bon (le système parle peu), turn-taking mauvais (il n'a pas répondu à
+trois questions consécutives bien transcrites ce soir). Si la mesure contredit
+ça, c'est la mesure qu'il faut d'abord comprendre, pas le système.
+
+### Bloc B — pourquoi il se tait devant une question (3 à 4 itérations)
+
+C'est le défaut principal, et `smooth_turn_taking` en est exactement la mesure.
+Hypothèses, dans l'ordre :
+
+1. **L'horizon est trop court.** `MICRO_TOURS = 24`, soit douze tours, soit
+   quatorze secondes — mesuré, une question de quarante secondes en sortait.
+   Tester 36 et 48. Surveiller le coût en tokens.
+2. **Le modèle ne voit jamais la phrase entière**, seulement des deltas de
+   quelques mots. Lui transmettre aussi le tour en cours. Coûte des tokens et
+   s'écarte de DuplexCascade — eux ont un modèle entraîné à recomposer.
+3. **La règle « dans le doute, PARLE_ENCORE »** produit un mutisme parfait quand
+   l'ASR ramène de la bouillie. À reformuler — mais sans ajouter d'heuristique
+   sur un signal faux, l'erreur déjà commise et retirée ce soir.
+
+### Bloc C — YAMNet (3 itérations)
+
+Remplacer le seuil RMS de la porte par une vraie classification (parole,
+musique, bruit, silence). C'est le remplacement le mieux fondé : il retire d'un
+coup `FACTEUR_BRUIT`, `PLANCHER_BRUIT` et la déduction bancale derrière
+`bruit_sans_texte`. Mesuré à 157,8 ms en résident, soit 13 % d'un cœur sur un
+tick de 1,2 s.
+
+Réserve connue : YAMNet ne distingue pas la voix d'Alex de celle du robot. La
+porte reste nécessaire pour l'écho — ce sont deux problèmes, pas un.
+
+### Après, seulement après
+
+Le réglage fin des constantes (la fenêtre `6.0` s, `TICK_S`, le chien de garde,
+`PLAFOND_S`, le seuil de `_est_echo`, les huit valeurs de la porte). On saura
+alors ce qu'on règle.
 
 ## Quand s'arrêter
 

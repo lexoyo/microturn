@@ -62,6 +62,22 @@ def main():
         pas = len(entrees) / a.echantillon
         entrees = [entrees[int(i * pas)] for i in range(a.echantillon)]
 
+    # Les rendus qui ne font PAS partie du sous-ensemble courant sont effacés.
+    # L'évaluateur note tout dossier contenant un output.json : un fichier laissé
+    # par une itération précédente serait noté avec les nouveaux, sans que rien
+    # ne le signale. Une mesure fausse et silencieuse est pire qu'une erreur.
+    gardes = {os.path.dirname(e) for e in entrees}
+    efface = 0
+    for vieux in glob(os.path.join(a.corpus, "*", a.sortie)):
+        if os.path.dirname(vieux) not in gardes:
+            os.remove(vieux)
+            js = vieux.rsplit(".", 1)[0] + ".json"
+            if os.path.exists(js):
+                os.remove(js)
+            efface += 1
+    if efface:
+        print(f"{efface} rendu(s) hors sous-ensemble effacé(s)")
+
     total = sum(duree(e) for e in entrees)
     print(f"{len(entrees)} échantillons, {total/60:.1f} min d'audio")
     print("le pipeline lit en temps réel : compter au moins autant\n")
