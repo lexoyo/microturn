@@ -64,7 +64,20 @@ def close_stream(proc):
 # que le robot parle, le seul son possible est justement son propre écho. Zéro
 # réglage manuel, et la mesure suit la pièce et le volume du haut-parleur.
 
-FACTEUR_ECHO = 2.0     # voix directe / écho, en RMS. Voir Porte.juge().
+# Voix directe / écho, en RMS. Voir Porte.juge().
+#
+# À ZÉRO PAR DÉFAUT depuis le 29/08/2026 : la porte est désactivée. Mesuré en
+# session réelle sur le Pi, elle jetait 586 blocs sur 720 — 81 % de l'audio —
+# parce qu'elle se calibrait sur un seuil plus haut qu'une voix normale. On
+# parlait, il ne se passait rien, il fallait insister.
+#
+# Elle était là pour l'écho. Or l'écho de cette session venait du micro (dans la
+# caméra) posé contre le haut-parleur : en l'éloignant il disparaît, sans porte.
+# Un problème de placement traité par du logiciel, et le logiciel coûtait plus
+# cher que le problème.
+#
+# Repasser à 2.0 pour la réactiver sur une machine où l'écho revient.
+FACTEUR_ECHO = 0.0
 FACTEUR_BRUIT = 2.0    # voix / bruit de fond. Mesuré sur samples/ : le plancher
                        # est à 9 (01-normal) et 8 (02-loin) pour une médiane de
                        # parole à 109 et 49 — un facteur 2 ne coupe donc que du
