@@ -51,3 +51,22 @@ opposées ne doivent jamais partager une apparence.
 trace, j'aurais conclu que l'hypothèse du rappel était morte et je l'aurais
 retirée — alors qu'elle contribue au 5/9 actuel.
 | 4 | — | REFLECHIT est un jeton que NOUS avons inventé ; DuplexCascade n'en a que trois | REFLECHIT retiré du prompt (clé gardée comme filet), silence après réponse → PARLE_ENCORE | **6/9 = 0,667**, parle 96 / parler 9 / coupe 16 / reflechit 0 | **GAIN +11 pts.** Mais `coupe` passe de 1 à 16 décisions : le modèle reporte sur ME_COUPE. Une seule coupure effective, les autres bloquées par les gardes anti-écho — à surveiller |
+| 5 | — | la notation est ambiguë (crochets non définis, parenthèses polysémiques) | notation à deux champs `moi:` / `entendu:` | **6/9**, inchangé | neutre. Gardée : le code ne cherche plus de mots dans des phrases |
+| 6 | — | le trou `je parle + rien` fait choisir ME_COUPE faute de mieux | exemple `je parle + rien → PARLE_ENCORE` | **2/9** | RÉGRESSION. Supprime bien les 15 ME_COUPE, mais PARLE_ENCORE passe à 116/120 et les réponses tombent de 8 à 4 |
+| 7 | — | « moi » dans un message `user` désigne l'humain, pas le robot | `moi:` → `robot:` + identification explicite | **2/9** | RÉGRESSION. Un seul mot changé, quatre questions perdues. Hypothèse plausible, mesure implacable |
+| 8 | — | le prompt est trop compliqué (Alex) | 167 → 71 mots : retrait de « dans le doute », de la règle sur la transcription fausse, des redites | **7/9 = 0,778**, parler 12 | **MEILLEUR SCORE.** Rapproche du papier : eux n'ont aucune règle en prose |
+
+## Le motif, après huit itérations
+
+Deux gains sur retrait, deux régressions sur ajout, et le plus gros gain en
+supprimant la moitié du prompt. Sur un modèle générique en prompting, **chaque
+règle ajoutée pour un jeton rend ce jeton dominant** et écrase les autres :
+REFLECHIT à 110 décisions sur 123, puis PARLE_ENCORE à 116 sur 120.
+
+Les hypothèses formulées avec le plus d'assurance — l'horizon de contexte, la
+forme du rappel, la notation, l'ambiguïté du pronom — n'ont rien donné ou ont
+nui. Celles qui ont marché venaient toutes d'Alex et disaient la même chose :
+enlève.
+
+Sensibilité mesurée à la formulation : 6/9 avec « moi », 2/9 avec « robot ».
+Un mot. Ce système est bien plus sensible aux mots qu'à la structure.

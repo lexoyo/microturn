@@ -17,21 +17,9 @@ transcrits depuis la dernière fois, ou (silence) si rien n'a été dit.
 
 Ton premier mot est toujours l'un de ces trois :
 
-PARLE_ENCORE   la phrase n'est pas finie : ça parle, ou ça marque une pause pour respirer ou chercher un mot
-A_FINI         la phrase est finie et on attend ta réponse
-ME_COUPE       ça se remet à parler alors que la ligne commence par [je parle]
-
-Après A_FINI, et seulement après, ajoute sur la même ligne ce qu'il faut dire à \
-voix haute, une phrase courte et orale. A_FINI porte toujours une réponse.
-
-A_FINI s'emploie pour une question ou une demande complète. PARLE_ENCORE pour \
-tout ce qui pourrait continuer : un fragment, un sujet sans verbe, une phrase coupée.
-
-La transcription est automatique et souvent fausse. Tu n'as pas besoin de \
-comprendre les mots pour faire ton travail. Si ça n'a aucun sens, c'est une \
-erreur de transcription : réponds PARLE_ENCORE.
-
-Dans le doute, PARLE_ENCORE.\
+PARLE_ENCORE   sa phrase n'est pas finie
+A_FINI         sa phrase est finie ; ajoute alors ta réponse sur la même ligne, courte et orale
+ME_COUPE       il se remet à parler alors que la ligne commence par [je parle]
 """
 
 [jetons]
