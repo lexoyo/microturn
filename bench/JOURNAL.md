@@ -439,3 +439,44 @@ tour sans gagner assez sur les silences.
 **Conséquence : les pauses ne se corrigeront pas dans le prompt.** Le levier
 restant est dans le code — exiger N ticks de silence consécutifs avant
 d'autoriser une prise de parole, ce qui ne demande rien au modèle.
+
+## Comparaison des décideurs — session `073852`, sherpa 2 threads
+
+| | llama-3.3-70b | **gemini-2.5-flash-lite** | gemini-2.5-flash |
+|---|---|---|---|
+| justesse | **0,824** | 0,807 | 0,716 |
+| fins de tour | 7/8 | 6/8 | 6/8 |
+| pauses ratées | 5/22 | **3/22** | 7/22 |
+| coupures | 6 | 5 | 2 |
+| latence vécue | 4,35 s | **3,75 s** | 2,95 s |
+| tokens par appel | 1127 | 1025 | ~900 |
+| cache | **55 %** | 4 % | 0 % |
+| prix / M tokens | 0,71 $ | **0,10 $** | 0,30 $ |
+| coût par session | ~0,085 $ | **~0,016 $** | ~0,05 $ |
+
+**Le verdict tient à une décision.** llama fait 0,824 contre 0,807 : l'écart est
+de 0,017, exactement le bruit de mesure. Pour cinq fois le prix, deux fois la
+latence et un ordre de grandeur d'énergie (un 70B consomme ~100× un 7B par
+token). `flash-lite` reste le défaut, sans hésitation.
+
+Deux choses que la justesse seule cachait :
+
+- **`flash-lite` est meilleur sur les pauses** (3/22 contre 5/22). Il coupe moins
+  souvent la parole, ce qui est le défaut n° 1 côté utilisateur. La justesse
+  agrégée le désavantageait.
+- **`gemini-2.5-flash`, plus gros, fait moins bien** (0,716) — mais avec 2
+  coupures seulement. Ce n'est pas une dégradation uniforme, c'est un autre
+  profil : plus prudent, donc plus muet.
+
+**Le cache a bougé tout seul** : 4 % pour flash-lite à 1025 tokens, contre 0 %
+à 900 et 55 % pour llama à 1127. Le seuil de 1024 tokens se voit à l'œil nu dans
+ces trois chiffres. Une centaine de tokens de plus dans le prompt diviserait le
+coût par quatre — le seul cas mesuré où rallonger le prompt est rentable.
+
+### Énergie — estimation, pas mesure
+
+Le Pi n'a pas de capteur (`power_now` absent) : il faudrait un wattmètre. Ordres
+de grandeur publiés : un Pi 3B en charge tire 2 à 4 W, soit ~0,2 Wh pour une
+session de 3 min 44 ; un 70B coûte ~0,39 J par token de sortie sur H100 FP8,
+soit ~0,6 Wh pour la même session. **Le décideur distant pèse donc trois fois le
+Pi entier** — et le choix d'un petit modèle divise cette part par dix.

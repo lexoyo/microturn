@@ -256,3 +256,78 @@ question technique.
 
 **Ne pas le faire pendant une boucle de mesure** : changer de modèle de décision
 au milieu rendrait tous les écarts illisibles.
+
+---
+
+## 10. Un système de plugins pour les sources de contexte
+
+**Statut : à concevoir.** Vision d'Alex, 29/08/2026. C'est le *comment* de
+l'idée n° 5, qui en décrit le *quoi*.
+
+L'ambition n'est pas un point d'extension interne mais un **écosystème** : des
+plugins contribués dans le dépôt, activables et configurables, chacun libre de
+transformer le prompt dans le détail. Le modèle mental est celui des filtres
+WordPress, avec un ordre réglé par des poids, et des emplacements nommés à la
+manière d'un moteur de gabarits.
+
+**Conséquence de calendrier** : si le but est que d'autres écrivent des plugins,
+le contrat d'extension *est* le produit et ne peut pas être déduit après coup —
+les contributeurs arrivent sur l'API qu'ils trouvent. C'est l'exception assumée
+à la règle « le plus simple d'abord » de ce fichier.
+
+### Transport : MQTT
+
+Le protocole de la domotique, et le choix qui rapporte le plus pour le moins
+d'effort : **Home Assistant publie déjà tout son état en MQTT**. « La porte
+d'entrée vient de s'ouvrir » ou « quelqu'un est dans la cuisine » arrivent sans
+qu'un seul plugin soit écrit. Corollaire décisif pour la cible : un capteur
+coûteux (caméra, YAMNet) tourne **sur une autre machine** et le Pi 3B ne paie
+que la lecture d'une ligne de texte — ce qui lève l'objection des ressources
+soulevée en n° 5. (Wyoming, l'autre candidat, est taillé pour ASR/TTS/wake-word
+et non pour des capteurs quelconques.)
+
+### Deux familles de plugins, à ne pas confondre
+
+- **Producteurs** — un capteur publie une observation. Sûrs, cumulables, sans
+  effet de bord : dix producteurs actifs ne se marchent pas dessus. C'est la
+  porte d'entrée, et elle suffit pour la prosodie, l'ambiance sonore, la caméra.
+- **Transformateurs** — réécrivent le prompt ou la liste de messages. Puissants
+  et conflictuels. Si les deux familles n'en font qu'une, chaque auteur de
+  capteur écrira un transformateur et créera des conflits là où il n'y avait
+  qu'une liste à concaténer.
+
+⚠️ Le point le plus dangereux est la **liste de messages envoyée à l'API** :
+`llm.py:127` place volontairement les exemples dans le texte système et non en
+messages, et le test 16 (historique en JSON, 0,762) a tranché sur ce terrain. Ce
+sont des choix issus de la mesure qu'un plugin peut défaire en silence. À
+réserver aux expériences, hors de portée des capteurs, et journalisé.
+
+### Trois contraintes, sans lesquelles ça détruit la méthode
+
+1. **Le flux entrant doit être enregistré dans la trace et rejoué depuis elle**,
+   jamais ré-souscrit au rejeu. Un message MQTT est déjà un événement horodaté,
+   donc c'est peu coûteux — mais sans cela, plus aucune session avec capteurs
+   n'est comparable, et l'axe 3 détruit l'outil qui permet de le juger.
+2. **L'ordre effectif résolu doit être écrit dans les métadonnées de session.**
+   Le poids ne suffit pas : deux plugins de même poids ont un ordre indéterminé
+   (WordPress le démontre tous les jours). Il faut un départage déterministe —
+   le nom du plugin en dernier recours — et une trace qui reste rejouable même
+   si la configuration a changé depuis. L'**empreinte du code** doit donc couvrir
+   les plugins actifs et leur version : deux sessions au même hash de dépôt et
+   au comportement différent est le pire cas possible ici.
+3. **Un plugin arrive avec sa mesure.** La règle du dépôt appliquée aux
+   contributeurs : il déclare sa session de référence et le delta de justesse
+   qu'il produit, et une commande le rejoue. Sinon on aura vingt plugins sans
+   savoir lesquels aident, et le premier réflexe d'un utilisateur au mauvais
+   score sera de tous les désactiver — l'échec de l'écosystème.
+
+**Budget** : un plafond de caractères par plugin et par tick, tronqué et
+journalisé. Le prompt est relu 50 fois par minute ; cinq plugins bavards
+suffisent à doubler la latence et la facture sans que personne ne voie pourquoi.
+Règle de conception associée : **un capteur n'écrit que quand il change d'état**
+— des événements, pas des états continus.
+
+**Protocole de validation** : la même session rejouée avec zéro, un, puis trois
+plugins actifs. Mesurer la justesse, la latence, et la taille du prompt envoyé.
+Le premier plugin à écrire est la prosodie (f0 : « sa voix retombe »), qui vise
+la pire dimension mesurée — les pauses ratées.
