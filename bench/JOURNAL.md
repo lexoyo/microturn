@@ -343,11 +343,19 @@ médiane — aucun bloc ne dépasse. C'est ce qui sépare « ça passe en moyenn
 Donc le compagnon vocal en flux continu tourne sur un Raspberry Pi 3B, avec un
 ASR streaming qui rend le dernier mot en 250 ms au lieu de 4,3 secondes.
 
-### Réserve : le Pi n'était pas à la même température au départ
+### Refait à froid : la réserve est levée
 
-Le test à 2 threads a démarré à **54,8 °C**, les autres à chaud. Une partie de
-l'écart peut venir de là. À refaire à froid pour les trois réglages avant d'en
-faire un résultat publiable.
+Les trois réglages relancés en attendant à chaque fois que le Pi redescende
+sous 56 °C. Départs à 54,8 / 56,4 / 58,0 °C — comparables.
+
+| threads | médiane | max | p95 | RTF | départ → fin |
+|---|---|---|---|---|---|
+| **2** | **247 ms** | **290 ms** | 279 ms | **0,803** | 54,8 → 81,7 °C |
+| 3 | 350 ms | 614 ms | 468 ms | 1,094 | 56,4 → 84,4 °C |
+| 4 | 550 ms | 1602 ms | 914 ms | 1,803 | 58,0 → 83,8 °C |
+
+Le classement est identique à chaud, et le maximum tient toujours sous le budget
+de 300 ms avec deux threads. Le résultat est publiable.
 
 ## État après le catalogue à un prompt par moteur
 
@@ -372,3 +380,40 @@ prompts n'est pas une commodité, c'est ce qui rend le moteur utilisable.
 Même effet que sur la borne haute à ASR parfait (26 coupures). C'est le prochain
 défaut à traiter, et il n'apparaît que maintenant qu'on est assez rapide pour
 couper quelqu'un.
+
+## Le TTS : le vrai goulot, et il était invisible
+
+Toutes nos mesures de latence s'arrêtaient à la DÉCISION. Sur le Pi, ce qui suit
+la décision coûte plus cher que tout le reste :
+
+| phrase | synthèse | audio produit | ratio |
+|---|---|---|---|
+| « Ça va bien, merci. » (18 car) | **11,71 s** | 1,62 s | 7,24 |
+| « Il est bientôt minuit. » (22 car) | 9,81 s | 1,47 s | 6,69 |
+| une phrase de 110 caractères | 19,84 s | 6,55 s | 3,03 |
+
+Le ratio tombe quand la phrase s'allonge : le coût est **fixe**, c'est le
+chargement du modèle. `tts.py` lançait un `piper` par phrase — une seconde sur
+un PC, huit sur un Pi.
+
+    piper relancé    8,28 s · 8,35 s · 7,82 s   par phrase
+    piper résident   7,85 s puis 0,00 s · 0,00 s
+
+**Huit secondes par réponse**, récupérées en gardant le processus en vie. Plus
+que tout ce que la journée avait gagné, ASR compris.
+
+Le prix à payer est architectural : on ne peut plus tuer piper pour couper la
+parole, puisqu'il sert la phrase suivante. On tue `aplay` seul, et un compteur
+de génération fait jeter au lecteur le PCM devenu sans objet — sans quoi la fin
+d'une phrase coupée ressortirait au début de la suivante.
+
+### Bilan de la latence sur la cible
+
+| poste | avant | après |
+|---|---|---|
+| ASR (whisper fenêtre 20 s → sherpa 2 threads) | ~4,3 s | 0,25 s |
+| TTS (piper relancé → résident) | ~8,0 s | 0,01 s |
+| appel au modèle | 0,7 s | 0,7 s |
+| **total estimé** | **~13 s** | **~1 s** |
+
+À vérifier bout en bout sur le Pi : ces chiffres sont mesurés poste par poste.
