@@ -24,7 +24,7 @@ le sujet.
     python bench/sessions.py --sessions sessions/20260829-032332 [...]
     python bench/sessions.py --toutes --min-decisions 50
 """
-import argparse, glob, json, os, subprocess, sys, time
+import argparse, glob, json, os, resource, subprocess, sys, time
 
 ICI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DELAI_MAX = 12.0        # au-delà, une réponse ne répond plus à la question
@@ -216,8 +216,16 @@ def evalue(dossier, muet=True):
            dossier, "--trace", trace, "--deterministe"]
     if muet:
         cmd.append("--muet")
+    # Ce que le rejeu CONSOMME, pas seulement ce qu'il rend. Sans ça on ne peut
+    # pas dire sur quelle machine un réglage tient : `base` est meilleur que
+    # `tiny` et deux fois et demie plus lourd, et c'est cette seconde moitié qui
+    # décide s'il tourne sur un Pi.
+    av = resource.getrusage(resource.RUSAGE_CHILDREN)
     t0 = time.time()
     r = subprocess.run(cmd, cwd=ICI, capture_output=True, text=True)
+    ap = resource.getrusage(resource.RUSAGE_CHILDREN)
+    cpu_s = (ap.ru_utime - av.ru_utime) + (ap.ru_stime - av.ru_stime)
+    rss_mo = ap.ru_maxrss / 1024.0        # Linux : ru_maxrss est en Kio
     if r.returncode != 0:
         return {"erreur": f"rejeu: {r.stderr.strip()[-200:]}"}
 
@@ -235,6 +243,13 @@ def evalue(dossier, muet=True):
     # de parler ; ce qu'un humain ressent, c'est l'instant du premier SON, une
     # attaque de moteur plus tard (0,95 s mesurés pour piper). On mesurait la
     # première et on parlait de la seconde.
+    couts = [e["cout"] for e in ev if e["type"] == "partial" and e.get("cout")]
+    t_in = [e["tokens_entree"] for e in ev
+            if e["type"] == "llm_reponse" and e.get("tokens_entree")]
+    t_ca = [e.get("tokens_caches") or 0 for e in ev
+            if e["type"] == "llm_reponse" and e.get("tokens_entree")]
+    duree_audio = max([e["t"] for e in ev], default=0.0)
+
     paroles = [e["t"] for e in ev if e["type"] == "parole_debut"]
     attaques = [e.get("attaque", 0.0) or 0.0
                 for e in ev if e["type"] == "parole_debut"]
@@ -277,6 +292,15 @@ def evalue(dossier, muet=True):
         "prises_de_parole": len(paroles),
         "coupures": coupures,
         "duree_rejeu_s": round(time.time() - t0, 1),
+        "cpu_s": round(cpu_s, 1),
+        "cpu_pct": round(100.0 * cpu_s / max(duree_audio, 0.1), 1),
+        "rss_mo": round(rss_mo, 1),
+        "stt_passe_moy_s": round(sum(couts) / len(couts), 2) if couts else None,
+        "stt_passe_max_s": round(max(couts), 2) if couts else None,
+        "tokens_entree_moy": round(sum(t_in) / len(t_in)) if t_in else None,
+        "tokens_caches_pct": (round(100.0 * sum(t_ca) / sum(t_in))
+                              if t_in and sum(t_in) else None),
+        "appels": len(t_in),
     }
 
 
@@ -321,6 +345,15 @@ def main():
               f"justesse {r['justesse']}  lat {r['latence_med']}s "
               f"(vécue {r.get('latence_vecue')}s)  "
               f"coupures {r['coupures']}  [{r['duree_rejeu_s']}s]")
+        # Ce que ça coûte, en face de ce que ça rend. `cpu_pct` est rapporté à
+        # la durée de l'audio : au-dessus de 100 % d'un cœur, la machine ne
+        # tient pas le temps réel.
+        print(f"      ⚙  CPU {r.get('cpu_s')}s ({r.get('cpu_pct')}% du temps "
+              f"audio) · RAM {r.get('rss_mo')} Mo · "
+              f"whisper {r.get('stt_passe_moy_s')}s/passe "
+              f"(max {r.get('stt_passe_max_s')}) · "
+              f"{r.get('appels')} appels à {r.get('tokens_entree_moy')} tokens "
+              f"({r.get('tokens_caches_pct')}% cachés)")
 
     if tf or tp:
         tor_f = tr / tf if tf else None

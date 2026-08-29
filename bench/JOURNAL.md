@@ -208,3 +208,35 @@ compromis.
 Piste immédiatement testable, avant de changer d'ASR : la fenêtre est bornée à
 `PLAFOND_S = 20 s`. Le coût d'une passe est proportionnel à sa longueur — la
 réduire devrait réduire le délai à modèle constant.
+
+| 7 | cb0c61e | `[=]` fenêtre whisper 20 s → 8 s | 0,648 | 6/8 | 10/22 | 5,55 s vécue | **rejeté.** Plus cher ET moins juste |
+
+### Test 7 — la fenêtre courte coûte PLUS cher
+
+Hypothèse : le coût d'une passe est proportionnel à la durée de la fenêtre, donc
+la raccourcir doit réduire le délai. **Fausse, et mesurable en une passe :**
+
+    fenêtre 20 s :  1,35 s par passe
+    fenêtre  8 s :  1,67 s par passe
+
+L'encodeur de whisper travaille sur une fenêtre **fixe de 30 secondes** et
+complète l'audio plus court par du silence. Qu'on lui donne 8 s ou 20 s, il
+encode 30 s. Le coût ne dépend donc quasiment pas de la longueur du tour.
+
+**Conséquence : aucun réglage de whisper ne réduira les 3,7 s de délai.** Ni la
+fenêtre, ni le pas, ni le modèle — `base` va même dans l'autre sens. Le délai est
+structurel au décodage par blocs. La seule piste restante pour la latence est un
+ASR à transducteur, qui émet au fil de l'eau.
+
+### Au passage : le cache de prompt n'a jamais fonctionné
+
+La ligne de ressources le dit : **0 % de tokens cachés**, sur 183 appels.
+
+Le cache implicite de gemini-2.5 ne s'arme qu'au-delà de **1024 tokens** ; notre
+prompt en fait 666. Il n'a donc jamais rien mis en cache, et le commentaire de
+`llm.py` qui affirmait le contraire décrivait une intention, pas un fait. On paie
+le préfixe entier à chaque tick — 183 fois pour 3 min 44 de conversation.
+
+C'est aussi un contre-argument au test 3 (horizon réduit) : diviser le contexte
+par deux nous a fait passer *sous* le seuil de cache. À vérifier si le coût
+devient un critère.

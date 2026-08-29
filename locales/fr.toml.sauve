@@ -81,7 +81,7 @@ entree = "taille de la tour Eiffel"
 sortie = '''{"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}'''
 [[exemples]]
 entree = "<|no voice|>"
-sortie = '''{"m": "<|user is thinking|>"}'''
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
 entree = "et aussi est-ce que tu peux"
 sortie = '''{"m": "<|user is talking|>"}'''
