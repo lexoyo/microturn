@@ -383,7 +383,13 @@ class Sherpa:
         deux.
         """
         t0 = time.time()
-        tampon = queue.Queue(maxsize=64)
+        # 16 blocs de 125 ms = 2 s de tampon, pas plus. Une file profonde ne perd
+        # rien mais accumule du retard qui ne se résorbe jamais : mesuré en
+        # session réelle, le délai entre la parole et son affichage grandissait
+        # tout au long de la conversation. En temps réel, du son vieux de huit
+        # secondes ne vaut rien — mieux vaut le sacrifier que le servir en retard.
+        tampon = queue.Queue(maxsize=16)
+        self.sacrifies = 0
 
         def lecteur():
             """Ne fait QUE vider le tube. Jamais de calcul ici."""
@@ -396,9 +402,15 @@ class Sherpa:
                 try:
                     tampon.put_nowait(data)
                 except queue.Full:
-                    pass               # le décodeur a pris trop de retard :
-                                       # mieux vaut perdre un bloc que bloquer
-                                       # le lecteur et faire déborder ALSA
+                    # Le décodeur est distancé : on jette le PLUS ANCIEN et on
+                    # garde le neuf. L'inverse conservait du vieil audio et
+                    # jetait ce que l'utilisateur venait de dire.
+                    try:
+                        tampon.get_nowait()
+                        tampon.put_nowait(data)
+                        self.sacrifies += 1
+                    except (queue.Empty, queue.Full):
+                        pass
             tampon.put(None)
 
         th = threading.Thread(target=lecteur, daemon=True)
@@ -439,7 +451,9 @@ class Sherpa:
                 vu = txt
                 if cap.trace is not None:
                     cap.trace.ev("partial", texte=txt,
-                                 cout=round(self.dernier_cout, 3))
+                                 cout=round(self.dernier_cout, 3),
+                                 attente=tampon.qsize(),
+                                 sacrifies=self.sacrifies)
                 q.put(("partial", txt, time.time() - t0))
         th.join(timeout=1)
         q.put(("eof", "", time.time() - t0))
