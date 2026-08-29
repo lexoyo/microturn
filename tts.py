@@ -51,6 +51,51 @@ class Speaker:
         self.rate = voice_rate(voice)
         self.procs = []                      # tous les fils vivants, pas seulement le dernier
         self.lock = threading.RLock()
+        self._synth = None                   # piper, résident
+        self._sortie = None                  # l'`aplay` du moment
+        self._gen = 0                        # phrase courante ; sert à jeter le PCM périmé
+
+    # -- piper RÉSIDENT --------------------------------------------------
+    # Mesuré sur le Pi 3B : relancer piper à chaque phrase coûte 8 s, dont la
+    # quasi-totalité en chargement du modèle. Gardé en vie, il rend le premier
+    # échantillon en moins de 10 ms. C'est huit secondes de latence par réponse,
+    # soit plus que tout le reste de la chaîne réuni.
+    #
+    # Le prix à payer : on ne peut plus tuer piper pour couper la parole, car il
+    # sert aussi la phrase suivante. On tue donc `aplay` seul, et un compteur de
+    # génération fait jeter au lecteur le PCM devenu sans objet.
+
+    def _piper(self):
+        """Le processus résident, démarré à la première phrase."""
+        if self._synth is not None and self._synth.poll() is None:
+            return self._synth
+        self._synth = subprocess.Popen(
+            [PIPER, "-m", self.voice, "--output-raw"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, start_new_session=True)
+        th = threading.Thread(target=self._lire, args=(self._synth,), daemon=True)
+        th.start()
+        return self._synth
+
+    def _lire(self, synth):
+        """Draine piper en continu et route le PCM vers l'`aplay` du moment.
+
+        piper ne marque pas la fin d'une phrase : on la déduit d'un silence de
+        lecture. Sans ce drainage, le PCM d'une phrase coupée resterait dans le
+        tube et sortirait au début de la suivante."""
+        while synth.poll() is None:
+            bloc = synth.stdout.read(4096)
+            if not bloc:
+                break
+            with self.lock:
+                sortie, gen = self._sortie, self._gen
+            if sortie is None or gen != self._gen:
+                continue                     # phrase abandonnée : on jette
+            try:
+                sortie.stdin.write(bloc)
+                sortie.stdin.flush()
+            except (BrokenPipeError, ValueError, OSError):
+                pass                         # `aplay` tué par stop()
 
     # -- interne : lance la chaîne de processus, verrou déjà tenu --
     def _spawn(self, text):
@@ -59,22 +104,22 @@ class Speaker:
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
             return [p]
-        synth = subprocess.Popen([PIPER, "-m", self.voice, "--output-raw"],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+        synth = self._piper()
         play = subprocess.Popen(["aplay", "-q", "-r", str(self.rate),
                                  "-f", "S16_LE", "-c", "1", "-"],
-                                stdin=synth.stdout, stdout=subprocess.DEVNULL,
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
-        synth.stdout.close()                 # seul `aplay` garde l'extrémité de lecture
+        self._sortie = play
+        self._gen += 1
         threading.Thread(target=self._feed, args=(synth, text), daemon=True).start()
-        return [synth, play]
+        return [play]                        # piper N'EST PAS dans la liste : on ne
+                                             # le tue jamais, c'est tout l'intérêt
 
     @staticmethod
     def _feed(proc, text):
         try:
             proc.stdin.write((text + "\n").encode())
-            proc.stdin.close()
+            proc.stdin.flush()               # et NON close() : le processus resservira
         except (BrokenPipeError, ValueError):
             pass                             # coupé par stop() entre-temps
 
@@ -88,6 +133,8 @@ class Speaker:
             self.procs = self._spawn(text)   # des processus orphelins increvables
 
     def _stop_locked(self):
+        self._gen += 1                       # le lecteur jettera le PCM en vol
+        self._sortie = None
         for p in self.procs:
             if p.poll() is None:
                 try:
