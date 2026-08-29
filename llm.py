@@ -111,7 +111,7 @@ def rendre_exemples(langue="fr"):
                      for u, a in catalogue(langue)["exemples"])
 
 
-def systeme(langue="fr", tick=1.2):
+def systeme(langue="fr", tick=1.2, nu=False):
     """Le prompt de la langue, avec la vraie période d'horloge — l'écrire en dur
     ferait mentir le prompt dès qu'on la change pour une expérience.
 
@@ -124,8 +124,16 @@ def systeme(langue="fr", tick=1.2):
     # un « { » littéral dans le catalogue (un exemple JSON, une notation {mot})
     # faisait planter au démarrage sur un KeyError nu. La présence de {tick} est
     # déjà garantie par la validation du catalogue.
+    # `{casse}` dépend du MOTEUR, pas de la langue : sherpa rend un texte nu en
+    # majuscules, whisper un texte ponctué. Écrire la phrase en dur dans le
+    # catalogue la rendait fausse dès qu'on changeait de moteur — et elle vaut
+    # +0,063 de justesse quand elle est vraie, donc elle doit suivre.
+    casse = ("Le texte que tu reçois est en majuscules et sans ponctuation : "
+             "c'est la reconnaissance vocale qui est ainsi, pas l'utilisateur "
+             "qui crie.\n\n") if nu else ""
     return (catalogue(langue)["systeme"]
             .replace("{tick}", str(tick).replace(".", virgule))
+            .replace("{casse}", casse)
             .replace("{exemples}", rendre_exemples(langue)))
 
 
@@ -252,10 +260,11 @@ class Decideur:
     """Une connexion HTTPS réutilisée, protégée par un verrou (un appel à la fois)."""
 
     def __init__(self, model=MODEL, timeout=TIMEOUT, trace=None, langue="fr",
-                 tick=1.2):
+                 tick=1.2, nu=False):
         self.model, self.timeout, self.trace = model, timeout, trace
         self.langue = langue
-        self.systeme = systeme(langue, tick)
+        # `nu` : le moteur rend-il un texte sans casse ni ponctuation ?
+        self.systeme = systeme(langue, tick, nu)
         self.exemples = catalogue(langue)["exemples"]
         self.jetons = catalogue(langue)["jetons"]
         self.conn = None

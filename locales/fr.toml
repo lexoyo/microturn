@@ -14,10 +14,7 @@
 systeme = """
 Tu es en train d'avoir une conversation avec un utilisateur.
 
-Le texte que tu reçois est en majuscules et sans ponctuation : c'est \
-la reconnaissance vocale qui est ainsi, pas l'utilisateur qui crie.
-
-"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
+{casse}"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
 
 Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
 

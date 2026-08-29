@@ -187,8 +187,14 @@ class Session:
         # il sert d'étalon — il donne le bruit de mesure de la mécanique seule,
         # sans le non-déterminisme du modèle distant ni la latence réseau.
         fabrique = llm.Simule if (modele or "") == "simule" else llm.Decideur
+        # Le prompt doit dire au modèle DANS QUEL ÉTAT arrive le texte : sherpa
+        # rend « ÇA VA » sans ponctuation, whisper rend « Ça va ? ». Le dire
+        # vaut +0,063 de justesse — le dire à tort le ferait chercher une
+        # ponctuation qui est pourtant là. Un rejeu hérite du moteur d'origine.
+        nu = moteur == "sherpa" or (
+            moteur == "rejeu" and "sherpa" in str(kw.get("session", "")))
         self.decideur = fabrique(model=modele or llm.MODEL, trace=self.trace,
-                                 langue=langue, tick=TICK_S)
+                                 langue=langue, tick=TICK_S, nu=nu)
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
             robot_parle=lambda: self.robot_parle,
