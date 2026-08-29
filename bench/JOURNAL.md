@@ -1,88 +1,51 @@
-# Journal des itérations
+# Journal des tests
 
-Une ligne par tour de la boucle du `PROTOCOLE.md`. But : pouvoir dire, à la fin,
-ce qui a marché et ce qui n'a pas marché — et revenir en arrière sans deviner.
+Vidé le 29/08/2026 à la demande d'Alex : on reprend toute la file de
+`bench/CANDIDATS.md` depuis le début, avec une mesure sur deux sessions au lieu
+d'une. Les 17 itérations précédentes sont résumées dans `CANDIDATS.md`
+(« Déjà testé »), et l'ancien journal reste dans l'historique git.
 
-Règle : **aucun écart inférieur à l'écart-type de la mesure ne compte comme un
-résultat.** Le décideur est un modèle distant, la lecture est en temps réel, la
-latence réseau varie du simple au quadruple entre deux appels. La première
-mesure à faire est donc celle du bruit, pas celle d'une amélioration.
+**Une ligne par test, écrite juste après la mesure.** Y compris les échecs, y
+compris les indécidables — c'est ce qui évite de refaire deux fois le même test
+en croyant l'avoir trouvé.
 
-| # | commit | hypothèse | ce qui change | chiffres | verdict |
-|---|--------|-----------|---------------|----------|---------|
-| 0 | b53f9ce | ligne de base, rien changé | — | session 032332 : **TOR fins 3/9 = 0,333**, latence méd 7,18 s, 0 coupure, pauses non détectables | référence. DuplexCascade : TOR 0,955 et latence 1,225 s |
+## Les règles de lecture
 
-## Ce que dit la ligne de base
+- **Aucun écart inférieur au bruit ne compte comme un résultat.** Le décideur est
+  un modèle distant, la lecture est en temps réel : le bruit mesuré sur une
+  session était de ±0,116. À remesurer sur deux (test n° 2).
+- Un verdict n'est jamais « neutre » quand l'écart est sous le bruit : c'est
+  **indécidable**. La nuance compte — un indécidable peut cacher un vrai gain.
+- La référence est DuplexCascade : justesse moyenne **0,858**, latence 1,2 s.
 
-Il répond à **une question sur trois**, et met **sept secondes**. L'écart avec
-DuplexCascade (0,955 et 1,2 s) n'est pas un écart de réglage : c'est un facteur
-trois sur la justesse et six sur la latence, avec la même architecture en
-cascade. La différence tient à leur fine-tuning et, on en fait l'hypothèse, à
-ce que leur modèle voit de la conversation.
+## Résultats
 
-Limite de la mesure, à corriger si elle gêne : la transcription de référence
-(`small`) découpe en segments de dix à quinze secondes contigus, donc aucun
-silence de plus d'une seconde n'apparaît ENTRE segments et aucune pause n'est
-détectée. La justesse agrégée est donc incalculable sur une session seule — il
-faut plusieurs sessions, ou une détection de pauses indépendante du découpage.
+| # | commit | ce qui change | justesse | fins | pauses | latence | verdict |
+|---|--------|---------------|----------|------|--------|---------|---------|
+| 1 | 5e05e6e | **base**, mesurée sur DEUX sessions au lieu d'une | **0,634** | 11/17 | 11/29 | 7,32 / 5,03 s | référence de toute la suite |
 
-La latence de 7,18 s est mesurée depuis la fin du segment de référence. Ces
-segments étant longs, la vraie latence est plus basse — le chiffre est un
-majorant, utile pour comparer nos versions entre elles, pas à publier tel quel.
-| 1 | — | l'horizon est trop court (MICRO_TOURS=24, 14 s) | MICRO_TOURS 48 + rappel du tour en cours | **3/9**, inchangé | ÉCHEC. La trace montre que la question ÉTAIT dans le contexte : l'hypothèse était fausse. Mais le rappel, entre parenthèses comme (silence), était lu comme un marqueur d'absence de parole → REFLECHIT |
-| 2 | — | le rappel doit être hors parenthèses | rappel après le delta, sans parenthèses, exclu sur les silences | **2/9** | RÉGRESSION. Exclure le rappel quand le delta est un silence le supprime précisément quand il sert. Et 110 REFLECHIT sur 123 décisions, dont 89 interdits par le prompt |
-| 3 | 4c3f6a1 | REFLECHIT est trop attractif depuis ma modif A11 | définition resserrée à [je viens de répondre] seul, exemple `[je parle] (silence)` retiré, rappel rétabli sur les silences | **5/9 = 0,556**, parle 67 / reflechit 46 / parler 8 | **GAIN +22 pts.** Le mur de REFLECHIT s'effondre (110 → 46), les réponses passent de 3 à 8 |
+### Ce que la deuxième session change
 
-## Ce que les trois premières itérations apprennent
+La base « officielle » passe de 0,762 à **0,634**. Le code n'a pas bougé : c'est
+la mesure qui devient plus dure, et plus honnête.
 
-**Ma propre correction A11 coûtait deux questions sur neuf.** Ajoutée cette nuit
-pour boucher un trou réel — deux combinaisons état × contenu que le prompt ne
-décrivait pas — elle élargissait REFLECHIT à `[je parle]`. Le jeton est devenu
-dominant et le modèle l'a appliqué partout, y compris là où le prompt
-l'interdit. Elle avait été commitée sur la foi du raisonnement, sans mesure.
+- `032332` seule : 9 fins de tour, **7 pauses**.
+- `073852` seule : 8 fins de tour, **22 pauses**, et 3 coupures de parole.
 
-**Une correction peut marcher et être annulée par sa forme.** Le rappel du tour
-en cours fonctionnait dès l'itération 1 : la trace le montre dans le contexte.
-Mais il était entre parenthèses, comme les trois marqueurs qui signifient
-« rien entendu ». Le modèle a appris la forme, pas le sens. Deux sémantiques
-opposées ne doivent jamais partager une apparence.
+La nouvelle session triple le nombre de pauses observées et fait apparaître la
+dimension « coupures », restée à zéro jusqu'ici faute d'occasion. Sur les pauses,
+on rate 11 fois sur 29 — c'est notre pire dimension, et elle était quasi
+invisible avec une seule session.
 
-**Vérifier l'effet sur le contexte, pas seulement le score.** Sans lire la
-trace, j'aurais conclu que l'hypothèse du rappel était morte et je l'aurais
-retirée — alors qu'elle contribue au 5/9 actuel.
-| 4 | — | REFLECHIT est un jeton que NOUS avons inventé ; DuplexCascade n'en a que trois | REFLECHIT retiré du prompt (clé gardée comme filet), silence après réponse → PARLE_ENCORE | **6/9 = 0,667**, parle 96 / parler 9 / coupe 16 / reflechit 0 | **GAIN +11 pts.** Mais `coupe` passe de 1 à 16 décisions : le modèle reporte sur ME_COUPE. Une seule coupure effective, les autres bloquées par les gardes anti-écho — à surveiller |
-| 5 | — | la notation est ambiguë (crochets non définis, parenthèses polysémiques) | notation à deux champs `moi:` / `entendu:` | **6/9**, inchangé | neutre. Gardée : le code ne cherche plus de mots dans des phrases |
-| 6 | — | le trou `je parle + rien` fait choisir ME_COUPE faute de mieux | exemple `je parle + rien → PARLE_ENCORE` | **2/9** | RÉGRESSION. Supprime bien les 15 ME_COUPE, mais PARLE_ENCORE passe à 116/120 et les réponses tombent de 8 à 4 |
-| 7 | — | « moi » dans un message `user` désigne l'humain, pas le robot | `moi:` → `robot:` + identification explicite | **2/9** | RÉGRESSION. Un seul mot changé, quatre questions perdues. Hypothèse plausible, mesure implacable |
-| 8 | — | le prompt est trop compliqué (Alex) | 167 → 71 mots : retrait de « dans le doute », de la règle sur la transcription fausse, des redites | **7/9 = 0,778**, parler 12 | **MEILLEUR SCORE.** Rapproche du papier : eux n'ont aucune règle en prose |
+### Une mesure gratuite du bruit
 
-## Le motif, après huit itérations
+`032332` a été rejouée deux fois de suite **sur le même code** (`f2f3427` puis
+`5e05e6e`, aucun changement fonctionnel entre les deux) :
 
-Deux gains sur retrait, deux régressions sur ajout, et le plus gros gain en
-supprimant la moitié du prompt. Sur un modèle générique en prompting, **chaque
-règle ajoutée pour un jeton rend ce jeton dominant** et écrase les autres :
-REFLECHIT à 110 décisions sur 123, puis PARLE_ENCORE à 116 sur 120.
+    passe 1 : justesse 0,762   (pauses 1/7)
+    passe 2 : justesse 0,691   (pauses 2/7)
 
-Les hypothèses formulées avec le plus d'assurance — l'horizon de contexte, la
-forme du rappel, la notation, l'ambiguïté du pronom — n'ont rien donné ou ont
-nui. Celles qui ont marché venaient toutes d'Alex et disaient la même chose :
-enlève.
-
-Sensibilité mesurée à la formulation : 6/9 avec « moi », 2/9 avec « robot ».
-Un mot. Ce système est bien plus sensible aux mots qu'à la structure.
-| 9 | — | les exemples déséquilibrés (5 PARLE_ENCORE / 2 A_FINI) poussent au mutisme | rééquilibrage 4-3, un A_FINI de conversation | **6/9** | annulé. Aucun gain, et nous éloigne du papier (eux n'ont pas d'exemples) |
-| 10 | — | les marqueurs d'état sont superflus : l'historique alterné porte l'information, comme chez eux | les trois marqueurs d'état supprimés | **3/9**, parler 6, coupe 0 | **RÉGRESSION MAJEURE, −4 questions.** L'écart au papier était justifié |
-
-## Le résultat le plus intéressant pour l'article
-
-DuplexCascade se passe de marqueurs d'état parce que son modèle est **entraîné**
-à lire l'historique alterné. Un modèle générique en prompting ne le fait pas :
-sans les marqueurs, `parler` tombe de 12 à 6 et `ME_COUPE` disparaît
-complètement.
-
-Ce qu'ils obtiennent par le fine-tuning, nous devons le payer en verbosité de
-prompt. C'est mesuré, pas supposé : 7/9 avec les marqueurs, 3/9 sans.
-
-Et ça relativise la leçon « retirer fait gagner » : on peut retirer les RÈGLES
-(le prompt de 167 à 71 mots a fait gagner), pas les DONNÉES que le modèle n'a
-aucun moyen de reconstituer.
+**0,071 d'écart, sans qu'une seule ligne ait changé.** Une pause qui bascule, et
+le score bouge de 7 points. C'est la confirmation directe du problème : tant que
+la granularité de la mesure vaut plus que les gains cherchés, un verdict isolé ne
+vaut rien. D'où le test n° 2 (trois passes) avant tout le reste.
