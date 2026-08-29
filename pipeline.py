@@ -32,7 +32,7 @@ import audio, llm, stt, tts
 # (0,934 contre 0,858 à 0,6 s) ; ils ont retenu 0,6 s pour la latence, mais notre
 # problème est la justesse, pas la réactivité — et ça divise les appels par deux.
 TICK_S = 1.2
-SILENCE = "SILENCE"      # ce qu'on envoie quand rien n'a été dit depuis le tick
+SILENCE = "(silence)"      # ce qu'on envoie quand rien n'a été dit depuis le tick
 MICRO_TOURS = 24         # historique gardé ; au-delà le prompt gonfle sans fin
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
@@ -225,21 +225,34 @@ class Session:
             return
         self.micro_tours += [{"role": "user", "content": delta},
                              {"role": "assistant",
-                              "content": {"parler": "FINI " + texte, "parle": "PARLE",
-                                          "reflechit": "REFLECHIT",
-                                          "coupe": "COUPE"}.get(action, "PARLE")}]
+                              # Les mêmes labels que le prompt : l'historique en montrait
+                              # d'autres, en français, plus nombreux et plus récents que
+                              # les exemples — la configuration mesurée comme la pire.
+                              "content": {"parler": "DONE " + texte, "parle": "SPEAKING",
+                                          "reflechit": "THINKING",
+                                          "coupe": "INTERRUPTING"}.get(action, "SPEAKING")}]
         self.micro_tours[:] = self.micro_tours[-MICRO_TOURS:]
 
         if action == "parler":
             self._dire(texte)
-        elif action == "coupe":
-            if self.voix.speaking():
+        elif action in ("coupe", "parle"):
+            # Comme DuplexCascade : n'importe quel tick où elle parle pendant
+            # qu'on parle coupe la synthèse. Faire dépendre l'interruption du
+            # seul label INTERRUPTING la rendait impossible — il n'a jamais été
+            # émis une seule fois sur 153 décisions.
+            if self.voix.speaking() and not delta.strip().endswith(SILENCE):
                 self.voix.stop()
                 self.log("✂  coupé, tu reprends la parole")
                 if self.trace:
                     self.trace.ev("coupure")
         elif action == "reflechit":
             self.log(f"…  ({dt:.2f}s) elle réfléchit")
+        elif action == "parler_sans_texte":
+            # Une décision de parler dont la réponse manque. La confondre avec
+            # l'attente rendait le système muet ET faussait le ratio, en silence.
+            self.log(f"⚠  ({dt:.2f}s) a décidé de répondre, sans réponse")
+        elif action == "format":
+            self.log(f"⚠  ({dt:.2f}s) hors format : {texte[:50]}")
         else:
             self.log(f"⏳ ({dt:.2f}s) elle parle encore")
 

@@ -13,6 +13,12 @@ essai() {
   if timeout 120 "$@" >/dev/null 2>/tmp/fumee.err; then echo "OK"; ok=$((ok+1))
   else echo "ÉCHEC"; grep -E "Error|Traceback" /tmp/fumee.err | tail -2; ko=$((ko+1)); fi
 }
+echo "=== analyse statique ==="
+# pyflakes attrape en 0,2 s la famille de bugs qui nous a coûté des heures :
+# deux définitions concurrentes d'une même fonction, la seconde écrasant la
+# première sans le moindre message. C'est arrivé deux fois (_lire_controle,
+# puis Decideur), et les deux fois ça a faussé des mesures.
+essai "pyflakes (doublons, imports morts)" $PY -m pyflakes audio.py stt.py llm.py tts.py journal.py pipeline.py
 echo "=== import et démarrage ==="
 essai "modules importables"        $PY -c "import audio, stt, llm, tts, journal, pipeline"
 essai "pipeline --help"            $PY pipeline.py --help

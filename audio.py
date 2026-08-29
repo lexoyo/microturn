@@ -79,6 +79,14 @@ DECROISSANCE = 0.98    # oubli du pic d'écho, par bloc de parole robot : demi-v
 # Nombre de blocs consécutifs au-dessus du seuil qui signent une VRAIE voix
 # pendant que le robot parle. 3 blocs = 375 ms : assez pour ne pas déclencher
 # sur un choc, assez court pour couper avant d'être pénible.
+# arecord démarre par du silence NUMÉRIQUE : sans plancher, `bruit` tombe à 0 et
+# ne peut jamais remonter (min d'une valeur positive et de 0 vaut 0). La porte
+# reste alors grande ouverte, se calibre sur la seconde de silence où piper
+# charge son modèle, et prend ensuite notre propre écho pour une voix — observé
+# en session réelle : trois auto-coupures, chacune une seconde après le début
+# d'une réponse.
+PLANCHER_BRUIT = 1.0
+
 BARGE_IN_BLOCS = 3
 # Au-delà, c'est que le niveau d'écho a changé (volume monté, micro déplacé) et
 # qu'il faut le remesurer. Il DOIT rester bien au-dessus de BARGE_IN_BLOCS,
@@ -152,6 +160,7 @@ class Porte:
             # On n'a pas encore de plancher : tout passe, et on retient le moins
             # fort de ces huit blocs comme point de départ.
             self.n_calib += 1
+            n = max(n, PLANCHER_BRUIT)   # sinon le silence numérique cloue le plancher à 0
             self.bruit = n if self.bruit is None else min(self.bruit, n)
             ouvre = True
         elif robot_parle:
@@ -180,6 +189,11 @@ class Porte:
                                        # écoulé, sinon on calibrerait sur du vide.
         else:
             self.n_ouverts = 0
+            # Désarmer ICI, et pas seulement quand la boucle constate la coupure :
+            # sinon le drapeau survit à la fin d'une réponse et tue la SUIVANTE
+            # dès sa première milliseconde, sans qu'aucune trace n'en dise la
+            # raison.
+            self.barge_in = False
             self._suivre_bruit(n)
             ouvre = n > self.bruit * FACTEUR_BRUIT
 
