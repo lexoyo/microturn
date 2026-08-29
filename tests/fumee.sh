@@ -39,6 +39,11 @@ a = wave.open('samples/00-fumee.wav'); b = wave.open(sortie)
 sys.exit(0 if a.getnframes() == b.getnframes()
            and a.getframerate() == b.getframerate() else 1)"
 essai "tampon vidé, porte fermée" $PY tests/reset_tampon.py
+# `Speaker` n'est exercé par AUCUNE autre mesure : le rejeu et tout le
+# reste de ce fichier tournent en --muet, donc sur `Silencieux`. C'est
+# par ce trou qu'un `aplay` qui ne se terminait jamais est passé jusqu'en
+# session réelle.
+essai "son réel (Speaker, pas Silencieux)" $PY tests/son_reel.py
 echo "=== étages isolés ==="
 essai "décideur (réseau)"          $PY llm.py fr "[je n'ai pas parlé] tu peux allumer la lumière du salon"
 essai "filtre d'artefacts"         $PY -c "

@@ -64,7 +64,9 @@ class Speaker:
         self.lock = threading.RLock()
         self._synth = None                   # piper, résident
         self._sortie = None                  # l'`aplay` du moment
-        self._gen = 0                        # phrase courante ; sert à jeter le PCM périmé
+        self._gen = 0                        # phrase courante
+        self._purger = False                 # jeter le PCM d'une phrase coupée
+        self._restants = 0                   # morceaux de la phrase en cours
         # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
         # tombe sur la PREMIÈRE réponse de la conversation, celle qui donne le
         # ton. On le paie au démarrage, pendant qu'il ne se passe rien.
@@ -102,8 +104,16 @@ class Speaker:
         th.start()
         return self._synth
 
-    # Sans texte pendant ce délai, piper a fini sa phrase.
-    FIN_PHRASE_S = 0.35
+    # Sans PCM pendant ce délai, piper a fini sa phrase et on ferme `aplay`.
+    #
+    # Le réglage a deux bords, et les deux s'entendent :
+    #   trop court, il se déclenche ENTRE deux morceaux d'une même phrase et la
+    #     coupe en tranches (« bonjour ceci … est un test ») ;
+    #   trop long, le robot reste « en train de parler » après avoir fini, donc
+    #     il ne se laisse pas interrompre et son état ment au décideur.
+    # 0,35 s tient sur ce PC ; le Pi synthétise plus lentement et pourra
+    # demander davantage. `MICROTURN_FIN_PHRASE` pour l'ajuster sans recompiler.
+    FIN_PHRASE_S = float(os.environ.get("MICROTURN_FIN_PHRASE", "0.35"))
 
     def _lire(self, synth):
         """Draine piper en continu et route le PCM vers l'`aplay` du moment.
@@ -127,6 +137,17 @@ class Speaker:
                 # de 0,8 à 2,9 s avant son premier échantillon : fermer avant
                 # rendrait `speaking()` faux pendant qu'on parle — l'exact
                 # symétrique du défaut qu'on corrige.
+                with self.lock:
+                    self._purger = False     # le silence clôt la purge
+                    reste = self._restants
+                if reste > 0:
+                    # Silence ENTRE deux morceaux de la même phrase : piper
+                    # n'a pas fini. Fermer ici couperait la phrase en deux —
+                    # c'est le « bonjour ceci … est un test » entendu en
+                    # session, et le risque n° 1 de la QC du candidat 60.
+                    with self.lock:
+                        self._restants -= 1
+                    continue
                 if ecrit:
                     with self.lock:
                         if self._sortie is not None:
@@ -137,13 +158,23 @@ class Speaker:
                             self._sortie = None
                     ecrit = False
                 continue
-            bloc = synth.stdout.read(4096)
+            try:
+                bloc = synth.stdout.read(4096)
+            except (BrokenPipeError, ValueError, OSError):
+                break                        # processus fermé sous nos pieds
             if not bloc:
                 break
             with self.lock:
-                sortie, gen = self._sortie, self._gen
-            if sortie is None or gen != self._gen:
-                continue                     # phrase abandonnée : on jette
+                sortie, purger = self._sortie, self._purger
+            if purger:
+                # Une phrase a été coupée : piper garde son PCM en tube et le
+                # servirait à la phrase SUIVANTE. On le jette jusqu'au silence
+                # qui marque sa fin. Sans ça, on entend la fin de la phrase
+                # interrompue, puis la nouvelle ne sort jamais — c'est le
+                # « ça coupe au milieu » entendu en session.
+                continue
+            if sortie is None:
+                continue                     # rien à servir
             try:
                 sortie.stdin.write(bloc)
                 sortie.stdin.flush()
@@ -206,10 +237,14 @@ class Speaker:
             cible = cls.SUITE_CAR
         return [m for m in out if m]
 
-    @classmethod
-    def _feed(cls, proc, text):
+    def _feed(self, proc, text):
+        morceaux = self._morceaux(text)
+        with self.lock:
+            # Un silence par frontière de morceau : le lecteur doit les laisser
+            # passer sans fermer `aplay`, sinon la phrase sort en tranches.
+            self._restants = len(morceaux) - 1
         try:
-            for m in cls._morceaux(text):
+            for m in morceaux:
                 proc.stdin.write((m + "\n").encode())
                 proc.stdin.flush()           # et NON close() : le processus resservira
         except (BrokenPipeError, ValueError):
@@ -225,8 +260,13 @@ class Speaker:
             self.procs = self._spawn(text)   # des processus orphelins increvables
 
     def _stop_locked(self):
-        self._gen += 1                       # le lecteur jettera le PCM en vol
+        self._gen += 1
         self._sortie = None
+        # piper continue de produire la phrase coupée : tout ce qui sort du tube
+        # jusqu'au prochain silence appartient au passé et doit être jeté.
+        if self.procs:
+            self._purger = True
+        self._restants = 0
         for p in self.procs:
             if p.poll() is None:
                 try:
