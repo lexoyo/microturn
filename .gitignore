@@ -9,3 +9,6 @@ __pycache__/
 sessions/
 samples/
 tests/prises/
+
+# Bacs à sable des séries de mesure : une copie du catalogue, jamais du code.
+*.sauve
