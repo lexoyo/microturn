@@ -102,13 +102,41 @@ class Speaker:
         th.start()
         return self._synth
 
+    # Sans texte pendant ce délai, piper a fini sa phrase.
+    FIN_PHRASE_S = 0.35
+
     def _lire(self, synth):
         """Draine piper en continu et route le PCM vers l'`aplay` du moment.
 
         piper ne marque pas la fin d'une phrase : on la déduit d'un silence de
-        lecture. Sans ce drainage, le PCM d'une phrase coupée resterait dans le
-        tube et sortirait au début de la suivante."""
+        lecture, et on FERME alors l'entrée d'`aplay`.
+
+        Cette fermeture n'est pas un détail. `aplay` ne se termine que quand son
+        entrée se ferme ; tant qu'il tourne, `speaking()` répond vrai. Sans elle,
+        le système se croit en train de parler pour le reste de la session :
+        mesuré en session réelle, neuf « coupures » sur treize prises de parole,
+        dont huit tombaient APRÈS la fin de la phrase — une phrase de 3,4 s
+        « coupée » 18,5 s après son début. Et l'état « je parle » envoyé au
+        décideur était faux tout du long."""
+        import select
+        ecrit = False                        # du PCM a-t-il été servi ?
         while synth.poll() is None:
+            pret = select.select([synth.stdout], [], [], self.FIN_PHRASE_S)[0]
+            if not pret:
+                # Ne fermer QUE si cette phrase a déjà produit du son. piper met
+                # de 0,8 à 2,9 s avant son premier échantillon : fermer avant
+                # rendrait `speaking()` faux pendant qu'on parle — l'exact
+                # symétrique du défaut qu'on corrige.
+                if ecrit:
+                    with self.lock:
+                        if self._sortie is not None:
+                            try:
+                                self._sortie.stdin.close()   # `aplay` peut finir
+                            except (BrokenPipeError, ValueError, OSError):
+                                pass
+                            self._sortie = None
+                    ecrit = False
+                continue
             bloc = synth.stdout.read(4096)
             if not bloc:
                 break
@@ -119,6 +147,7 @@ class Speaker:
             try:
                 sortie.stdin.write(bloc)
                 sortie.stdin.flush()
+                ecrit = True
             except (BrokenPipeError, ValueError, OSError):
                 pass                         # `aplay` tué par stop()
 
