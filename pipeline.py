@@ -592,10 +592,15 @@ class Session:
                 horloge.t = k * TICK_S
                 # Tout ce qui a été entendu jusqu'ici, et rien de plus tard.
                 while i < len(evts) and evts[i][0] <= horloge.t:
-                    _, _genre, txt = evts[i]
+                    _, genre, txt = evts[i]
                     if txt and txt != self.transcript:
                         self.transcript = txt
                         self.log(f"stt {txt[-70:]}")
+                        # La trace doit rester rejouable : sans ces événements,
+                        # un rejeu de rejeu n'a plus rien à lire, et l'analyse
+                        # de latence ne peut plus dire quand le texte est arrivé.
+                        if self.trace:
+                            self.trace.ev(genre, texte=txt)
                     i += 1
                 self._tick()
                 # La décision est déjà dans la file : l'appel était bloquant.
