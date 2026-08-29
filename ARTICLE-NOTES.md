@@ -174,6 +174,8 @@ pas de GPU.
 - **Ce que le refus du fine-tuning achète** : changer de décideur est changer un
   flag. Pas de ré-entraînement par modèle testé, donc la possibilité de
   comparer — et l'obsolescence des modèles cesse d'être notre problème.
+  Corollaire d'écriture : on obtient un catalogue de scores, et il faut décider
+  lequel on revendique (voir plus bas).
 - **Mais la portabilité se construit, elle n'est pas donnée** : le schéma JSON
   strict, qui est notre équivalent de ce que leur fine-tuning garantit, n'est pas
   portable — gpt-4o-mini répond 400 et on perdait 100 % des décisions. D'où une
@@ -181,10 +183,59 @@ pas de GPU.
   vérifie chaque réponse contre l'énumération des sept marqueurs. Le prompt se
   transporte ; l'API sous laquelle il s'exécute, non.
 
+### Le meilleur score n'est pas le nôtre
+
+Trois décideurs, même session (`073852`), même ASR (sherpa, deux threads) :
+llama-3.3-70b 0,824, gemini-2.5-flash-lite 0,807, gemini-2.5-flash 0,716.
+
+`flash-lite` reste le défaut. L'écart de 0,017 avec llama vaut exactement le
+bruit de mesure. En face : un coût par session de 0,016 $ contre 0,085 $, une
+latence vécue de 3,75 s contre 4,35 s, et un ordre de grandeur d'énergie de
+moins.
+
+**Ce que la justesse agrégée cachait** : `flash-lite` rate 3 pauses sur 22,
+llama en rate 5. La pause ratée est le défaut n° 1 côté utilisateur. Le meilleur
+agrégat est donc le moins bon sur la dimension qui compte — un agrégat qui
+départage deux modèles départage mal.
+
+Troisième profil, contre-intuitif : `gemini-2.5-flash`, plus gros, fait moins
+bien (0,716) mais ne coupe la parole que 2 fois. Ce n'est pas une dégradation
+uniforme, c'est un modèle plus prudent, donc plus muet.
+
+**Le chiffre du projet est 0,807** : celui de la configuration retenue. 0,824
+est le score d'un modèle qu'on écarte ; il n'entre jamais dans l'article comme
+« notre » résultat.
+
+### Le seuil de cache : un prompt plus long qui coûte moins cher
+
+Le cache implicite de gemini-2.5 ne s'arme qu'au-delà de 1024 jetons. Le seuil
+se lit à l'œil nu dans les trois mesures de la comparaison des décideurs :
+
+    gemini-2.5-flash        ~900 jetons →   0 % de jetons cachés
+    gemini-2.5-flash-lite   1025 jetons →   4 %
+    llama-3.3-70b           1127 jetons →  55 %
+
+Précision qui compte : ce sont trois décideurs, pas un même prompt allongé trois
+fois. Le seuil est net, la courbe entre les points ne l'est pas.
+
+Notre prompt franchit ce seuil de peu, et ne cache donc presque rien. Il lui
+manque une centaine de jetons pour le passer pour de bon. Le journal chiffre
+le gain à un coût divisé par quatre — c'est une projection à partir du tarif du
+cache, pas une facture mesurée, et l'article doit le dire ainsi.
+
+**Rallonger le prompt le rendrait moins cher.** C'est le seul cas mesuré où
+allonger est rentable, et c'est aussi un contre-argument au test 3 : réduire
+l'horizon à 20 micro-tours a divisé le contexte par deux, donc nous a fait
+passer sous le seuil.
+
+Même famille que « deux threads vont plus vite que quatre » (partie I). Dans les
+deux cas, optimiser la grandeur évidente — un prompt court, tous les cœurs —
+mène au mauvais réglage, parce que la vraie limite est un seuil situé ailleurs.
+
 ### Où le prompting plafonne — et c'est mesuré
 
 La partie qui empêche l'article d'être un plaidoyer. Défaut visé : 5 pauses
-ratées sur 22, depuis une base à 0,761. Trois variantes, trois échecs :
+ratées sur 22, depuis une base à 0,761 — base à revérifier, voir partie IV. Trois variantes, trois échecs :
 une règle (« dans le doute, il n'a pas fini ») **−0,075**, un exemple
 (fragment puis silence) **−0,046**, une définition resserrée −0,017.
 
@@ -216,8 +267,9 @@ comme telle plutôt que reléguée en annexe.
   base de 0,762 à 0,634 sans qu'une ligne change. La dimension « se taire »
   était quasi invisible, et c'est la pire.
 - **Le goulot n'est pas toujours le modèle** : cinq réponses sur treize étaient
-  « je ne comprends pas » parce que l'ASR rendait `tu te cheins`. Borne haute à
-  ASR parfait : 0,820.
+  « je ne comprends pas » parce que l'ASR rendait `tu te cheins`. La borne haute
+  à ASR parfait le confirmait — mais le chiffre publié, 0,820, ne décrit plus la
+  configuration actuelle et doit être refait (partie IV).
 - **Refroidir avant chaque passe** : 12,07 s à froid contre 16,4 s à chaud pour
   le même fichier. Toute mesure sans refroidissement est fausse.
 
@@ -242,11 +294,17 @@ donc chaque capteur retombe sous le budget de départ.*
 
 ## IV. Où on en est, et ce qui reste ouvert
 
-Chiffres honnêtes en regard : 0,858 pour DuplexCascade, 0,761 pour nous, 0,820
-comme borne haute à ASR parfait. Le nouveau défaut est né de la vitesse — neuf
-coupures contre deux, parce qu'on répond maintenant en 3,55 s au lieu de 5,55.
-Et la question ouverte, posée à la communauté : le décideur est le dernier étage
-qui n'est pas local.
+Chiffres honnêtes en regard : 0,858 pour DuplexCascade, **0,807 pour nous**.
+C'est le score de la configuration retenue — sherpa à deux threads,
+`gemini-2.5-flash-lite`, prompt `systeme_sherpa` — sur la session `073852`. Ce
+n'est pas 0,824 : ce score-là est celui de llama-3.3-70b, un modèle qu'on
+écarte. Pas de borne haute citée pour l'instant, pour la raison exposée plus
+bas.
+
+Le nouveau défaut est né de la vitesse : cinq coupures de parole sur cette
+session, contre deux pour whisper sur la même, parce qu'on répond en 3,75 s au
+lieu de 5,55. Et la question ouverte, posée à la communauté : le décideur est le
+dernier étage qui n'est pas local.
 
 Sur la cible, poste par poste : ASR 4,3 s → 0,25 s, TTS 8,0 s → 0,01 s, décideur
 0,7 s inchangé. **Environ 13 s → environ 1 s.** Deux précautions à tenir dans le
@@ -258,3 +316,49 @@ constante d'estimation encore fausse d'un facteur trois sur le Pi (partie I).
 **Règle de publication** : aucun chiffre de bout en bout n'entre dans l'article
 avant d'avoir été mesuré de bout en bout sur une session rejouée. Les sommes
 poste par poste restent dans le journal.
+
+### À trancher avant publication : 0,820 contre 0,824
+
+`bench/JOURNAL.md` donne **0,820** comme borne haute à ASR parfait. La
+comparaison des décideurs donne **0,824** à llama-3.3-70b avec un ASR réel. Un
+ASR réel ne peut pas dépasser un ASR parfait. Les deux mesures ne portent donc
+pas sur la même base.
+
+Ce qui diffère est établi, et tient en trois points :
+
+- **Le nombre de sessions.** 0,820 est mesuré sur deux sessions : 15 fins de
+  tour sur 17, 7 pauses ratées sur 29. 0,824 l'est sur la seule `073852` : 7
+  fins sur 8, 5 pauses sur 22.
+- **Le prompt.** 0,820 date du commit `e892a9f`, donc d'avant le catalogue à un
+  prompt par moteur et d'avant la phrase sur la casse, qui vaut +0,063 avec
+  sherpa.
+- **Le décideur.** La borne haute a été mesurée avec `flash-lite`, pas avec
+  llama.
+
+**0,820 est périmé comme borne haute de la configuration actuelle.** Le chiffre
+n'est pas faux : il a cessé d'être comparable. Il ne décrit ni le prompt, ni la
+base de sessions d'aujourd'hui.
+
+Ce qui manque pour lever la contradiction : rejouer
+`sessions/20260829-073852-parfait/` avec la configuration retenue, et publier ce
+score. Le matériau est là, la mesure ne l'est pas.
+
+Un piège à prévoir avant de la refaire. Avec un ASR parfait, le texte est
+ponctué. `systeme_sherpa` affirme le contraire, et cette affirmation fausse
+coûte −0,103. La borne haute doit donc être mesurée avec `systeme`, sans quoi
+elle mesurera surtout le mensonge de la phrase sur la casse.
+
+**Tant que ce score n'est pas refait, l'article ne cite aucune borne haute.**
+
+### Deuxième chiffre à trancher : la base sherpa, 0,761 ou 0,807
+
+Même symptôme, plus petit. Le journal donne « base sherpa 0,761 » pour les trois
+variantes sur les pauses, et « base sherpa 0,807 » pour les variantes sur la
+longueur des réponses. La partie II cite encore 0,761 comme base des trois
+échecs. Les deux valeurs coexistent, et une seule peut décrire la configuration
+retenue — qui est à 0,807.
+
+À vérifier de la même façon : si 0,761 est une régression passagère, les trois
+verdicts d'échec sur les pauses ont été rendus contre une base trop basse, et
+leurs écarts sont à relire. Ça ne change pas la conclusion — aucune des trois
+n'améliore — mais ça change l'amplitude qu'on peut leur prêter dans le texte.
