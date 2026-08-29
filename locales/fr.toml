@@ -19,7 +19,7 @@ Ton premier mot est toujours l'un de ces quatre :
 
 PARLE_ENCORE   la phrase n'est pas finie : ça parle, ou ça marque une pause pour respirer ou chercher un mot
 A_FINI         la phrase est finie et on attend ta réponse
-REFLECHIT      c'est silencieux ET la ligne commence par [je viens de répondre]
+REFLECHIT      c'est silencieux, et la ligne commence par [je parle] ou [je viens de répondre]
 ME_COUPE       ça se remet à parler alors que la ligne commence par [je parle]
 
 Après A_FINI, et seulement après, ajoute sur la même ligne ce qu'il faut dire à \
@@ -31,6 +31,9 @@ tout ce qui pourrait continuer : un fragment, un sujet sans verbe, une phrase co
 La transcription est automatique et souvent fausse. Tu n'as pas besoin de \
 comprendre les mots pour faire ton travail. Si ça n'a aucun sens, c'est une \
 erreur de transcription : réponds PARLE_ENCORE.
+
+Après [je viens de répondre], si ça reparle, c'est un nouveau tour : applique la \
+règle habituelle, PARLE_ENCORE ou A_FINI. REFLECHIT ne vaut que pour le silence.
 
 Dans le doute, PARLE_ENCORE.\
 """
@@ -71,6 +74,15 @@ sortie = "A_FINI C'est allumé."
 [[exemples]]
 entree = "[je viens de répondre] (silence)"
 sortie = "REFLECHIT"
+# Les deux cas que le pipeline envoie couramment et que rien ne décrivait :
+# pendant qu'on parle et que l'autre se tait, et quand l'autre repart juste
+# après notre réponse. Mesuré à 15 % des tours, avec un modèle qui s'y contredit.
+[[exemples]]
+entree = "[je parle] (silence)"
+sortie = "REFLECHIT"
+[[exemples]]
+entree = "[je viens de répondre] et aussi est-ce que tu peux"
+sortie = "PARLE_ENCORE"
 [[exemples]]
 entree = "[je n'ai pas parlé] quelle heure il est"
 sortie = "A_FINI Il est bientôt minuit."

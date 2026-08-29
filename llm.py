@@ -96,7 +96,11 @@ def systeme(langue="fr", tick=1.2):
     """Le prompt de la langue, avec la vraie période d'horloge — l'écrire en dur
     ferait mentir le prompt dès qu'on la change pour une expérience."""
     virgule = "," if langue == "fr" else "."
-    return catalogue(langue)["systeme"].format(tick=str(tick).replace(".", virgule))
+    # .replace et non .format : `.format` interprète TOUTES les accolades, donc
+    # un « { » littéral dans le catalogue (un exemple JSON, une notation {mot})
+    # faisait planter au démarrage sur un KeyError nu. La présence de {tick} est
+    # déjà garantie par la validation du catalogue.
+    return catalogue(langue)["systeme"].replace("{tick}", str(tick).replace(".", virgule))
 
 
 # ------------------------------------------------------------------ décodage

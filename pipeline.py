@@ -16,7 +16,7 @@ interroge le modèle pendant que la personne parle, on garde la réponse au chau
 et on la prononce dès qu'elle s'arrête. La latence perçue devient le temps de
 détection de la fin, pas le temps de l'aller-retour réseau.
 """
-import argparse, hashlib, os, platform, queue, subprocess, sys, threading, time
+import argparse, glob, hashlib, os, platform, queue, subprocess, sys, threading, time
 import audio, llm, stt, tts
 
 # UNE seule constante de temps, et c'est tout le turn-taking.
@@ -45,15 +45,23 @@ MICRO_TOURS = 24         # historique gardé ; au-delà le prompt gonfle sans fi
 
 
 def _empreinte_code():
-    """Identifie la version exacte du code. Le dépôt n'a pas encore de commit,
-    donc un hash du contenu des sources : sans ça, deux traces ne sont pas
-    comparables — on ne saurait pas si un écart vient du réglage ou du code."""
+    """Identifie la version exacte du code ET des catalogues.
+
+    Hash du contenu plutôt que le seul commit : on trace couramment un dépôt
+    modifié, et sans ça deux traces ne sont pas comparables — on ne saurait pas
+    si un écart vient du réglage ou du code. Les catalogues en font partie : le
+    prompt système, les jetons et les exemples sont le principal levier de
+    comportement du système, et deux prompts différents donnaient jusqu'ici la
+    même empreinte."""
     h = hashlib.sha256()
     ici = os.path.dirname(os.path.abspath(__file__))
-    for nom in sorted(("audio.py", "stt.py", "llm.py", "tts.py",
-                       "pipeline.py", "journal.py")):
+    fichiers = [os.path.join(ici, nom) for nom in
+                sorted(("audio.py", "stt.py", "llm.py", "tts.py",
+                        "pipeline.py", "journal.py"))]
+    fichiers += sorted(glob.glob(os.path.join(ici, "locales", "*.toml")))
+    for chemin in fichiers:
         try:
-            with open(os.path.join(ici, nom), "rb") as f:
+            with open(chemin, "rb") as f:
                 h.update(f.read())
         except FileNotFoundError:
             pass
@@ -83,11 +91,18 @@ class Session:
         self.silence = cat["divers"]["silence"]
         self.jetons = cat["jetons"]
         self.etats = cat["etats"]
-        self.voix = tts.Speaker(engine or tts.ENGINE)
+        # En muet on garde un locuteur qui DURE : sans lui `speaking()` reste
+        # faux, l'état « je parle » n'est jamais envoyé et la coupure devient
+        # impossible — on mesurerait un autre système que celui qu'on livre.
+        # La voix suit la langue demandée : sans ça `--langue en` faisait lire
+        # l'anglais par une voix française, et les deux clés du catalogue
+        # (`voix_piper`, `espeak`) n'étaient lues par personne.
+        _voix = tts.voix_pour(cat["divers"].get("voix_piper"))
+        _lg = cat["divers"].get("espeak", langue)
+        self.voix = (tts.Silencieux(voice=_voix, langue=_lg) if muet
+                     else tts.Speaker(engine or tts.ENGINE, voice=_voix, langue=_lg))
         self.muet = muet
-        if muet:
-            self.voix.say = lambda t: None   # mesure seule : rien ne sort, donc
-        self.robot_parle = False             # rien ne peut nous revenir non plus
+        self.robot_parle = False
         self.trace = None
         if trace_dir:
             # importé seulement ici : sans --trace, pas de module, pas de thread,
@@ -131,6 +146,7 @@ class Session:
         self.texte_dit = ""         # ce qu'on est en train de prononcer
         self.en_vol = False         # un appel réseau est en cours
         self.t_vol = 0.0            # depuis quand
+        self.seq = 0                # numéro de l'appel en cours
         self.micro_tours = []       # historique alterné vu par le modèle
         self.stats = []
 
@@ -177,13 +193,59 @@ class Session:
         mv = self.vu.split()
         if not mc:
             return self.silence
-        k = 0
-        while k < len(mc) and k < len(mv) and self._cle(mc[k]) == self._cle(mv[k]):
-            k += 1
-        reste = " ".join(mc[k:]).strip()
-        return reste or self.silence
+        if not mv:
+            return " ".join(mc).strip() or self.silence
+        # Ancrage par la QUEUE, pas par la tête. Un préfixe commun tombe à zéro
+        # dès que whisper corrige un mot du début, insère une hésitation ou fait
+        # glisser sa fenêtre au-delà de PLAFOND_S — et on renvoyait alors toute
+        # la phrase comme si elle venait d'être dite. Mesuré deux fois en 20 s.
+        # Les derniers mots déjà vus, eux, restent stables : on les retrouve et
+        # on coupe juste après.
+        cv = [self._cle(m) for m in mv]
+        cc = [self._cle(m) for m in mc]
+        for taille in (3, 2, 1):
+            if len(cv) < taille:
+                continue
+            queue = cv[-taille:]
+            for i in range(len(cc) - taille, -1, -1):
+                if cc[i:i + taille] == queue:
+                    return " ".join(mc[i + taille:]).strip() or self.silence
+        # Plus aucun repère : la fenêtre a entièrement changé. Ne jamais rendre
+        # plus de mots qu'il n'en est apparu depuis le tick précédent, sinon on
+        # présente au modèle un énoncé ancien comme s'il était neuf.
+        neufs = max(0, len(mc) - len(mv))
+        return " ".join(mc[len(mc) - neufs:]).strip() or self.silence
 
-    def _interroger(self, delta):
+    def _est_echo(self, delta):
+        """Reconnaît sa propre voix dans ce que le STT vient de rendre.
+
+        Sans casque, le micro reprend le haut-parleur : whisper transcrit la
+        phrase du robot, le modèle voit du texte pendant qu'il parle et répond
+        ME_COUPE. Observé deux fois sur deux — il ne finissait aucune phrase.
+        La porte ne suffit pas : elle laisse passer environ une seconde d'écho
+        après chaque recalibrage, et c'est assez.
+
+        On ne coupe donc que si le delta apporte des mots qui ne sont PAS dans
+        ce qu'on est en train de prononcer. Une vraie interruption en apporte
+        toujours ; un écho, jamais."""
+        if not self.texte_dit:
+            return False
+        dit = {self._cle(m) for m in self.texte_dit.split()}
+        dit.discard("")
+        # Le marqueur d'état est notre propre préfixe, pas de la parole entendue.
+        nu = delta
+        for marqueur in self.etats.values():
+            if nu.startswith(marqueur):
+                nu = nu[len(marqueur):]
+                break
+        mots = [self._cle(m) for m in nu.split()]
+        mots = [m for m in mots if m and m != self._cle(self.silence)]
+        if not mots:
+            return False
+        inconnus = [m for m in mots if m not in dit]
+        return len(inconnus) <= len(mots) // 2
+
+    def _interroger(self, delta, seq):
         """Tourne dans son thread. Ne DOIT jamais mourir sans reposer sa réponse :
         sinon `en_vol` reste vrai pour toujours, plus aucune décision n'est prise,
         et le système se tait définitivement — sans le moindre message."""
@@ -191,7 +253,7 @@ class Session:
             action, texte, dt = self.decideur.decide(delta, list(self.micro_tours))
         except Exception as e:
             action, texte, dt = "error", f"{type(e).__name__}: {e}"[:90], 0.0
-        self.q.put(("decision", (action, texte, delta, dt), time.time() - self.t0))
+        self.q.put(("decision", (action, texte, delta, dt, seq), time.time() - self.t0))
 
     def _tick(self):
         """Un tour d'horloge : on consulte le modèle, quoi qu'il se soit passé."""
@@ -222,10 +284,21 @@ class Session:
         self.vu = self.transcript
         self.en_vol = True
         self.t_vol = time.time()
-        threading.Thread(target=self._interroger, args=(delta,), daemon=True).start()
+        self.seq += 1
+        threading.Thread(target=self._interroger, args=(delta, self.seq),
+                         daemon=True).start()
 
-    def _appliquer(self, action, texte, delta, dt):
+    def _appliquer(self, action, texte, delta, dt, seq):
         """L'action découle mécaniquement de l'état perçu."""
+        # Le chien de garde relance sans pouvoir annuler le thread parti : sa
+        # réponse arrive quand même, décrivant une phrase vieille de plusieurs
+        # secondes. L'appliquer faisait parler par-dessus le tour en cours,
+        # écrivait l'historique dans le désordre, et remettait `en_vol` à faux
+        # alors qu'un appel plus récent était encore en vol — d'où un troisième
+        # appel, une file derrière le verrou, et le chien de garde en cascade.
+        if seq != self.seq:
+            self.log(f"⌛ ({dt:.2f}s) décision périmée, ignorée")
+            return
         self.en_vol = False
         self.stats.append((action, dt))
         if action == "error":
@@ -252,7 +325,9 @@ class Session:
             # qu'on parle coupe la synthèse. Faire dépendre l'interruption du
             # seul label INTERRUPTING la rendait impossible — il n'a jamais été
             # émis une seule fois sur 153 décisions.
-            if self.voix.speaking() and not delta.strip().endswith(self.silence):
+            if (self.voix.speaking()
+                    and not delta.strip().endswith(self.silence)
+                    and not self._est_echo(delta)):
                 self.voix.stop()
                 self.log("✂  coupé, tu reprends la parole")
                 if self.trace:
@@ -271,8 +346,16 @@ class Session:
     # ---------- boucle principale ----------
     def run(self):
         prochain = time.time() + TICK_S
+        # Sur `eof` on sortait immédiatement : le dernier tick n'était pas joué
+        # et l'appel en vol était abandonné (17 appels pour 16 réponses sur un
+        # audio de 20 s). Sur les clips courts d'un banc, le tour final est
+        # justement celui qu'on mesure. On se donne deux ticks pour finir.
+        echeance = None
         try:
             while True:
+                if echeance is not None and (time.time() > echeance
+                                             or not self.en_vol):
+                    break
                 try:
                     kind, payload, t = self.q.get(timeout=0.05)
                 except queue.Empty:
@@ -280,7 +363,9 @@ class Session:
                 now = time.time()
 
                 if kind == "eof":
-                    break
+                    if echeance is None:
+                        echeance = time.time() + 2 * TICK_S
+                    continue
                 elif kind == "decision":
                     self._appliquer(*payload)
                 elif kind in ("partial", "final"):

@@ -12,12 +12,25 @@ Deux moteurs, choisis par MICROTURN_TTS :
 Aucun shell n'est utilisé : les processus sont chaînés directement, ce qui évite
 le quoting, un /bin/sh par phrase, et les surprises de `echo` sous dash (Pi OS).
 """
-import json, os, subprocess, threading
+import json, os, subprocess, threading, time
 
 ENGINE = os.environ.get("MICROTURN_TTS", "piper")
 PIPER = os.path.expanduser(os.environ.get("MICROTURN_PIPER", "~/.local/bin/piper"))
 VOICE = os.path.expanduser(os.environ.get(
     "MICROTURN_VOICE", "~/.local/share/piper/fr_FR-siwis-medium.onnx"))
+
+
+def voix_pour(nom, defaut=VOICE):
+    """Chemin du modèle piper pour un nom de voix de catalogue (« en_US-amy-medium »).
+
+    Une voix posée explicitement dans MICROTURN_VOICE l'emporte : c'est un
+    réglage de la machine, le catalogue n'est qu'un défaut par langue.
+    Si le fichier n'existe pas on garde le défaut — mieux vaut la mauvaise
+    langue qu'un système muet sans un mot d'explication."""
+    if os.environ.get("MICROTURN_VOICE") or not nom:
+        return defaut
+    chemin = os.path.join(os.path.dirname(defaut), nom + ".onnx")
+    return chemin if os.path.exists(chemin) else defaut
 
 
 def voice_rate(voice=VOICE, default=22050):
@@ -31,9 +44,10 @@ def voice_rate(voice=VOICE, default=22050):
 
 
 class Speaker:
-    def __init__(self, engine=ENGINE, voice=VOICE):
+    def __init__(self, engine=ENGINE, voice=VOICE, langue="fr"):
         self.engine = engine
         self.voice = voice
+        self.langue = langue                 # code espeak-ng, pas le nom du fichier
         self.rate = voice_rate(voice)
         self.procs = []                      # tous les fils vivants, pas seulement le dernier
         self.lock = threading.RLock()
@@ -41,7 +55,7 @@ class Speaker:
     # -- interne : lance la chaîne de processus, verrou déjà tenu --
     def _spawn(self, text):
         if self.engine == "espeak":
-            p = subprocess.Popen(["espeak-ng", "-v", "fr", "-s", "165", text],
+            p = subprocess.Popen(["espeak-ng", "-v", self.langue, "-s", "165", text],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
             return [p]
@@ -108,8 +122,58 @@ class Speaker:
                 pass
 
 
+class Silencieux:
+    """Locuteur qui ne produit aucun son mais dure le temps qu'il faut.
+
+    Neutraliser `say` en `lambda t: None` — ce que faisait `--muet` — rendait
+    `speaking()` toujours faux. Conséquence : l'état « je parle » n'était jamais
+    transmis au modèle, la coupure devenait structurellement impossible, et la
+    fenêtre « je viens de répondre » démarrait trop tôt. Une session en `--muet`
+    n'exerçait donc pas le même système que celle qu'on livre, alors que le
+    protocole s'en sert pour comparer deux versions du code.
+
+    Ici la parole a une durée simulée : attaque du moteur, puis débit de lecture.
+    Les deux valeurs sont des mesures (cf. RESULTATS.md), pas des estimations de
+    confort — elles sont tracées dans meta.json pour rester discutables.
+    """
+    ATTAQUE_S = 0.95        # piper : du retour de say() au premier échantillon
+    DEBIT_CAR_S = 14.0      # voix fr_FR-siwis-medium, lecture normale
+
+    def __init__(self, engine="muet", voice=VOICE, langue="fr"):
+        # Même surface que Speaker : `meta.json` lit `engine` et `voice`, et une
+        # trace qui ne dit pas qu'elle est muette n'est pas comparable.
+        self.engine = engine
+        self.voice = voice
+        self.langue = langue
+        self.rate = voice_rate(voice)
+        self.fin = 0.0
+        self.lock = threading.RLock()
+
+    def duree(self, text):
+        return self.ATTAQUE_S + len(text.strip()) / self.DEBIT_CAR_S
+
+    def say(self, text):
+        text = (text or "").strip()
+        if not text:
+            return
+        with self.lock:
+            self.fin = time.monotonic() + self.duree(text)
+
+    def stop(self):
+        with self.lock:
+            self.fin = 0.0
+
+    def speaking(self):
+        with self.lock:
+            return time.monotonic() < self.fin
+
+    def wait(self):
+        while self.speaking():
+            time.sleep(0.02)
+
+
 if __name__ == "__main__":
-    import sys, time
+    import sys
     txt = " ".join(sys.argv[1:]) or "Bonjour Alex, je suis microturn, et je parle en local."
     for eng in ("espeak", "piper"):
         if eng == "piper" and not os.path.exists(PIPER):

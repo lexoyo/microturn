@@ -132,7 +132,18 @@ class Whisper:
                                        # le tube, lui, a bien été vidé
                 bloc = np.frombuffer(data, np.int16).astype(np.float32) / 32768
                 with garde:
-                    buf = np.concatenate([buf, bloc])
+                    if self._raz:
+                        # Le vidage se fait ICI, dans le lecteur, et pas dans le
+                        # thread de décodage : celui-ci est presque toujours au
+                        # milieu d'une passe (plus d'une seconde ici, plusieurs
+                        # secondes sur un Pi) et vidait alors tout le tampon —
+                        # y compris l'audio arrivé PENDANT la passe. C'était
+                        # jeter la parole de l'utilisateur juste au moment où il
+                        # est le plus susceptible de couper.
+                        buf = bloc
+                        self._raz = False
+                    else:
+                        buf = np.concatenate([buf, bloc])
                     trop = len(buf) - int(PLAFOND_S * audio.RATE)
                     if trop > 0:               # garde-fou : un tour interminable
                         buf = buf[trop:]       # ne doit pas faire exploser le coût
@@ -142,13 +153,12 @@ class Whisper:
         th.start()
 
         dernier = ""
+        gen_vu = self._gen
         while not stop.is_set():
             if fini.is_set():
                 break
-            if self._raz:
-                with garde:
-                    buf = np.empty(0, dtype=np.float32)
-                self._raz = False
+            if gen_vu != self._gen:      # un tour s'est fermé entre-temps
+                gen_vu = self._gen
                 dernier = ""
             with garde:
                 fenetre = buf.copy()
