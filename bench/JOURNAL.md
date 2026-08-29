@@ -755,3 +755,68 @@ Et côté latence sur le Pi, quatre défauts trouvés en session réelle et invi
 au rejeu : la porte qui jetait 81 % de l'audio, le mono-thread de sherpa qui en
 perdait 38 %, le tampon qui accumulait du retard, et `aplay` sans périphérique
 qui parlait dans le vide.
+
+## Le TTS en session réelle : trois bugs que le rejeu ne pouvait pas voir
+
+Tous dans `Speaker`, la classe que **ni le rejeu ni les tests de fumée
+n'exécutaient** — ils tournent en `--muet`, donc sur `Silencieux`. C'est la
+classe la plus modifiée du 29/08, et la seule sans couverture.
+
+### 1. `aplay` ne se terminait jamais
+
+Avec piper résident, le tube d'`aplay` ne se ferme plus : `aplay` attend
+indéfiniment, et `speaking()` — qui teste « est-ce qu'`aplay` tourne » — répond
+vrai pour le reste de la session.
+
+Mesuré sur `134719` : **neuf « coupures » sur treize prises de parole, dont huit
+APRÈS la fin de la phrase.** Une phrase de 3,4 s « coupée » 18,5 s après son
+début. Le système se croyait en train de parler en permanence, donc chaque mot
+d'Alex déclenchait une coupure, et l'état « je parle » envoyé au décideur était
+faux tout du long.
+
+`bench/coupures.py` mesure l'avancement dans la phrase au moment de la coupure :
+c'est un avancement médian de **100 %** qui a révélé l'absurdité.
+
+### 2. La phrase coupée mangeait la suivante
+
+Après un `stop()`, piper garde le PCM de la phrase interrompue et le sert au
+prochain `aplay` : on entend la fin de l'ancienne, puis le silence qui suit
+ferme `aplay` et la nouvelle ne sort jamais. Le compteur de génération censé
+l'empêcher était inopérant — je comparais `gen` à `self._gen` après les avoir
+lus ensemble, donc toujours égaux.
+
+### 3. Le découpage coupait la phrase en tranches
+
+« Bonjour ceci … est un test un peu plus long ». Le détecteur de fin de phrase
+(0,35 s sans PCM) se déclenchait ENTRE deux morceaux. C'était le risque n° 1
+écrit dans la QC du candidat 60, et il s'est produit exactement comme prévu.
+
+Corrigé en comptant les morceaux restants ; et les morceaux sont désormais
+servis **un par un**, car les écrire d'un coup laissait piper synthétiser toute
+la phrase même après un `stop()` — sur le Pi, couper le robot le rendait muet
+plusieurs secondes.
+
+### Ce que ça change à la méthode
+
+`tests/son_reel.py` exerce `Speaker` pour de vrai, et tourne dans la fumée. Il a
+attrapé le bug n° 2 dès sa première exécution.
+
+Et une constante de plus calibrée sur la mauvaise machine : les délais du test
+lui-même. `MICROTURN_TEST_LENT=3` sur le Pi. Après `ATTAQUE_S` (facteur 3),
+`DEBIT_CAR_S` (le robot parle 2,4 s pour 4,0 s estimées) et le nombre de threads
+de sherpa, **c'est la quatrième fois dans la journée.** Le rapport de puissance
+entre shiao et le Pi est d'environ trois, et il faut le supposer partout où une
+durée est écrite en dur.
+
+## Candidat 59 abandonné — implémentation fausse par construction
+
+Exiger N ticks de silence avant de parler rend le système **totalement muet**
+(0,500 = zéro prise de parole, avec 1 comme avec 2 ticks).
+
+La raison est logique : je teste `self.silences` au moment où le modèle décide de
+parler — or s'il décide de parler, c'est qu'il vient d'entendre du texte, donc
+le compteur est à zéro par construction. La condition n'est jamais satisfaite.
+
+Le faire correctement demanderait de mettre la réponse en attente et de la
+redéclencher N ticks plus tard. Vu que le coût en latence était déjà rédhibitoire
+(1,2 s par tick sur une latence de 0,33 s), abandonné plutôt qu'approfondi.
