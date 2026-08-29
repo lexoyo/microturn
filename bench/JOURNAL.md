@@ -27,7 +27,8 @@ en croyant l'avoir trouvé.
 | 1 | 5e05e6e | **base**, mesurée sur DEUX sessions au lieu d'une | 0,634 | 11/17 | 11/29 | 7,32 / 5,03 s | mesure en temps réel, non reproductible |
 | 2 | 5713507 | rejeu **déterministe** : horloge virtuelle, appel bloquant | 0,681 | 12/17 | 10/29 | 5,8 / 4,0 s | nouvelle base |
 | 2' | 5713507 | *(contrôle : la même mesure, refaite)* | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **bruit résiduel 0,017** — quatre fois moins qu'avant |
-| 3 | — | `[=]` horizon 10 micro-tours système (`MICRO_TOURS` 48 → 20) | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **gardé.** Score inchangé, contexte plus que divisé par deux |
+| 3 | 4f0e1e6 | `[=]` horizon 10 micro-tours système (`MICRO_TOURS` 48 → 20) | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **gardé.** Score inchangé, contexte plus que divisé par deux |
+| 4 | — | `[=]` `TICK_S` 1,2 → 0,6 s (leur valeur en pratique) | 0,698 | 12/17 | 9/29 | 6,0 / 4,6 s | **rejeté.** Deux fois plus d'appels, latence inchangée |
 
 ### Ce que la deuxième session change
 
@@ -97,3 +98,18 @@ file et il est gratuit.
 
 L'itération 1 de l'ancienne série avait AUGMENTÉ l'horizon de 24 à 48 en pariant
 qu'il était trop court, sans gain. Personne n'avait essayé dans l'autre sens.
+
+
+### Test 4 — leur horloge n'a pas de sens sans leur latence
+
+`TICK_S` à 0,6 s : score rigoureusement identique (0,698, mêmes 12/17, mêmes
+9/29), pour deux fois plus d'appels et un rejeu deux fois plus long.
+
+Et surtout : **la latence ne bouge pas** — 6,0 s contre 5,8 s. C'est le résultat
+intéressant. Consulter le modèle deux fois plus souvent ne fait pas répondre
+plus vite, donc le tick n'est pas le goulot. Chez eux Δt = 0,6 s a un sens parce
+que leur latence totale est sous la seconde ; chez nous elle est à six, et
+l'horloge n'y est pour rien.
+
+Ce test répond en creux à une question qu'on n'avait pas posée : **où passent
+les six secondes ?** L'appel au modèle en prend 0,5. Le reste est ailleurs.
