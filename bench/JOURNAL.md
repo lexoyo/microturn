@@ -11,9 +11,11 @@ en croyant l'avoir trouvé.
 
 ## Les règles de lecture
 
-- **Aucun écart inférieur au bruit ne compte comme un résultat.** Le décideur est
-  un modèle distant, la lecture est en temps réel : le bruit mesuré sur une
-  session était de ±0,116. À remesurer sur deux (test n° 2).
+- **Aucun écart inférieur au bruit ne compte comme un résultat.** Bruit mesuré
+  après le passage au rejeu déterministe : **±0,017** (0,681 puis 0,698 sur la
+  même base). Avant, il était de ±0,071 sur une session. Un gain de 0,03 est
+  désormais interprétable ; en dessous, non.
+- **Base de référence : 0,690** (moyenne des deux passes de contrôle).
 - Un verdict n'est jamais « neutre » quand l'écart est sous le bruit : c'est
   **indécidable**. La nuance compte — un indécidable peut cacher un vrai gain.
 - La référence est DuplexCascade : justesse moyenne **0,858**, latence 1,2 s.
@@ -23,7 +25,8 @@ en croyant l'avoir trouvé.
 | # | commit | ce qui change | justesse | fins | pauses | latence | verdict |
 |---|--------|---------------|----------|------|--------|---------|---------|
 | 1 | 5e05e6e | **base**, mesurée sur DEUX sessions au lieu d'une | 0,634 | 11/17 | 11/29 | 7,32 / 5,03 s | mesure en temps réel, non reproductible |
-| 2 | 736b868 | rejeu **déterministe** : horloge virtuelle, appel bloquant | **0,681** | 12/17 | 10/29 | 5,8 / 4,0 s | **nouvelle base.** 2 coupures au lieu de 3 |
+| 2 | 5713507 | rejeu **déterministe** : horloge virtuelle, appel bloquant | 0,681 | 12/17 | 10/29 | 5,8 / 4,0 s | nouvelle base |
+| 2' | 5713507 | *(contrôle : la même mesure, refaite)* | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **bruit résiduel 0,017** — quatre fois moins qu'avant |
 
 ### Ce que la deuxième session change
 
