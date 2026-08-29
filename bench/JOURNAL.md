@@ -322,3 +322,29 @@ Il reste 15 % à trouver pour sherpa : un zipformer plus petit, ou 2 threads
 
 Le réglage `audio_ctx` reste un gain réel sur le Pi : **4,33 s au lieu de 7 à
 12,3 s**, soit un facteur deux sur le moteur par défaut.
+
+## sherpa TIENT le temps réel sur le Pi 3B — avec DEUX threads
+
+| threads | coût par bloc de 300 ms | max | RTF | température finale |
+|---|---|---|---|---|
+| **2** | **244 ms** | **299 ms** | **0,814** | 81,7 °C |
+| 3 | 345 ms | 1795 ms | 1,151 | 83,8 °C |
+| 4 | 499 ms | 1088 ms | 1,66 | 83,8 °C |
+
+**Moins de threads, plus vite.** Le Pi 3B throttle : à 3 ou 4 threads il passe
+son temps à 83,8 °C et perd en fréquence plus qu'il ne gagne en parallélisme.
+`RESULTATS.md` avait déjà mesuré ce renversement pour whisper (2 threads à
+73,1 °C contre 76,8 °C à 3) — il vaut aussi pour onnxruntime, plus fortement.
+
+**Et le maximum tient : 299 ms, sous le budget de 300 ms.** Pas seulement la
+médiane — aucun bloc ne dépasse. C'est ce qui sépare « ça passe en moyenne » de
+« ça ne prend jamais de retard ».
+
+Donc le compagnon vocal en flux continu tourne sur un Raspberry Pi 3B, avec un
+ASR streaming qui rend le dernier mot en 250 ms au lieu de 4,3 secondes.
+
+### Réserve : le Pi n'était pas à la même température au départ
+
+Le test à 2 threads a démarré à **54,8 °C**, les autres à chaud. Une partie de
+l'écart peut venir de là. À refaire à froid pour les trois réglages avant d'en
+faire un résultat publiable.
