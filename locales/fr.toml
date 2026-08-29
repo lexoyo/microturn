@@ -12,61 +12,79 @@
 # {tick} est remplacé par la vraie période d'horloge : l'écrire en dur ferait
 # mentir le prompt dès qu'on la change pour une expérience.
 systeme = """
-Tu écoutes quelqu'un parler. Toutes les {tick} seconde, tu reçois les mots \
-transcrits depuis la dernière fois, ou (silence) si rien n'a été dit.
+Quelqu'un te parle. Une reconnaissance vocale te transmet ce qu'elle croit \
+comprendre, par petits bouts : tu reçois une ligne à la fois, souvent au milieu \
+d'une phrase, et souvent avec des erreurs.
 
-Ton premier mot est toujours l'un de ces trois :
+Quand elle ne reconnaît rien, tu lis à la place :
 
-PARLE_ENCORE   sa phrase n'est pas finie
-A_FINI         sa phrase est finie ; ajoute alors ta réponse sur la même ligne, courte et orale
-ME_COUPE       il se remet à parler alors que la ligne commence par [je parle]
+  <|no voice|>    rien n'a été reconnu
+
+À chaque ligne, dis où en est son tour de parole. La plupart du temps sa phrase \
+n'est pas finie.
+
+  <|user is talking|>       sa phrase n'est pas finie
+  <|user finish talking|>   sa phrase est finie
+  <|user is thinking|>      il se tait, mais il réfléchit
+  <|user interruption|>     il reprend la parole alors que tu es en train de lui répondre
+  <|user backchannel|>      il dit « mhm », « oui » : un signal d'écoute, pas une prise de parole
+  <|assistant_backchannel|> c'est à toi d'émettre un « mhm »
+
+Tu réponds par un objet : {"m": "<le marqueur>"}. Avec <|user finish talking|>, \
+et seulement là, ajoute ce que tu lui dis : \
+{"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
 """
 
 [jetons]
-parle     = "PARLE_ENCORE"
-parler    = "A_FINI"
-reflechit = "REFLECHIT"   # plus enseigné : filet si le modèle l'émet quand même
-coupe     = "ME_COUPE"
+parle       = "<|user is talking|>"
+parler      = "<|user finish talking|>"
+reflechit   = "<|user is thinking|>"
+coupe       = "<|user interruption|>"
+# Leurs deux backchannel. Le code ne les traite pas encore : ils sont dans
+# l'enum, donc le modèle peut les choisir, et ils sont ramenés à « ne prends
+# pas la parole ». C'est leur sens le plus proche en attendant mieux.
+backchannel = "<|user backchannel|>"
+mhm         = "<|assistant_backchannel|>"
 
 [etats]
-parle = "[je parle]"
-vient = "[je viens de répondre]"
-muet  = "[je n'ai pas parlé]"
+parle = ""
+vient = ""
+muet  = ""
 
 [divers]
-silence    = "(silence)"
-silence_repete = "(toujours rien, depuis {n} fois)"
-bruit_sans_texte = "(ça parle, mais je ne comprends pas)"
-tour_en_cours    = "— depuis le début de son tour, elle a dit : {texte}"
+silence    = "<|no voice|>"
+silence_repete = "<|no voice|>"
+# Conforme à leur design : <|no voice|> dès que l'ASR ne rend rien, quel que
+# soit le son. Leur code ne regarde que `delta_text.strip()`.
+# La crête audio est toujours mesurée dans audio.py (seuil -40 dBFS) mais ne
+# sert plus qu'en interne — le prompt n'a que leurs marqueurs.
+bruit_sans_texte = "<|no voice|>"
 whisper    = "fr"
 espeak     = "fr"
 voix_piper = "fr_FR-siwis-medium"
+tour_en_cours = "{texte}"
 
-# Ces exemples portent le FORMAT : sans eux, la sortie devient invalide dans les
-# deux tiers des cas et le modèle repart en assistant serviable.
-# Le troisième est du vrai bruit whisper — le prompt parle de transcription
-# fausse, un exemple vaut mieux qu'un paragraphe.
 [[exemples]]
-entree = "[je n'ai pas parlé] est-ce que tu peux"
-sortie = "PARLE_ENCORE"
+entree = "est-ce que tu peux"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[je n'ai pas parlé] (silence)"
-sortie = "PARLE_ENCORE"
+entree = "<|no voice|>"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[je n'ai pas parlé] un an et plus en t'es non assez fan ce fil"
-sortie = "PARLE_ENCORE"
+entree = "un an et plus en t'es non assez fan ce fil"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[je n'ai pas parlé] allumer la lumière du salon"
-sortie = "A_FINI C'est allumé."
+entree = "allumer la lumière du salon"
+sortie = '''{"m": "<|user finish talking|>", "r": "C'est allumé."}'''
 [[exemples]]
-entree = "[je viens de répondre] (silence)"
-sortie = "PARLE_ENCORE"
+entree = "<|no voice|>"
+sortie = '''{"m": "<|user is talking|>"}'''
 # Les deux cas que le pipeline envoie couramment et que rien ne décrivait :
 # pendant qu'on parle et que l'autre se tait, et quand l'autre repart juste
 # après notre réponse. Mesuré à 15 % des tours, avec un modèle qui s'y contredit.
 [[exemples]]
-entree = "[je viens de répondre] et aussi est-ce que tu peux"
-sortie = "PARLE_ENCORE"
+entree = "et aussi est-ce que tu peux"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[je n'ai pas parlé] quelle heure il est"
-sortie = "A_FINI Il est bientôt minuit."
+entree = "quelle heure il est"
+sortie = '''{"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}'''

@@ -36,6 +36,11 @@ TICK_S = 1.2
 # qu'elle attend. Assez long pour ne pas noyer les vraies lignes, assez court
 # pour qu'un blocage se voie tout de suite.
 BATTEMENT_S = 3.0
+# Amplitude crête au-dessus de laquelle on considère qu'il y a eu du son pendant
+# le tick. 328 sur 32768, soit -40 dBFS : le seuil par défaut de `ffmpeg
+# silencedetect`, choisi pour ne dépendre d'aucune constante maison. En dessous,
+# c'est un vrai silence ; au-dessus sans texte, la reconnaissance a échoué.
+SEUIL_VOIX = 328
 # Le marqueur de silence et les états viennent de la langue choisie : ils doivent
 # être EXACTEMENT ceux que le prompt décrit, sinon le modèle voit des marqueurs
 # qu'on ne lui a jamais présentés (c'est arrivé : « SILENCE » envoyé 53 fois
@@ -259,9 +264,18 @@ class Session:
         La porte, elle, sait s'il y a eu du son : c'est une mesure, pas une
         heuristique. Sans porte (ou en rejeu) l'information n'existe pas, et on
         retombe sur le silence — le seul cas où l'ambiguïté est inévitable."""
-        if self.porte is not None and self.porte.depuis_tick > 0:
+        cap = getattr(getattr(self, "eng", None), "cap", None)
+        if cap is not None and cap.crete > SEUIL_VOIX:
             return self.bruit_sans_texte
         return self.silence
+
+    def _muet_mesure(self):
+        """Vrai si le son de ce tick est sous le seuil de silence.
+
+        Sans porte (rejeu, ou capture sans mesure) l'information n'existe pas :
+        on ne peut alors rien affirmer, donc on ne bloque rien."""
+        cap = getattr(getattr(self, "eng", None), "cap", None)
+        return cap is not None and cap.crete <= SEUIL_VOIX
 
     def _delta(self):
         """Ce qui est arrivé DEPUIS le tick précédent, ou SILENCE.
@@ -269,7 +283,17 @@ class Session:
         Le modèle a besoin de la dynamique (« ce qui vient de se dire »), pas de
         l'état (« voilà tout le tour »). Whisper re-transcrit toute la fenêtre et
         peut se corriger rétroactivement : on prend donc ce qui dépasse du
-        préfixe commun, comparé sur une forme normalisée."""
+        préfixe commun, comparé sur une forme normalisée.
+
+        Deux sources décident de <|no voice|>, pas une : la reconnaissance qui
+        ne rend rien, ET la mesure du son. Le filtre lexical de `stt.utile` ne
+        rattrape que les artefacts CONNUS (génériques de sous-titres, mots de
+        bruitage) ; sur un tick réellement silencieux, whisper invente aussi des
+        phrases plausibles qu'aucune liste ne peut prévoir. La crête, elle, est
+        une mesure : sous le seuil, il ne s'est rien dit, quoi qu'ait rendu le
+        décodeur."""
+        if self._muet_mesure():
+            return self.silence
         mc = self.transcript.split()
         mv = self.vu.split()
         if not mc:
@@ -347,8 +371,9 @@ class Session:
             else:
                 return              # un seul appel en vol ; le texte s'accumule
         delta = self._delta()
-        if self.porte is not None:
-            self.porte.depuis_tick = 0
+        cap = getattr(getattr(self, "eng", None), "cap", None)
+        if cap is not None:
+            cap.crete = 0
         # Sans ça, COUPE est indécidable : le prompt le définit comme « elle se
         # remet à parler alors que je suis en train de parler », information
         # qu'on ne transmettait jamais. C'est aussi la première source de

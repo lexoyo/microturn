@@ -69,13 +69,13 @@ def _lire_catalogue(langue):
                              f"{', '.join(manque)}")
     if not cat.get("systeme", "").strip():
         raise SystemExit(f"{chemin} : `systeme` vide ou absent")
-    if "{tick}" not in cat["systeme"]:
-        raise SystemExit(f"{chemin} : `systeme` doit contenir {{tick}}, sinon le "
-                         f"prompt ment sur la période d'horloge")
-    if "{n}" not in cat["divers"]["silence_repete"]:
-        raise SystemExit(f"{chemin} : `silence_repete` doit contenir {{n}}, "
-                         f"sinon le modèle ne sait pas depuis combien de tours "
-                         f"il n'entend rien")
+    # `silence_repete` peut valoir le même marqueur que `silence` : c'est le
+    # design de DuplexCascade, qui n'a qu'un seul <|no voice|> et ne compte pas
+    # les silences. La contrainte sur {n} ne vaut donc que si les deux diffèrent.
+    rep = cat["divers"]["silence_repete"]
+    if rep != cat["divers"]["silence"] and "{n}" not in rep:
+        raise SystemExit(f"{chemin} : `silence_repete` doit contenir {{n}} ou "
+                         f"valoir `silence`, sinon le compte est perdu en route")
     if not cat.get("exemples"):
         raise SystemExit(f"{chemin} : aucun exemple — sans eux la sortie du modèle "
                          f"devient invalide dans les deux tiers des cas")
@@ -121,6 +121,24 @@ def lire_controle(txt, langue="fr"):
     t = (txt or "").strip().strip("`*\"'")
     if not t:
         return "format", ""
+    # Sortie contrainte : {"m": "<jeton>", "r": "réponse"}. On la reconnaît
+    # avant tout le reste ; le parsing texte demeure pour les cas où la
+    # contrainte n'a pas pu s'appliquer (modèle sans schéma, rejeu d'anciennes
+    # traces), et il ne doit jamais devenir le chemin normal.
+    if t.startswith("{"):
+        try:
+            d = json.loads(t)
+        except ValueError:
+            d = None
+        if isinstance(d, dict) and d.get("m"):
+            j = catalogue(langue)["jetons"]
+            reponse = (d.get("r") or "").strip()
+            for cle in ("parler", "reflechit", "coupe", "parle"):
+                if d["m"] == j.get(cle):
+                    if cle == "parler":
+                        return ("parler", reponse) if reponse else ("parler_sans_texte", "")
+                    return cle, ""
+            return "format", t
     parts = t.split(None, 1)      # blancs, et non " " : un saut de ligne avalait
     mot = parts[0].strip(":.,!?<>[]()").upper()   # la réponse
     reste = parts[1].strip() if len(parts) > 1 else ""
@@ -218,6 +236,7 @@ class Decideur:
         self.langue = langue
         self.systeme = systeme(langue, tick)
         self.exemples = catalogue(langue)["exemples"]
+        self.jetons = catalogue(langue)["jetons"]
         self.conn = None
         self.lock = threading.Lock()
 
@@ -260,13 +279,30 @@ class Decideur:
         # `stop` interdit structurellement une sortie multi-lignes ; `temperature`
         # à 0 parce qu'à 0,3 dix décisions sur vingt-et-une changeaient d'une
         # passe à l'autre, ce qui rendait tout rejeu incomparable.
-        corps = {"model": self.model, "messages": msgs, "max_tokens": 40,
-                 "temperature": 0, "stop": ["\n"]}
+        # Le format n'est plus ESPÉRÉ, il est IMPOSÉ au décodage. Un enum sur
+        # les jetons du catalogue : le modèle ne peut structurellement pas en
+        # inventer un, ni sortir du format. C'est notre équivalent de ce que
+        # leur fine-tuning garantit — eux apprennent le format, nous le
+        # contraignons.
+        # Mesuré cette nuit : 122 décisions sur 122 perdues parce que le
+        # parseur découpait sur le premier mot, alors que le modèle répondait
+        # parfaitement. Coût : environ dix tokens de sortie en plus, soit 0,2 s.
+        jetons = list(dict.fromkeys(self.jetons.values()))
+        corps = {"model": self.model, "messages": msgs, "max_tokens": 60,
+                 "temperature": 0,
+                 "response_format": {"type": "json_schema", "json_schema": {
+                     "name": "tour", "strict": True, "schema": {
+                         "type": "object",
+                         "properties": {
+                             "m": {"type": "string", "enum": jetons},
+                             "r": {"type": "string"}},
+                         "required": ["m"], "additionalProperties": False}}}}
         # Le prompt exact part dans la trace, système et historique compris : c'est
         # la seule façon de comprendre APRÈS COUP pourquoi le modèle a mal tranché.
         # La clé, elle, ne voyage que dans les en-têtes et n'est jamais écrite.
         self._tracer("llm_appel", modele=self.model, langue=self.langue,
-                     messages=msgs, max_tokens=40, temperature=0)
+                     messages=msgs, max_tokens=60, temperature=0,
+                     contraint=True)
         t0 = time.time()
         try:
             with self.lock:

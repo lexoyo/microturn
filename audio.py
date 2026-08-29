@@ -279,6 +279,7 @@ class Capteur:
         # latence réseau du moment. Ici, la même entrée donne toujours les mêmes
         # positions.
         self.lus = 0
+        self.crete = 0              # remis à zéro par le pipeline à chaque tick
 
     def lire(self):
         """Rend le prochain bloc PCM, b'' si la porte l'a jeté, None à la fin."""
@@ -286,6 +287,16 @@ class Capteur:
         if not data:
             return None
         self.lus += len(data) // 2       # 16 bits mono
+        # Crête de l'audio BRUT depuis le dernier tick, avant la porte et avant
+        # tout seuil. Sert à distinguer « personne ne parle » de « la
+        # reconnaissance n'a rien compris » — deux situations que DuplexCascade
+        # confond sous <|no voice|>, puisque leur marqueur ne dépend que de
+        # l'ASR. Une mesure du son, pas une déduction.
+        if data:
+            import array
+            self.crete = max(self.crete,
+                             max((abs(x) for x in array.array("h", data)),
+                                 default=0))
         if self.trace is not None:
             self.trace.pcm(data)         # avant la porte : entree.wav doit être
         if self.porte is None:           # le flux réel, pour pouvoir le rejouer
