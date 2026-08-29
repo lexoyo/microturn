@@ -296,3 +296,29 @@ modèle non entraîné, **une affirmation sur l'entrée pèse plus lourd que
 l'entrée elle-même.** C'est ce qui rend le prompting puissant, et c'est
 exactement ce qui le rend fragile — la même phrase, à un moteur près, fait
 gagner treize points ou en perdre vingt.
+
+## Sur le Pi 3B : personne ne tient le temps réel, mais pas au même prix
+
+| moteur | mesure sur `raspi2` | rafraîchit le texte toutes les | verdict |
+|---|---|---|---|
+| whisper `tiny`, fenêtre 20 s, ctx 1152 | 7 à 12,3 s par passe | ~10 s | inutilisable |
+| whisper `tiny`, fenêtre 10 s, **ctx 512** | 4,33 s médiane (max 16,35) | ~4,3 s | deux fois mieux, toujours trop lent |
+| **sherpa-onnx** | 345 ms par bloc de 300 ms · RTF 1,151 | **0,35 s** | manque 15 % |
+
+**J'avais conclu trop vite que sherpa était disqualifié sur le Pi.** Son RTF de
+1,151 se lit mal en face du 0,62 de whisper : ce sont deux grandeurs
+différentes. Whisper re-décode 10 s d'audio à chaque passe, donc son RTF « par
+passe » cache le fait qu'il ne rend un texte que toutes les 4,3 secondes. sherpa
+rend un texte toutes les 350 ms, avec 15 % de retard cumulé.
+
+**Sur la cible, sherpa rafraîchit le texte douze fois plus souvent que whisper.**
+C'est exactement ce qui gouverne les 3,7 s de délai mesurées ici. Le bon
+critère n'est pas le RTF mais le **délai de restitution du dernier mot**, et sur
+ce critère whisper perd d'un ordre de grandeur.
+
+Il reste 15 % à trouver pour sherpa : un zipformer plus petit, ou 2 threads
+(le Pi throttle à 83,8 °C dès 4 threads, et `RESULTATS.md` avait déjà mesuré que
+2 threads tiennent à 73 °C). À tester.
+
+Le réglage `audio_ctx` reste un gain réel sur le Pi : **4,33 s au lieu de 7 à
+12,3 s**, soit un facteur deux sur le moteur par défaut.
