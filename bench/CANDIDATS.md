@@ -242,3 +242,79 @@ Quatre niveaux de `response_format`, et vérification de chaque sortie.
 - *Ce que ça rend faux ailleurs* : rien, le motif reste ancré sur
   « sous-titres ».
 - *Non mesuré* : rien.
+
+---
+
+## Nouveaux candidats — issus des sessions réelles du 29/08
+
+La file d'origine venait du rejeu. Ces cinq-là viennent de ce qu'on a entendu, et
+trois d'entre eux visent des défauts que le rejeu ne pouvait pas produire.
+
+### 55. Offrir `<|assistant_backchannel|>` comme porte de sortie  `[=]`
+
+Cinq réponses sur seize étaient des relances vides — « Je t'écoute », « Vas-y ».
+Le modèle prend la parole parce qu'il n'a que deux options : parler ou se taire.
+
+- *Ce que ça montre* : si le défaut est « quand parler » ou « quoi dire quand on
+  n'a rien à dire ». P1/P2/P3 ont testé le premier et échoué ; personne n'a testé
+  le second.
+- *Seuil* : les relances vides se comptent directement (5/16). Passer sous 2 est
+  visible sans statistique.
+- *Ce que ça rend faux ailleurs* : un marqueur de plus qui sort, c'est un
+  `finish talking` de moins. À lire avec les fins de tour.
+- *Non mesuré* : ce que le pipeline FAIT d'un `assistant_backchannel` — il le
+  ramène à « ne prends pas la parole », donc muet. Émettre un vrai « mmh »
+  demanderait du code.
+- **Conforme au papier** : c'est un de leurs sept marqueurs, et le seul qu'on
+  n'exploite pas.
+
+### 56. Calibrer la porte sur la machine  `[~]`
+
+Sur le Pi elle jette 81 % de l'audio ; sur shiao, désactivée, tout marche.
+
+- *Ce que ça montre* : si le seuil est réglable pour laisser passer une voix
+  normale tout en bloquant l'écho, ou si le compromis n'existe pas sans casque.
+- *Seuil* : `blocs_jetes` / `blocs_transmis` — aujourd'hui 586/134, il faut
+  l'inverse.
+- *Ce que ça rend faux ailleurs* : une porte trop ouverte fait revenir
+  l'auto-coupure sur écho, mesurée 4/4 le matin avec whisper.
+- *Non mesuré* : le seuil réel de l'écho HDMI à volume réduit — Alex a baissé le
+  son entre-temps, ce qui change la donne.
+
+### 57. Une identité dans le prompt, à nouveau  `[~]`
+
+« Je suis un grand modèle linguistique, entraîné par Google » : 2 fois sur 16.
+
+- *Ce que ça montre* : le test 36 a été mesuré à 0,668 contre 0,690 et rejeté —
+  mais en REJEU, où ce tic est invisible parce qu'il n'affecte pas les marqueurs.
+  Le vrai coût est en session, et il n'a jamais été compté.
+- *Seuil* : nombre d'occurrences, pas la justesse.
+- *Ce que ça rend faux ailleurs* : mesuré −0,022 en justesse. Le compromis est
+  donc explicite : deux tics en moins contre un peu de justesse.
+- *Non mesuré* : rien.
+
+### 58. Fixer le tutoiement  `[~]`
+
+Il alterne : « Je t'écoute » puis « Je peux vous aider avec autre chose ».
+
+- *Ce que ça montre* : si une contrainte de registre tient sur 16 réponses. Un
+  mot dans le prompt, coût nul.
+- *Seuil* : compter les vouvoiements. Aujourd'hui 6 sur 16.
+- *Ce que ça rend faux ailleurs* : c'est une règle de plus, et cinq règles ont
+  déjà échoué. Mais celle-ci ne porte pas sur la DÉCISION, seulement sur la
+  forme de `r` — elle ne devrait pas déplacer les marqueurs.
+- *Non mesuré* : rien.
+
+### 59. Exiger N ticks de silence avant de parler  `[~]`
+
+Le levier code, après l'échec des trois variantes de prompt.
+
+- *Ce que ça montre* : si la prudence s'obtient mieux par une contrainte
+  mécanique que par le prompt. `finish talking` ne déclencherait la parole
+  qu'après N ticks sans texte neuf.
+- *Seuil* : les cinq relances vides, et les pauses ratées (3/22 aujourd'hui).
+- *Ce que ça rend faux ailleurs* : **ça ajoute N × 1,2 s de latence à CHAQUE
+  réponse**, sur une latence qu'on vient de descendre à 0,33 s. C'est le
+  compromis le plus coûteux de la liste, et il faut le mesurer avant d'y croire.
+- *Non mesuré* : rien, mais l'arbitrage latence/justesse est à trancher par Alex,
+  pas par le score.
