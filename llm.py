@@ -160,6 +160,55 @@ KEY = _key()          # lue une fois, pas à chaque décision
 
 # ---------------------------------------------------------------- décideur
 
+class Simule:
+    """Décideur factice, déterministe, hors ligne. Aucun appel réseau.
+
+    Sert à deux choses que le vrai modèle ne permet pas :
+
+    - **Isoler le bruit de mesure.** Sur le banc, l'écart entre deux passes
+      identiques mêle le non-déterminisme du modèle distant, la latence réseau
+      et le cadencement temps réel. Avec ce décideur, la part du modèle tombe à
+      zéro : ce qui reste est le bruit de la mécanique. On sait alors ce qu'une
+      amélioration doit dépasser pour être réelle.
+    - **Tester la mécanique gratuitement.** Le rendu, l'horloge audio, la
+      troncature au barge-in, l'assemblage du WAV : rien de tout cela n'a besoin
+      d'un modèle intelligent, et il serait absurde de payer des milliers
+      d'appels pour vérifier qu'un fichier fait la bonne longueur.
+
+    Ses règles sont volontairement bêtes et explicites — c'est un étalon, pas un
+    concurrent. Il ne doit JAMAIS servir à juger la qualité du tour de parole.
+    """
+
+    def __init__(self, model="simule", timeout=None, trace=None, langue="fr",
+                 tick=1.2):
+        self.model, self.trace, self.langue = model, trace, langue
+        cat = catalogue(langue)
+        self.jetons = cat["jetons"]
+        self.silence = cat["divers"]["silence"]
+        self.bruit = cat["divers"]["bruit_sans_texte"]
+        self.etats = cat["etats"]
+
+    def decide(self, transcript, history=None):
+        t0 = time.time()
+        nu = transcript
+        for marqueur in self.etats.values():
+            if nu.startswith(marqueur):
+                nu = nu[len(marqueur):].strip()
+                break
+        if not nu or nu.startswith("(") :
+            action, texte = "parle", ""
+        elif nu.rstrip().endswith(("?", ".", "!")):
+            action, texte = "parler", "D'accord."
+        else:
+            action, texte = "parle", ""
+        dt = time.time() - t0
+        if self.trace is not None:
+            self.trace.ev("decision", action=action, texte=texte,
+                          source="simule", transcript=transcript,
+                          latence=round(dt, 4))
+        return action, texte, dt
+
+
 class Decideur:
     """Une connexion HTTPS réutilisée, protégée par un verrou (un appel à la fois)."""
 
@@ -233,7 +282,18 @@ class Decideur:
         except Exception:
             self._tracer("llm_reponse", erreur=str(out)[:200], latence=round(dt, 3))
             return "error", str(out.get("error", out))[:90], dt
-        self._tracer("llm_reponse", brut=brut, latence=round(dt, 3))
+        # Le cache de prompt est IMPLICITE sur gemini-2.5 (automatique au-delà
+        # de 1024 tokens, lecture facturée 0,25x). Notre préfixe — système et
+        # exemples — est constant et représente l'essentiel de l'entrée, donc il
+        # devrait être servi depuis le cache. « Devrait » ne suffit pas : on
+        # trace ce que l'API dit vraiment, et le résumé de session en donne le
+        # taux. Sans ça, « le cache est activé » resterait une croyance.
+        u = out.get("usage") or {}
+        detail = u.get("prompt_tokens_details") or {}
+        self._tracer("llm_reponse", brut=brut, latence=round(dt, 3),
+                     tokens_entree=u.get("prompt_tokens"),
+                     tokens_caches=detail.get("cached_tokens"),
+                     tokens_sortie=u.get("completion_tokens"))
         action, texte = lire_controle(brut, self.langue)
         self._tracer("decision", action=action, texte=texte, source="reseau",
                      transcript=transcript, latence=round(dt, 3))

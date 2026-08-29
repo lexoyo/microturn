@@ -139,8 +139,12 @@ class Session:
                 "version_code": _empreinte_code(),
                 "machine": _machine()})
         self.porte = audio.Porte(porte, self.trace) if porte > 0 else None
-        self.decideur = llm.Decideur(model=modele or llm.MODEL, trace=self.trace,
-                                     langue=langue, tick=TICK_S)
+        # `--modele simule` : décideur déterministe hors ligne. Il ne juge rien,
+        # il sert d'étalon — il donne le bruit de mesure de la mécanique seule,
+        # sans le non-déterminisme du modèle distant ni la latence réseau.
+        fabrique = llm.Simule if (modele or "") == "simule" else llm.Decideur
+        self.decideur = fabrique(model=modele or llm.MODEL, trace=self.trace,
+                                 langue=langue, tick=TICK_S)
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
             robot_parle=lambda: self.robot_parle,
@@ -563,6 +567,10 @@ def main():
                          "ne veulent plus rien dire")
     ap.add_argument("--mic", default="default")
     ap.add_argument("--tts", default=None, choices=["piper", "espeak"])
+    ap.add_argument("--modele-simule", dest="modele", action="store_const",
+                    const="simule",
+                    help="décideur déterministe hors ligne : ni réseau ni coût, "
+                         "pour mesurer le bruit de la mécanique seule")
     ap.add_argument("--rendu", metavar="SORTIE.wav",
                     help="écrit un WAV de la même durée que l'entrée, avec les "
                          "réponses à leur place — le format attendu par "
