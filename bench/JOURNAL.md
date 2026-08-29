@@ -113,3 +113,26 @@ l'horloge n'y est pour rien.
 
 Ce test répond en creux à une question qu'on n'avait pas posée : **où passent
 les six secondes ?** L'appel au modèle en prend 0,5. Le reste est ailleurs.
+
+### Où passent les six secondes — décomposition
+
+Question ouverte par le test 4. Mesuré sur `073852`, dix réponses, du dernier
+mot prononcé à la décision de parler :
+
+| étape | durée | part |
+|---|---|---|
+| attente de whisper | **3,72 s** | **80 %** |
+| attente du tick suivant | 0,23 s | 5 % |
+| appel au modèle | 0,73 s | 16 % |
+| **total** | **4,68 s** | |
+
+**Quatre secondes sur cinq sont du délai de reconnaissance vocale.** Le tick n'y
+est pour rien (0,23 s), le modèle non plus (0,73 s) — ce qui explique
+rétrospectivement pourquoi diviser le tick par deux n'a rien changé : on
+optimisait 5 % du problème.
+
+Whisper travaille sur une fenêtre glissante et rend le dernier mot avec plusieurs
+secondes de retard. C'est le vrai écart avec DuplexCascade, dont l'ASR streaming
+répond en continu — et ce n'est ni le prompt, ni le modèle, ni l'horloge.
+
+**Toute optimisation de latence qui ne touche pas whisper est du bruit.**
