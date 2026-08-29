@@ -632,3 +632,56 @@ phrase entière avant de rendre la main**. Découper la réponse et ne synthéti
 que les premiers mots d'abord ramènerait ce premier échantillon à ~200 ms. C'est
 le pendant TTS du streaming LLM qu'on a écarté ce matin — sauf qu'ici le gain
 est vingt fois plus grand.
+
+## Candidat 60 — découper la réponse avant de la synthétiser
+
+La QC désignait un point non mesuré : *« le coût fixe d'un appel à piper
+résident. S'il est de 300 ms, découper en trois ne gagne rien et fait trois
+trous. »* Mesuré d'abord, codé ensuite.
+
+### Ce que la mesure préalable a montré
+
+```
+   4 car ·  563 ms          coût ≈ 330 ms fixes + 60 ms par caractère
+  18 car · 1337 ms
+  28 car · 1804 ms
+  41 car · 2805 ms
+```
+
+Le coût est **linéaire**, donc le découpage a un sens. Et surtout, en régime
+résident, `total ≈ premier échantillon` : **piper ne diffuse rien au fil de la
+synthèse**, il fabrique la phrase entière puis la sort d'un bloc. La latence
+avant le premier son EST la durée de synthèse complète.
+
+Le ratio synthèse/audio décide si les morceaux suivants arrivent à temps :
+
+```
+  medium   2,97 s pour 3,20 s d'audio   ratio 0,93   marge faible
+  low      1,72 s pour 2,97 s d'audio   ratio 0,58   confortable
+```
+
+Les deux sont sous 1, donc pas de trous — mais `medium` est à la limite.
+
+### Le résultat
+
+```
+  medium   entier  2890 ms  →  découpé  1135 ms    −61 %
+  low      entier  1721 ms  →  découpé   844 ms    −51 %
+```
+
+**Gardé, en `medium` : 1,75 s de moins par réponse**, sans toucher à la voix.
+`low` descendrait à 844 ms mais échantillonne à 16 kHz au lieu de 22 — arbitrage
+de qualité, à trancher à l'oreille.
+
+### Trois mesures fausses avant la bonne
+
+Ce chiffre a demandé quatre tentatives, et les trois premières se
+contredisaient : l'une relançait piper et chronométrait son chargement, une
+autre abandonnait avant que la synthèse ait commencé (timeout de silence plus
+court que le délai du premier échantillon), une troisième lisait le PCM de la
+phrase précédente resté dans le tube.
+
+**Leçon : sur une mesure qui décide d'une architecture, deux résultats
+concordants valent mieux qu'un seul rapide.** Les trois faux chiffres auraient
+tous mené à une conclusion différente — et l'un d'eux (ratio 0,35) m'avait fait
+écrire que le TTS n'était pas le goulot, ce qui était faux.
