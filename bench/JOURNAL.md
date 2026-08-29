@@ -27,6 +27,7 @@ en croyant l'avoir trouvé.
 | 1 | 5e05e6e | **base**, mesurée sur DEUX sessions au lieu d'une | 0,634 | 11/17 | 11/29 | 7,32 / 5,03 s | mesure en temps réel, non reproductible |
 | 2 | 5713507 | rejeu **déterministe** : horloge virtuelle, appel bloquant | 0,681 | 12/17 | 10/29 | 5,8 / 4,0 s | nouvelle base |
 | 2' | 5713507 | *(contrôle : la même mesure, refaite)* | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **bruit résiduel 0,017** — quatre fois moins qu'avant |
+| 3 | — | `[=]` horizon 10 micro-tours système (`MICRO_TOURS` 48 → 20) | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **gardé.** Score inchangé, contexte plus que divisé par deux |
 
 ### Ce que la deuxième session change
 
@@ -81,3 +82,18 @@ dégradait le système. Deux modules manquaient :
 
 **Leçon :** un temps simulé doit l'être partout où il est lu, sinon deux
 horloges coexistent et le système mesuré n'est plus celui qui tourne.
+
+
+### Test 3 — l'horizon de 48 micro-tours ne servait à rien
+
+Ramené à 20 (soit dix micro-tours système, la longueur fixe de leurs données
+d'entraînement), le score est identique au chiffre près : 0,698, mêmes 12/17 en
+fins de tour, mêmes 9/29 en pauses.
+
+Le contexte, lui, tombe de moitié : 655 tokens d'entrée en moyenne, 799 au
+maximum, contre plus du double avant. À score égal on paie deux fois moins, on
+répond plus vite, et on se rapproche de leur design. C'est le premier test de la
+file et il est gratuit.
+
+L'itération 1 de l'ancienne série avait AUGMENTÉ l'horizon de 24 à 48 en pariant
+qu'il était trop court, sans gain. Personne n'avait essayé dans l'autre sens.

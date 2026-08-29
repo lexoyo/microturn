@@ -50,7 +50,7 @@ SEUIL_VOIX = 328
 # et le modèle ne pouvait pas y répondre puisqu'il ne la voyait plus. 48 porte
 # l'horizon à une demi-minute. Le surcoût en tokens est en grande partie servi
 # par le cache implicite, le préfixe étant constant.
-MICRO_TOURS = 48
+MICRO_TOURS = 20
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
 # `audio.Porte` qui traite l'écho maintenant, en le mesurant au lieu de parier
