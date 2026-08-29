@@ -685,3 +685,40 @@ phrase précédente resté dans le tube.
 concordants valent mieux qu'un seul rapide.** Les trois faux chiffres auraient
 tous mené à une conclusion différente — et l'un d'eux (ratio 0,35) m'avait fait
 écrire que le TTS n'était pas le goulot, ce qui était faux.
+
+## Variantes 55, 57, 58 — mesurées sur les DEUX dimensions
+
+Base sherpa 0,807, 32 % des réponses portant le tic « grand modèle linguistique ».
+
+| variante | justesse | tic | verdict |
+|---|---|---|---|
+| 55 · `assistant_backchannel` en porte de sortie | 0,744 | — | rejeté (−0,063) |
+| 57 · une identité, sans parler de ce qu'il est | 0,807 | 32 % | **sans effet, ni sur l'un ni sur l'autre** |
+| **58 · tutoiement imposé** | 0,784 | **0 %** | **gardé** |
+
+**Le tutoiement fait disparaître le tic**, de 32 % à zéro. « Je suis un grand
+modèle linguistique, entraîné par Google » est une formule apprise, au registre
+formel : imposer le tutoiement oblige à reformuler, et le modèle sort de sa
+phrase toute faite. Coût : 0,023 de justesse, à peine au-dessus du bruit.
+
+**Et l'identité ne marche pas.** Je l'ai proposée trois fois dans la journée, en
+m'appuyant chaque fois sur ce symptôme précis. Testée en rejeu (0,668), testée
+autrement (0,807 sans effet sur le tic) : elle ne corrige rien. Ce qui corrige,
+c'est une contrainte de registre — pas une déclaration d'identité.
+
+La variante 55 n'a pas pu être départagée : les relances vides sont à **zéro**
+sur cette session de rejeu, alors qu'elles étaient à 5 sur 16 en session réelle.
+Elle reste ouverte, et ne se jugera qu'en direct.
+
+### Il aura fallu quatre tentatives
+
+Les trois premières ont rendu 0,715 trois fois de suite, au millième :
+
+1. les patchs ne touchaient que `systeme`, alors que la session utilise
+   `systeme_sherpa` ;
+2. `serie.py` avait perdu `MICROTURN_SESSIONS` et mesurait les sessions whisper ;
+3. mes correctifs de `serie.py` échouaient sur leur assertion **sans rien
+   écrire**, et je ne lisais que la sortie qui suivait.
+
+**Trois scores identiques au millième ne sont jamais un résultat : c'est un
+signal que la mesure ne mesure rien.** `serie.py` le dit maintenant tout seul.

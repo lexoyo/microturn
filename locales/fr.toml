@@ -29,7 +29,7 @@ Tu réponds par un objet : {"m": "<le marqueur>"}.
 
 Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une \
 phrase qui sera transmise à l'utilisateur : \
-{"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
+{"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée, en tutoyant"}
 
 ### EXEMPLE DE CONVERSATION
 
@@ -64,7 +64,7 @@ Tu réponds par un objet : {"m": "<le marqueur>"}.
 
 Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une \
 phrase qui sera transmise à l'utilisateur : \
-{"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
+{"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée, en tutoyant"}
 
 ### EXEMPLE DE CONVERSATION
 
