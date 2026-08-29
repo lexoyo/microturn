@@ -6,33 +6,37 @@ test qui nous rapproche de DuplexCascade.**
 État de départ : `f2f3427`, justesse 0,762 sur `20260829-032332`.
 DuplexCascade est à 0,858.  Fins de tour 6/9 · pauses 1/7.
 
-## Ce que « près du papier » peut vouloir dire — et ne peut pas
+## Ce que « près du papier » veut dire ici
 
 `FORMAT-CHERCHEURS.md` §1, constaté dans leur code : **ils n'ont aucun prompt
 système.** Tout leur comportement vient du fine-tuning LoRA sur Qwen2-7B.
 
-Donc la proximité au papier ne discrimine que sur quatre choses : les **jetons**,
-la **structure des messages**, l'**horloge**, et la **qualité des briques**
-(ASR, taille du modèle). Sur le contenu du prompt, il n'y a rien à copier — nos
-227 mots sont entièrement une invention, rendue nécessaire par le fait qu'on
-n'entraîne pas.
+**Notre prompt EST notre fine-tuning** (arbitrage d'Alex, 29/08). C'est la
+transposition par prompting de ce qu'ils obtiennent par entraînement, et c'est
+tout l'objet du projet. Donc rien de ce qu'on écrit dans le prompt ne peut
+« s'éloigner du papier » : le contenu du prompt est notre variable libre, au
+même titre que leurs données d'entraînement sont la leur.
 
-Une distinction utile en découle, et elle recoupe ce qu'on a mesuré hier
-(« on peut retirer les règles, pas les données ») :
+La proximité au papier ne se juge donc que sur ce qui est **observable chez
+eux**, et sur quoi ils ont fait un choix explicite :
 
-- une **règle** ajoutée au prompt n'a aucun équivalent chez eux — elle s'en
-  éloigne ;
-- un **exemple** ajouté est la transposition directe de leurs données
-  d'entraînement — le few-shot est ce qui remplace leur fine-tuning. Il s'en
-  rapproche.
+- les **jetons** — sept, exactement ceux-là, avec ces chaînes-là ;
+- la **structure** — micro-tours entrelacés, horizon fixe, aucun marqueur
+  décrivant l'état du système ;
+- l'**horloge** — Δt = 0,6 s en pratique, optimum d'exactitude annoncé à 1,2 s ;
+- la **qualité des briques** — ASR streaming réel, modèle 7B entraîné sur la
+  tâche.
 
-Enfin, un fait mesuré à ne pas perdre de vue : **leur format exact, sur un modèle
-non entraîné, donne 3/9 contre 7/9.** La sobriété de leur design est un produit
-du fine-tuning, pas une propriété transposable. Se rapprocher d'eux peut coûter
-du score, et c'est une décision assumée, pas un accident à corriger.
+Un test qui touche à ces quatre-là se juge en conformité. Un test qui n'écrit
+que dans le prompt ne se juge qu'au résultat.
 
-Marquage : `[=]` reproduit ce qu'ils font · `[~]` hors de leur périmètre ·
-`[≠]` s'en éloigne sciemment.
+Un fait mesuré à ne pas perdre de vue : **leur format exact, sur un modèle non
+entraîné, donne 3/9 contre 7/9.** La sobriété de leur design est un produit du
+fine-tuning. Notre prompt doit donc être plus riche que le leur — c'est
+précisément ce qu'un fine-tuning nous éviterait d'écrire.
+
+Marquage : `[=]` reproduit ce qu'ils font · `[~]` notre fine-tuning à nous, jugé
+au résultat · `[≠]` contredit un de leurs quatre choix explicites.
 
 ---
 
@@ -81,7 +85,10 @@ de la vérité (arrivé aux itérations 1, 5 et 14).
  15. Fenêtre whisper plus longue (`PLAFOND_S`) : leur ASR streaming a du
      contexte, le nôtre en a peu.
 
-## 2. Les données — le substitut de leur fine-tuning  `[~]`
+## 2. Notre fine-tuning : le contenu du prompt  `[~]`
+
+Jugés au résultat, pas en conformité. Les exemples d'abord : ce sont
+l'analogue le plus direct de leurs données d'entraînement.
 
  16. Les deux `<|no voice|>` qui SUIVENT une réponse passent à
      `<|user is thinking|>`. Aujourd'hui l'exemple enseigne le contraire de la
@@ -104,12 +111,13 @@ de la vérité (arrivé aux itérations 1, 5 et 14).
  30. N'envoyer l'historique que depuis la dernière réponse.
  31. Envoyer le tour en cours reconstitué en plus du delta.
 
-## 3. Ce qui s'en éloigne  `[≠]`
+## 3. Le reste du prompt  `[~]`
 
-À ne tenter qu'après épuisement des deux blocs précédents, et en le disant.
+Rien ici ne s'éloigne du papier — c'est du fine-tuning transposé. À juger au
+résultat, comme le bloc 2.
 
- 32. Donner une identité (nom, rôle). Cinq réponses sur onze étaient « je suis un
-     grand modèle linguistique » — mais eux n'ont aucun prompt système.
+ 32. Donner une identité (nom, rôle). Cinq réponses sur onze de `032332` étaient
+     « je suis un grand modèle linguistique ».
  33. Dire que la transcription est machine et contient des erreurs.
  34. Interdire de commenter la transcription (« je ne comprends pas, reformule »
      = 5 réponses sur 13 dans `073852`).
@@ -117,16 +125,24 @@ de la vérité (arrivé aux itérations 1, 5 et 14).
  36. Dire qu'un silence après une réponse n'est pas une nouvelle question.
  37. Donner la durée du micro-tour dans le prompt.
  38. Nommer l'utilisateur.
- 39. Remettre les marqueurs d'état — mesurés nécessaires (7/9 contre 3/9), et
-     explicitement absents chez eux.
- 40. Supprimer les 4 marqueurs jamais sortis, garder les 2 utiles (ils en ont 7).
- 41. Mettre les 2 marqueurs utiles en tête de liste.
- 42. `<|user finish talking|>` avant `<|user is talking|>`.
- 43. Retirer les parenthèses explicatives.
- 44. Préciser ce qu'est une fin de phrase (intonation, sens complet).
- 45. Prompt en anglais, jetons en anglais.
- 46. Prompt en anglais, jetons inchangés.
- 47. Deux appels en vol au lieu d'un.
- 48. Décider sans appel quand le delta est vide depuis moins de N ticks.
- 49. Filtrer les transcriptions à faible confiance whisper.
- 50. Prompt initial à whisper (vocabulaire, prénoms).
+ 39. Préciser ce qu'est une fin de phrase (intonation, sens complet).
+ 40. Retirer les parenthèses explicatives.
+ 41. Prompt en anglais, jetons inchangés.
+ 42. Deux appels en vol au lieu d'un.
+ 43. Décider sans appel quand le delta est vide depuis moins de N ticks.
+ 44. Filtrer les transcriptions à faible confiance whisper.
+ 45. Prompt initial à whisper (vocabulaire, prénoms).
+
+## 4. Ce qui contredit un de leurs quatre choix  `[≠]`
+
+À ne tenter qu'après les blocs précédents, et en le disant.
+
+ 46. Remettre les marqueurs d'état — mesurés nécessaires (7/9 contre 3/9), et
+     absents chez eux par construction : leur structure entrelacée rend l'état
+     du système implicite.
+ 47. Supprimer les 4 marqueurs jamais sortis, garder les 2 utiles. Ils en ont
+     sept, et c'est un choix de design, pas un accident.
+ 48. Mettre les 2 marqueurs utiles en tête de liste.
+ 49. `<|user finish talking|>` avant `<|user is talking|>`.
+ 50. Jetons traduits en français (mesurés meilleurs sur gemini : 11/12 contre
+     9/12 — mais ce ne sont plus leurs chaînes).
