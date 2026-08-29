@@ -52,6 +52,39 @@ donc deux traces sont toujours comparables.
 
 **7. Recommencer** en 4-5-6 tant que ce n'est pas bon.
 
+### Sur quoi mesurer
+
+Deux bases possibles, et on peut prendre les deux. Posé par Alex le 29/08/2026.
+
+**Une session de test réelle** (la boucle ci-dessus). Elle a l'avantage d'être
+notre vrai usage, avec notre micro, notre écho, notre voix. Elle a le défaut
+d'être unique : une correction peut l'améliorer et casser tout le reste.
+
+**Full-Duplex-Bench** (`bench/`). Corpus fixe, quatre dimensions, chiffres
+reproductibles. C'est lui qui dit si une correction est une progression ou une
+régression — une session ne le dira jamais, parce qu'on ne la rejoue jamais
+deux fois dans les mêmes conditions.
+
+```bash
+# 1. produire les réponses au format du banc
+.venv/bin/python pipeline.py CORPUS/xxx/input.wav --langue en \
+    --rendu CORPUS/xxx/output.wav
+# 2. aligner (whisper, pas parakeet — cf. plus bas)
+.venv/bin/python bench/asr_whisper.py --root_dir CORPUS
+# 3. évaluer
+python ~/_/fdbench/v1_v1.5/evaluation/evaluate.py --task pause_handling \
+    --root_dir CORPUS
+```
+
+**Réserve à écrire dans tout résultat publié.** Leur chaîne aligne avec
+`nvidia/parakeet-tdt-0.6b-v2` sous NeMo, qui exige CUDA ; cette machine n'a pas
+de GPU, on aligne donc avec whisper `small`. Nos chiffres ne sont **pas**
+directement comparables à ceux du papier. Ils le sont entre nos versions, ce qui
+est l'usage principal. Écart constaté sur leur fichier d'exemple : parakeet en
+tire treize mots, whisper deux — sur une sortie de modèle peu intelligible.
+Sur notre propre TTS, qui est net, l'écart devrait être faible ; c'est une
+hypothèse à vérifier, pas un acquis.
+
 **8. S'arrêter** quand c'est vraiment bien, ou après **dix tours**. Alors seulement :
 un rapport court à Alex, avec les chiffres avant/après, ce qui reste ouvert, et
 les questions posées **en choix multiples**.
