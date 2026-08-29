@@ -116,6 +116,7 @@ class Session:
         self.transcript = ""        # fenêtre courante rendue par le STT
         self.vu = ""                # ce qui avait déjà été envoyé au décideur
         self.parle_depuis = None    # début de notre propre parole
+        self.parle_fin = 0.0        # quand on a fini de parler
         self.texte_dit = ""         # ce qu'on est en train de prononcer
         self.en_vol = False         # un appel réseau est en cours
         self.t_vol = 0.0            # depuis quand
@@ -196,8 +197,16 @@ class Session:
         # remet à parler alors que je suis en train de parler », information
         # qu'on ne transmettait jamais. C'est aussi la première source de
         # contexte du système — les suivantes (caméra, capteurs) viendront ici.
+        # THINKING n'est décidable que si le modèle sait s'il vient de parler —
+        # même oubli que pour COUPE, corrigé plus tôt. Sans cette information il
+        # prend n'importe quel silence pour une réflexion post-réponse : observé
+        # 54 fois pour 4 réponses, et dans cet état il n'écoute plus rien.
         if self.robot_parle:
-            delta = "[JE PARLE] " + delta
+            delta = "[I am speaking] " + delta
+        elif self.parle_fin and time.time() - self.parle_fin < 6.0:
+            delta = "[I just answered] " + delta
+        else:
+            delta = "[I have not spoken] " + delta
         self.vu = self.transcript
         self.en_vol = True
         self.t_vol = time.time()
@@ -270,6 +279,7 @@ class Session:
                     if self.trace:
                         self.trace.ev("parole_fin", texte=self.texte_dit)
                     self.parle_depuis = None
+                    self.parle_fin = now
 
                 if now >= prochain:
                     # horloge ponctuelle avec rattrapage, mais SANS rafale : si un

@@ -87,12 +87,12 @@ If the fragment could continue, SPEAKING. If she has finished asking, DONE."""
 # Le troisième est du bruit whisper réel : le prompt parlait de transcription
 # fausse sans jamais en montrer une.
 FEWSHOT = [
-    ("est-ce que tu peux", "SPEAKING"),
-    ("(silence)", "SPEAKING"),
-    ("un an et plus en t'es non assez fan ce fil", "SPEAKING"),
-    ("allumer la lumière du salon", "DONE C'est allumé."),
-    ("(silence)", "THINKING"),
-    ("quelle heure il est", "DONE Il est bientôt minuit."),
+    ("[I have not spoken] est-ce que tu peux", "SPEAKING"),
+    ("[I have not spoken] (silence)", "SPEAKING"),
+    ("[I have not spoken] un an et plus en t'es non assez fan ce fil", "SPEAKING"),
+    ("[I have not spoken] allumer la lumière du salon", "DONE C'est allumé."),
+    ("[I just answered] (silence)", "THINKING"),
+    ("[I have not spoken] quelle heure il est", "DONE Il est bientôt minuit."),
 ]
 
 
