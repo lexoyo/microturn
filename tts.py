@@ -67,6 +67,7 @@ class Speaker:
         self._gen = 0                        # phrase courante
         self._purger = False                 # jeter le PCM d'une phrase coupée
         self._restants = 0                   # morceaux de la phrase en cours
+        self._sorti = threading.Event()      # un morceau vient de sortir
         # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
         # tombe sur la PREMIÈRE réponse de la conversation, celle qui donne le
         # ton. On le paie au démarrage, pendant qu'il ne se passe rien.
@@ -140,6 +141,7 @@ class Speaker:
                 with self.lock:
                     self._purger = False     # le silence clôt la purge
                     reste = self._restants
+                self._sorti.set()                # un morceau vient de finir
                 if reste > 0:
                     # Silence ENTRE deux morceaux de la même phrase : piper
                     # n'a pas fini. Fermer ici couperait la phrase en deux —
@@ -238,15 +240,34 @@ class Speaker:
         return [m for m in out if m]
 
     def _feed(self, proc, text):
+        """Sert les morceaux UN PAR UN, en s'arrêtant si on est coupé.
+
+        Écrire toute la phrase d'un coup laisse piper la synthétiser jusqu'au
+        bout même après un `stop()` : il ne sait pas qu'on l'a interrompu. Sur le
+        Pi, une phrase de 60 caractères prend 4 s à fabriquer, et la réponse
+        suivante attend derrière — donc couper le robot le rend muet plusieurs
+        secondes, ce qui est le contraire du but.
+
+        En n'envoyant le morceau suivant qu'une fois le précédent sorti, une
+        interruption n'a plus qu'un seul morceau à purger."""
         morceaux = self._morceaux(text)
         with self.lock:
-            # Un silence par frontière de morceau : le lecteur doit les laisser
-            # passer sans fermer `aplay`, sinon la phrase sort en tranches.
+            gen = self._gen
+            # Un silence par frontière : le lecteur doit les laisser passer sans
+            # fermer `aplay`, sinon la phrase sort en tranches.
             self._restants = len(morceaux) - 1
         try:
-            for m in morceaux:
+            for i, m in enumerate(morceaux):
+                with self.lock:
+                    if self._gen != gen:
+                        break                # coupé : ne pas nourrir la suite
+                    self._restants = len(morceaux) - 1 - i
                 proc.stdin.write((m + "\n").encode())
                 proc.stdin.flush()           # et NON close() : le processus resservira
+                if i + 1 < len(morceaux):
+                    # laisser piper sortir celui-ci avant de donner le suivant
+                    self._sorti.clear()
+                    self._sorti.wait(timeout=8.0)
         except (BrokenPipeError, ValueError):
             pass                             # coupé par stop() entre-temps
 
@@ -267,6 +288,7 @@ class Speaker:
         if self.procs:
             self._purger = True
         self._restants = 0
+        self._sorti.set()                    # débloquer `_feed` s'il attendait
         for p in self.procs:
             if p.poll() is None:
                 try:
