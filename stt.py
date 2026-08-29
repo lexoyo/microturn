@@ -372,7 +372,38 @@ class Sherpa:
     _raz = False
 
     def run(self, cap, q, stop):
+        """Deux threads, pour la même raison que `Whisper` — et je l'avais oublié.
+
+        Un seul thread qui lit PUIS décode cesse de vider le tube pendant tout le
+        décodage. Sur ce PC il dure 49 ms et rien ne se voit ; sur le Pi il en
+        dure 267, soit deux blocs de 125 ms accumulés à chaque tour. Mesuré en
+        session réelle : **38 % de l'audio perdu** (33,1 s enregistrées pour 53 s
+        de conversation), des trous de plusieurs secondes dans la transcription,
+        et un système qui semble ramer alors qu'il n'entend qu'une phrase sur
+        deux.
+        """
         t0 = time.time()
+        tampon = queue.Queue(maxsize=64)
+
+        def lecteur():
+            """Ne fait QUE vider le tube. Jamais de calcul ici."""
+            while not stop.is_set():
+                data = cap.lire()
+                if data is None:
+                    break
+                if not data:
+                    continue           # jeté par la porte
+                try:
+                    tampon.put_nowait(data)
+                except queue.Full:
+                    pass               # le décodeur a pris trop de retard :
+                                       # mieux vaut perdre un bloc que bloquer
+                                       # le lecteur et faire déborder ALSA
+            tampon.put(None)
+
+        th = threading.Thread(target=lecteur, daemon=True)
+        th.start()
+
         vu = ""
         while not stop.is_set():
             if self._raz:
@@ -380,11 +411,12 @@ class Sherpa:
                 # recontiendrait ce à quoi on vient de répondre.
                 self.rec.reset(self.flux)
                 self.fige, vu, self._raz = "", "", False
-            data = cap.lire()
+            try:
+                data = tampon.get(timeout=0.5)
+            except queue.Empty:
+                continue
             if data is None:
                 break
-            if not data:
-                continue               # jeté par la porte
             t1 = time.time()
             self.flux.accept_waveform(
                 audio.RATE,
@@ -409,6 +441,7 @@ class Sherpa:
                     cap.trace.ev("partial", texte=txt,
                                  cout=round(self.dernier_cout, 3))
                 q.put(("partial", txt, time.time() - t0))
+        th.join(timeout=1)
         q.put(("eof", "", time.time() - t0))
 
     def reset(self):
