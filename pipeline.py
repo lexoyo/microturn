@@ -96,6 +96,31 @@ def _machine():
             "python": platform.python_version(), "coeurs": os.cpu_count()}
 
 
+class HorlogeVirtuelle:
+    """Le temps du rejeu déterministe : il n'avance que d'un tick à l'autre.
+
+    En temps réel, un appel réseau lent fait sauter des ticks. C'est le
+    comportement authentique du système, mais il rend deux mesures
+    incomparables : la même session rejouée deux fois, sur le même code, a donné
+    118 puis 123 décisions et 0,762 puis 0,691 de justesse. On mesurait le
+    réseau, pas le prompt.
+
+    Ici l'horloge n'avance que quand on le décide : le nombre de ticks et leur
+    contenu sont fixes, et deux rejeux du même code donnent le même résultat.
+    En contrepartie ce chronomètre ne voit plus la latence — elle se mesure
+    ailleurs, en conditions réelles (`llm.py` garde la vraie horloge).
+    """
+
+    def __init__(self):
+        self.t = 0.0
+
+    def time(self):
+        return self.t
+
+    def sleep(self, _s):
+        """Le temps ne passe pas tout seul : dormir ne fait rien avancer."""
+
+
 class Session:
     def __init__(self, moteur="whisper", path=None, mic="default",
                  engine=None, verbose=True, trace_dir=None, porte=audio.FACTEUR_ECHO,
@@ -414,6 +439,11 @@ class Session:
         self.en_vol = True
         self.t_vol = time.time()
         self.seq += 1
+        if getattr(self, "synchrone", False):
+            # Rejeu déterministe : l'appel bloque, donc aucun tick ne saute et
+            # aucune décision n'arrive en retard. C'est toute la différence.
+            self._interroger(delta, self.seq)
+            return
         threading.Thread(target=self._interroger, args=(delta, self.seq),
                          daemon=True).start()
 
@@ -514,6 +544,49 @@ class Session:
             self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}")
 
     # ---------- boucle principale ----------
+    def run_deterministe(self):
+        """Rejoue une session tick par tick, hors du temps réel.
+
+        Les transcriptions sont figées (`stt.Rejeu`), l'horloge est virtuelle et
+        l'appel au modèle est bloquant : à code égal, deux exécutions donnent
+        exactement les mêmes décisions. C'est ce qui permet d'attribuer un écart
+        de score à ce qu'on a changé, et à rien d'autre.
+        """
+        global time
+        evts = sorted(getattr(self.eng, "evts", []))
+        if not evts:
+            raise SystemExit("--deterministe : uniquement avec --moteur rejeu")
+        self.synchrone = True
+        fin = evts[-1][0] + 2 * TICK_S
+        horloge = HorlogeVirtuelle()
+        vrai_temps = time
+        time = horloge          # tout pipeline.py lit désormais l'horloge virtuelle
+        try:
+            i, k = 0, 1
+            while horloge.t < fin:
+                horloge.t = k * TICK_S
+                # Tout ce qui a été entendu jusqu'ici, et rien de plus tard.
+                while i < len(evts) and evts[i][0] <= horloge.t:
+                    _, _genre, txt = evts[i]
+                    if txt and txt != self.transcript:
+                        self.transcript = txt
+                        self.log(f"stt {txt[-70:]}")
+                    i += 1
+                self._tick()
+                # La décision est déjà dans la file : l'appel était bloquant.
+                while True:
+                    try:
+                        kind, payload, _t = self.q.get_nowait()
+                    except queue.Empty:
+                        break
+                    if kind == "decision":
+                        self._appliquer(*payload)
+                k += 1
+        finally:
+            time = vrai_temps
+            self.close()
+        return self.stats
+
     def run(self):
         prochain = time.time() + TICK_S
         # Sur `eof` on sortait immédiatement : le dernier tick n'était pas joué
@@ -630,6 +703,9 @@ def main():
                          "réponses à leur place — le format attendu par "
                          "Full-Duplex-Bench")
     ap.add_argument("--muet", action="store_true", help="ne pas prononcer (mesure seule)")
+    ap.add_argument("--deterministe", action="store_true",
+                    help="rejeu hors temps réel : horloge virtuelle et appel "
+                         "bloquant, donc deux exécutions identiques à code égal")
     ap.add_argument("--trace", metavar="DOSSIER",
                     help="enregistre la session (audio, événements, méta) pour la rejouer")
     ap.add_argument("--porte", type=float, default=audio.FACTEUR_ECHO, metavar="FACTEUR",
@@ -646,7 +722,7 @@ def main():
     s = Session(a.moteur, a.fichier, a.mic, engine=a.tts, trace_dir=a.trace,
                 porte=a.porte, muet=a.muet, rendu=a.rendu, modele=a.modele,
                 langue=a.langue, **kw)
-    st = s.run()
+    st = s.run_deterministe() if a.deterministe else s.run()
     if st:
         par = {}
         for act, dt in st:
