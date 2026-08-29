@@ -722,3 +722,36 @@ Les trois premières ont rendu 0,715 trois fois de suite, au millième :
 
 **Trois scores identiques au millième ne sont jamais un résultat : c'est un
 signal que la mesure ne mesure rien.** `serie.py` le dit maintenant tout seul.
+
+## Configuration finale — 0,826 sur deux sessions
+
+sherpa-onnx 2 threads · `systeme_sherpa` + tutoiement · découpage TTS ·
+horizon 20 · gemini-2.5-flash-lite.
+
+| session | justesse | fins | pauses ratées | coupures | latence vécue |
+|---|---|---|---|---|---|
+| `073852-sherpa` | 0,784 | 6/8 | 4/22 | 2 | 3,55 s |
+| `032332-sherpa` | **0,873** | 8/9 | 1/7 | 2 | 3,75 s |
+| **moyenne** | **0,826** | | | | |
+| DuplexCascade | 0,858 | | | | 1,2 s |
+
+**Trois points d'écart** avec un Qwen2-7B fine-tuné cinq heures sur huit H100 —
+et 0,873 sur une session, au-dessus de leur moyenne. Le point de départ du matin
+était 0,634.
+
+### Le chemin, en sept changements gardés
+
+| | gain |
+|---|---|
+| rejeu déterministe (horloge virtuelle) | bruit ±0,071 → ±0,017 |
+| horizon 20 micro-tours | contexte ÷ 2, score inchangé |
+| `<|no voice|>` après réponse → `is thinking` | +0,025 |
+| historique de l'assistant en JSON | +0,07 |
+| sherpa-onnx à la place de whisper | +0,05 et latence ÷ 12 |
+| `systeme_sherpa` (la phrase sur la casse) | +0,063 |
+| tutoiement imposé | tic 32 % → 0 % |
+
+Et côté latence sur le Pi, quatre défauts trouvés en session réelle et invisibles
+au rejeu : la porte qui jetait 81 % de l'audio, le mono-thread de sherpa qui en
+perdait 38 %, le tampon qui accumulait du retard, et `aplay` sans périphérique
+qui parlait dans le vide.
