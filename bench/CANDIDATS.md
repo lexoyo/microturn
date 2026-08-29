@@ -184,3 +184,61 @@ d'abord : ce sont l'analogue le plus direct de leurs données d'entraînement.
  49. `<|user finish talking|>` avant `<|user is talking|>`.
  50. Jetons traduits en français — mesurés meilleurs sur gemini (11/12 contre
      9/12), mais ce ne sont plus leurs chaînes.
+
+---
+
+## Changements passés en force — à mesurer
+
+Écrit le 29/08/2026. Ces quatre changements ont été poussés sans passer par la
+liste ni par une QC : ils venaient d'un diagnostic sur le Pi, pas de la file.
+Ils sont donc **non mesurés en justesse** — ils peuvent avoir dégradé quelque
+chose sans que rien ne le dise. Remis dans le protocole ici.
+
+### 51. piper résident (`b55d716`)  `[~]`
+
+Mesuré sur le Pi : 8 s par phrase économisées. **Non mesuré en justesse.**
+
+- *Ce que le test peut montrer* : que garder piper en vie ne change rien à la
+  décision. Ce n'est pas acquis — `Silencieux.speaking()` gouverne l'état « je
+  parle », donc le barge-in et l'exemple `<|user interruption|>`.
+- *Seuil* : ±0,017. On cherche une NON-régression, pas un gain.
+- *Ce que ça rend faux ailleurs* : `stop()` ne tue plus le moteur. Si le PCM
+  d'une phrase coupée fuit sur la suivante, le robot dit deux choses à la fois —
+  invisible en rejeu muet, audible en vrai.
+- *Non mesuré* : le comportement en session réelle, jamais joué depuis.
+
+### 52. préchauffage de piper au démarrage  `[~]`
+
+Les 8 s de chargement ne tombent plus sur la première réponse.
+
+- *Ce que le test peut montrer* : que le thread de préchauffage ne perturbe pas
+  le premier tour. Il écrit dans piper pendant que le pipeline démarre.
+- *Seuil* : non-régression.
+- *Ce que ça rend faux ailleurs* : une syllabe est synthétisée puis jetée au
+  lancement. Si `aplay` n'est pas encore là, elle part dans le vide — voulu ;
+  si l'ordre change, elle pourrait s'entendre.
+- *Non mesuré* : rien, mais jamais joué en vrai.
+
+### 53. cascade de contrainte + garde-fou (`9f9d9c9`)  `[~]`
+
+Quatre niveaux de `response_format`, et vérification de chaque sortie.
+
+- *Ce que le test peut montrer* : que le niveau strict reste choisi avec notre
+  modèle, et que le garde-fou ne refuse rien à tort. Un faux refus coûterait
+  une décision entière.
+- *Seuil* : le compteur `non_conformes` doit rester à zéro.
+- *Ce que ça rend faux ailleurs* : la dégradation est irréversible dans une
+  session. Une erreur réseau prise pour un refus de schéma ferait tomber tout
+  le reste de la conversation en `json_object`.
+- *Non mesuré* : le comportement sous erreur réseau franche.
+
+### 54. filtre d'artefacts sans accents  `[~]`
+
+`r[ée]alis` au lieu de `réalis`, pour un moteur qui écrit `REALISES`.
+
+- *Ce que le test peut montrer* : qu'on ne rejette pas de la vraie parole. Le
+  motif est plus large qu'avant.
+- *Seuil* : non-régression.
+- *Ce que ça rend faux ailleurs* : rien, le motif reste ancré sur
+  « sous-titres ».
+- *Non mesuré* : rien.
