@@ -274,3 +274,25 @@ corrigés. L'exception s'explique : S1 décrit une propriété de l'ENTRÉE, que
 exemples ne peuvent pas montrer sans cesser d'être lisibles — S2 l'a tenté et
 fait moins bien. Une règle gagne quand elle dit quelque chose qu'un exemple ne
 peut pas dire.
+
+### La phrase sur la casse, dans les deux sens
+
+| | sans la phrase | avec la phrase | écart |
+|---|---|---|---|
+| sherpa (texte NU — la phrase est vraie) | 0,744 | **0,807** | **+0,063** |
+| whisper (texte ponctué — la phrase est fausse) | 0,801 | **0,698** | **−0,103** |
+
+**Le mensonge coûte plus cher que la vérité ne rapporte** — presque le double, et
+six fois le bruit. Le modèle croit le prompt sur parole : quand on lui affirme
+que le texte n'a pas de ponctuation, il cesse de la chercher, même quand elle
+est là sous ses yeux.
+
+C'est la justification de fond du correctif : cette phrase ne peut pas vivre
+dans `locales/fr.toml`, qui ne connaît que la langue. Elle décrit une propriété
+du MOTEUR, elle doit donc être injectée par lui (`llm.systeme(..., nu=)`).
+
+Pour l'article, c'est le résultat le plus net sur la nature du prompt : sur un
+modèle non entraîné, **une affirmation sur l'entrée pèse plus lourd que
+l'entrée elle-même.** C'est ce qui rend le prompting puissant, et c'est
+exactement ce qui le rend fragile — la même phrase, à un moteur près, fait
+gagner treize points ou en perdre vingt.
