@@ -273,6 +273,58 @@ class Decideur:
         self.jetons = catalogue(langue)["jetons"]
         self.conn = None
         self.lock = threading.Lock()
+        self.niveau = 0                 # index dans NIVEAUX : contrainte courante
+        self.non_conformes = 0          # ce que le garde-fou a refusé
+
+    # Du plus contraint au moins contraint. Tous les modèles n'acceptent pas le
+    # schéma strict : `gpt-4o-mini` répond 400, et on perdrait alors 100 % des
+    # décisions. On descend d'un cran à chaque refus et on retient ce qui passe.
+    NIVEAUX = ("schema_strict", "schema_souple", "json_libre", "aucune")
+
+    def contrainte(self, jetons):
+        """Le `response_format` du niveau courant, ou None."""
+        n = self.NIVEAUX[self.niveau]
+        if n == "aucune":
+            return None
+        if n == "json_libre":
+            return {"type": "json_object"}
+        return {"type": "json_schema", "json_schema": {
+            "name": "tour", "strict": n == "schema_strict", "schema": {
+                "type": "object",
+                "properties": {"m": {"type": "string", "enum": jetons},
+                               "r": {"type": "string"}},
+                "required": ["m"], "additionalProperties": False}}}
+
+    def _degrade(self, raison):
+        """Descend d'un cran, une seule fois par niveau."""
+        if self.niveau + 1 >= len(self.NIVEAUX):
+            return False
+        avant = self.NIVEAUX[self.niveau]
+        self.niveau += 1
+        self._tracer("contrainte_degradee", de=avant,
+                     vers=self.NIVEAUX[self.niveau], raison=str(raison)[:120])
+        return True
+
+    def conforme(self, brut):
+        """Le garde-fou. Sous le schéma strict il ne peut rien refuser ; dès
+        qu'on dégrade, c'est la seule chose qui sépare une vraie décision d'un
+        texte libre qui y ressemble.
+
+        Rend (ok, motif). Le motif part dans la trace ET dans le résumé de
+        session : une dérive de format doit se voir dans la mesure, pas se
+        cacher dans le score."""
+        jetons = set(dict.fromkeys(self.jetons.values()))
+        try:
+            o = json.loads(brut)
+        except (ValueError, TypeError):
+            return False, "pas du JSON"
+        if not isinstance(o, dict):
+            return False, "pas un objet"
+        if o.get("m") not in jetons:
+            return False, f"marqueur inconnu : {str(o.get('m'))[:40]}"
+        if "r" in o and not isinstance(o["r"], str):
+            return False, "champ r non textuel"
+        return True, ""
 
     def _tracer(self, type, **champs):
         if self.trace is not None:
@@ -350,7 +402,14 @@ class Decideur:
             brut = (out["choices"][0]["message"].get("content") or "").strip()
         except Exception:
             self._tracer("llm_reponse", erreur=str(out)[:200], latence=round(dt, 3))
-            return "error", str(out.get("error", out))[:90], dt
+            # Un modèle qui refuse la contrainte répond 400 : on descend d'un
+            # cran plutôt que de perdre 100 % des décisions. Mesuré sur
+            # `gpt-4o-mini`, qui rejette le schéma strict.
+            msg = str(out.get("error", out))
+            if ("400" in msg or "schema" in msg.lower()
+                    or "response_format" in msg.lower()) and self._degrade(msg):
+                return "error", "contrainte dégradée, on réessaie", dt
+            return "error", msg[:90], dt
         # Le cache de prompt est IMPLICITE sur gemini-2.5 (automatique au-delà
         # de 1024 tokens, lecture facturée 0,25x). Notre préfixe — système et
         # exemples — est constant et représente l'essentiel de l'entrée, donc il
@@ -363,6 +422,15 @@ class Decideur:
                      tokens_entree=u.get("prompt_tokens"),
                      tokens_caches=detail.get("cached_tokens"),
                      tokens_sortie=u.get("completion_tokens"))
+        # Le garde-fou : sous le schéma strict il ne peut rien refuser, mais dès
+        # qu'on dégrade, c'est la seule chose qui distingue une vraie décision
+        # d'un texte libre qui y ressemble.
+        ok, motif = self.conforme(brut)
+        if not ok:
+            self.non_conformes += 1
+            self._tracer("format_invalide", motif=motif, brut=brut[:120],
+                         niveau=self.NIVEAUX[self.niveau],
+                         total=self.non_conformes)
         action, texte = lire_controle(brut, self.langue)
         self._tracer("decision", action=action, texte=texte, source="reseau",
                      transcript=transcript, latence=round(dt, 3))

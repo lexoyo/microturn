@@ -27,6 +27,7 @@ le sujet.
 import argparse, glob, json, os, resource, subprocess, sys, time
 
 ICI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODELE = os.environ.get("MICROTURN_MODELE")
 DELAI_MAX = 12.0        # au-delà, une réponse ne répond plus à la question
 # Fenêtre pendant laquelle une prise de parole compte comme une intrusion dans
 # une pause. Chez eux elle vaut 1,0 s ; c'est plus court que notre temps de
@@ -216,6 +217,10 @@ def evalue(dossier, muet=True):
            dossier, "--trace", trace, "--deterministe"]
     if muet:
         cmd.append("--muet")
+    # Comparer deux MODÈLES sur la même entrée : la latence d'appel est devenue
+    # le premier poste de la chaîne (0,7 s sur ~1 s), donc elle mérite un test.
+    if MODELE:
+        cmd += ["--modele", MODELE]
     # Ce que le rejeu CONSOMME, pas seulement ce qu'il rend. Sans ça on ne peut
     # pas dire sur quelle machine un réglage tient : `base` est meilleur que
     # `tiny` et deux fois et demie plus lourd, et c'est cette seconde moitié qui
