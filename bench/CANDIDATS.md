@@ -318,3 +318,32 @@ Le levier code, après l'échec des trois variantes de prompt.
   compromis le plus coûteux de la liste, et il faut le mesurer avant d'y croire.
 - *Non mesuré* : rien, mais l'arbitrage latence/justesse est à trancher par Alex,
   pas par le score.
+
+### 60. Découper la réponse avant de la synthétiser  `[~]`
+
+piper rend son premier échantillon en 806 ms parce qu'il synthétise la phrase
+entière avant de rendre la main. Lui donner d'abord les premiers mots, puis la
+suite pendant qu'il parle, ramènerait ce délai à ~200 ms.
+
+- *Ce que le test peut montrer* : que le délai avant le son se pilote par la
+  taille du premier morceau. On sait que le coût de synthèse est proportionnel à
+  la longueur (ratio 0,35 sur le Pi une fois chargé, mesuré) — donc un morceau
+  quatre fois plus court devrait sortir quatre fois plus vite. C'est une
+  prédiction, pas une évidence : le coût fixe par appel n'est pas mesuré.
+- *Seuil* : le délai jusqu'au premier échantillon, mesuré directement en ms. Pas
+  de bruit statistique à craindre, on chronomètre.
+- *Ce que ça rend faux ailleurs* :
+  - **la continuité de la parole.** Si le second morceau n'est pas prêt quand le
+    premier finit, on entend un trou au milieu d'une phrase. C'est le risque
+    principal, et il ne se voit pas dans une mesure de latence — seulement à
+    l'oreille, ou en mesurant les creux dans le PCM.
+  - **`speaking()`**, donc le barge-in et l'état « je parle » : le robot est
+    maintenant en train de parler pendant plusieurs morceaux successifs, et
+    `aplay` peut finir entre deux.
+  - **`stop()`** : couper la parole doit jeter les morceaux non encore envoyés,
+    sinon la fin d'une phrase interrompue sortirait après coup.
+- *Non mesuré* : le coût fixe d'un appel à piper résident. S'il est de 300 ms,
+  découper en trois ne gagne rien et fait trois trous.
+- *Découpage* : sur la ponctuation forte d'abord, sinon au mot le plus proche
+  d'une longueur cible. Nos réponses font 43 caractères en moyenne — donc en
+  pratique deux morceaux, rarement trois.

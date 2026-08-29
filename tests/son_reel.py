@@ -21,7 +21,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tts  # noqa: E402
 
 
-def profil(sp, phrase, duree=7.0, pas=0.4):
+# Le Pi synthétise trois fois plus lentement que ce PC : un test calibré ici
+# échoue là-bas sans qu'il y ait de bug. `MICROTURN_TEST_LENT` allonge les
+# attentes. C'est le même travers que `ATTAQUE_S`, calibré sur la mauvaise
+# machine et faux d'un facteur trois sur la cible.
+LENT = float(os.environ.get("MICROTURN_TEST_LENT", "1"))
+
+
+def profil(sp, phrase, duree=7.0 * LENT, pas=0.4):
     """Suit `speaking()` dans le temps pendant qu'une phrase est prononcée."""
     sp.say(phrase)
     vus = []
@@ -37,7 +44,7 @@ def test_speaking_suit_la_parole():
     se protège plus de son propre écho."""
     sp = tts.Speaker()
     try:
-        time.sleep(2.0)                       # laisser le préchauffage finir
+        time.sleep(2.0 * LENT)                # laisser le préchauffage finir
         attendu = tts.Silencieux.ATTAQUE_S + 42 / tts.Silencieux.DEBIT_CAR_S
         vus = profil(sp, "Bonjour, ceci est un test un peu plus long.")
         parle = 0.4 * sum(vus)
@@ -56,9 +63,9 @@ def test_stop_libere_vraiment():
     """Couper doit rendre `speaking()` faux tout de suite."""
     sp = tts.Speaker()
     try:
-        time.sleep(2.0)
+        time.sleep(2.0 * LENT)
         sp.say("Une phrase assez longue pour être coupée en plein milieu.")
-        time.sleep(2.0)
+        time.sleep(2.0 * LENT)
         sp.stop()
         time.sleep(0.3)
         assert not sp.speaking(), "speaking() encore vrai après stop()"
@@ -71,11 +78,11 @@ def test_deux_phrases_ne_se_chevauchent_pas():
     """Le PCM d'une phrase coupée ne doit pas sortir au début de la suivante."""
     sp = tts.Speaker()
     try:
-        time.sleep(2.0)
+        time.sleep(2.0 * LENT)
         sp.say("Première phrase, longue, qui va être interrompue avant la fin.")
-        time.sleep(1.5)
+        time.sleep(1.5 * LENT)
         sp.say("Deuxième.")
-        time.sleep(3.0)
+        time.sleep(4.0 * LENT)
         assert not sp.speaking(), "la seconde phrase ne s'est jamais terminée"
         print("  pas de chevauchement entre deux phrases         OK")
     finally:
