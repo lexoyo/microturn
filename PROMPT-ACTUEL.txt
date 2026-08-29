@@ -1,58 +1,45 @@
-LE PROMPT
-=========
+Prompts réellement envoyés au modèle
+trace : /tmp/rejeu_20260829-073852
+181 appels dans la session, 1 rendus ici
 
-
-### MESSAGE SYSTÈME
-
-Dans la section "CONVERSATION" tu trouveras l'historique de la conversation que tu es entrain d'avoir avec un utilisateur
-
-"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
-
-Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
-
-  <|user is talking|>       (sa phrase n'est pas finie)
-  <|user finish talking|>   (sa phrase est finie)
-  <|user is thinking|>      (il se tait, mais il réfléchit)
-  <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
-  <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
-  <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
-
-### REPONSE ATTENDUE
-
-Tu réponds par un objet : {"m": "<le marqueur>"}.
-
-Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une phrase qui sera transmise à l'utilisateur : {"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
-
-
-### EXEMPLE DE CONVERSATION
-
-messages alternés
-
-  utilisateur: est-ce que tu peux
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: <|no voice|>
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: me dire la
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: taille de la tour Eiffel
-  assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
-  utilisateur: <|no voice|>
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: et aussi est-ce que tu peux
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: me dire quelle heure il est
-  assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
-
-
-### CONVERSATION
-
-  utilisateur: bonjour
-  assistant: {"m": "<|user finish talking|>", "r": "Bonjour, je vous écoute."}
-  utilisateur: <|no voice|>
-  assistant: {"m": "<|user is thinking|>"}
-  utilisateur: j'aurais une question sur
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: <|no voice|>
-  assistant: {"m": "<|user is talking|>"}
-  utilisateur: les horaires du magasin
-  assistant:
+========================================================================
+APPEL 1 — 2 messages, modèle google/gemini-2.5-flash-lite
+========================================================================
+┌─ system ────────────────────────────────────────────
+│ Tu es en train d'avoir une conversation avec un utilisateur.
+│ 
+│ "<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
+│ 
+│ Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
+│ 
+│   <|user is talking|>       (sa phrase n'est pas finie)
+│   <|user finish talking|>   (sa phrase est finie)
+│   <|user is thinking|>      (il se tait, mais il réfléchit)
+│   <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
+│   <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
+│   <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
+│ 
+│ Tu réponds par un objet : {"m": "<le marqueur>"}.
+│ 
+│ Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une phrase qui sera transmise à l'utilisateur : {"m": "<|user finish talking|>", "r": "ta phrase, courte et parlée"}
+│ 
+│ ### EXEMPLE DE CONVERSATION
+│ 
+│   utilisateur: est-ce que tu peux
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: <|no voice|>
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: me dire la
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: taille de la tour Eiffel
+│   assistant: {"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}
+│   utilisateur: <|no voice|>
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: et aussi est-ce que tu peux
+│   assistant: {"m": "<|user is talking|>"}
+│   utilisateur: me dire quelle heure il est
+│   assistant: {"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}
+│ 
+│ ### PUIS LA CONVERSATION RÉELLE, dans le même format
+└─────────────────────────────────────────────────────
+     user:  <|no voice|>
