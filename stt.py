@@ -46,7 +46,9 @@ _BALISE = re.compile(r"[\(\[\*][^\)\]\*]{0,40}[\)\]\*]")
 _MOT = re.compile(r"[a-zà-öø-ÿ]{2,}", re.I)
 # Générique de fin de sous-titres : whisper l'a appris de ses données
 # d'entraînement et le recrache sur du silence prolongé.
-_GENERIQUE = re.compile(r"sous[- ]titr\w*\s+(réalis|par|fait)", re.I)
+# `[ée]` et non `é` : un moteur qui rend le texte sans accents (sherpa écrit
+# « REALISES ») échappait au filtre, qui ne cherchait que la forme accentuée.
+_GENERIQUE = re.compile(r"sous[- ]titr\w*\s+(r[ée]alis|par|fait)", re.I)
 # Ces mots-là ne sont JAMAIS du contenu utile quand ils forment tout le texte.
 _VIDES = {"musique", "music", "applaudissements", "rires", "rire", "silence",
           "sous", "titres", "titrage", "générique", "bruit", "bruits", "soupir",

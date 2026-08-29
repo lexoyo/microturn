@@ -1,78 +1,85 @@
-# English catalogue for microturn. See locales/fr.toml for why the tokens are in
-# the language of the conversation. This catalogue is what makes it possible to run
-# the researchers' benchmark, whose corpus is English, without touching the rest of
-# the system.
+# English catalogue for microturn. Kept in step with `fr.toml`: same seven control
+# tokens as DuplexCascade (`FORMAT-CHERCHEURS.md`), same JSON-constrained output,
+# same structure. It is what makes the researchers' English benchmark runnable
+# without touching the rest of the system.
 #
-# The noise example below is NOT a translation of the French one: a transcription
-# error in English does not look like a translated French one. It should be a real
-# whisper failure on English audio — the current one is a placeholder.
+# NOT a translation of the French prompt word for word: the French one was tuned
+# by measurement (0,634 → 0,744 over the session of 29/08/2026) and none of that
+# tuning has been re-measured in English. Treat this file as a starting point,
+# not as a result.
 
-# {tick} is replaced by the real clock period: hard-coding it would make the prompt
-# lie the moment we change it for an experiment.
+# {tick} is replaced by the real clock period; {exemples} by the examples below.
 systeme = """
-You are listening to someone speaking. Every {tick} seconds you receive the words \
-transcribed since the last check, or (silence) if nothing was said.
+You are having a conversation with a user.
 
-Your first word is always one of these three:
+"<|no voice|>" means nothing was heard from the user.
 
-STILL_TALKING  the sentence is not over: they are talking, or pausing to breathe or find a word
-FINISHED       the sentence is over and they are waiting for your answer
-CUTTING_IN     they start talking again while the line starts with [I am speaking]
+Here is the list of markers (their meaning is in brackets)
 
-After FINISHED, and only then, continue on the same line with what to say out loud, \
-one short spoken sentence. FINISHED always carries an answer.
+  <|user is talking|>       (their sentence is not finished)
+  <|user finish talking|>   (their sentence is finished)
+  <|user is thinking|>      (they are silent, but thinking)
+  <|user interruption|>     (they start speaking again while you are answering)
+  <|user backchannel|>      (a listening signal, not a bid for the floor)
+  <|assistant_backchannel|> (you understood, but you are waiting for more)
 
-FINISHED is for a complete question or request. STILL_TALKING is for anything that \
-could continue: a fragment, a subject with no verb, a sentence cut mid-way.
+You answer with an object: {"m": "<the marker>"}.
 
-The transcript is automatic and often wrong. You do not need to understand the words \
-to do your job. When they make no sense, that is a recognition error: answer \
-STILL_TALKING.
+One exception: with <|user finish talking|>, and only there, add a sentence that \
+will be spoken to the user: \
+{"m": "<|user finish talking|>", "r": "your sentence, short and spoken"}
 
-When in doubt, STILL_TALKING.\
+### EXAMPLE CONVERSATION
+
+{exemples}
+
+### THEN THE REAL CONVERSATION, in the same format
 """
 
 [jetons]
-parle     = "STILL_TALKING"
-parler    = "FINISHED"
-reflechit = "THINKING"
-coupe     = "CUTTING_IN"
+parle       = "<|user is talking|>"
+parler      = "<|user finish talking|>"
+reflechit   = "<|user is thinking|>"
+coupe       = "<|user interruption|>"
+backchannel = "<|user backchannel|>"
+mhm         = "<|assistant_backchannel|>"
 
+# Empty, like in French: DuplexCascade carries no marker describing the SYSTEM's
+# state — its interleaved structure makes it implicit.
 [etats]
-parle = "[I am speaking]"
-vient = "[I just answered]"
-muet  = "[I have not spoken]"
+parle = ""
+vient = ""
+muet  = ""
 
 [divers]
-silence    = "(silence)"
-silence_repete = "(still nothing, for {n} checks)"
-bruit_sans_texte = "(someone is talking, but I cannot make it out)"
-tour_en_cours    = "— their turn so far: {texte}"
+silence          = "<|no voice|>"
+silence_repete   = "<|no voice|>"
+bruit_sans_texte = "<|no voice|>"
+tour_en_cours    = "{texte}"
 whisper    = "en"
 espeak     = "en"
 voix_piper = "en_US-amy-medium"
 
 [[exemples]]
-entree = "[I have not spoken] can you"
-sortie = "STILL_TALKING"
+entree = "can you"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[I have not spoken] (silence)"
-sortie = "STILL_TALKING"
+entree = "<|no voice|>"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[I have not spoken] a year and more you not enough fan this thread"
-sortie = "STILL_TALKING"
+entree = "tell me the"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[I have not spoken] turn on the living room light"
-sortie = "FINISHED It's on."
+entree = "height of the Eiffel Tower"
+sortie = '''{"m": "<|user finish talking|>", "r": "The Eiffel Tower is 320 metres tall."}'''
+# The silence that FOLLOWS an answer: the sentence just ended, so "still talking"
+# would teach the opposite of the right call. Measured in French: +0,025.
 [[exemples]]
-entree = "[I just answered] (silence)"
-sortie = "STILL_TALKING"
-# The two cases the pipeline sends routinely and that nothing described:
-# while we are speaking and they stay silent, and when they start again right
-# after our answer. Measured at 15 % of turns, with the model contradicting itself.
+entree = "<|no voice|>"
+sortie = '''{"m": "<|user is thinking|>"}'''
 [[exemples]]
-entree = "[I just answered] and also can you"
-sortie = "STILL_TALKING"
+entree = "and also can you"
+sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
-entree = "[I have not spoken] what time is it"
-sortie = "FINISHED It's nearly midnight."
+entree = "tell me what time it is"
+sortie = '''{"m": "<|user finish talking|>", "r": "It's nearly midnight."}'''

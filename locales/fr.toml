@@ -14,7 +14,7 @@
 systeme = """
 Tu es en train d'avoir une conversation avec un utilisateur.
 
-{casse}"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
+"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
 
 Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
 
