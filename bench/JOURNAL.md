@@ -28,7 +28,8 @@ en croyant l'avoir trouvé.
 | 2 | 5713507 | rejeu **déterministe** : horloge virtuelle, appel bloquant | 0,681 | 12/17 | 10/29 | 5,8 / 4,0 s | nouvelle base |
 | 2' | 5713507 | *(contrôle : la même mesure, refaite)* | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **bruit résiduel 0,017** — quatre fois moins qu'avant |
 | 3 | 4f0e1e6 | `[=]` horizon 10 micro-tours système (`MICRO_TOURS` 48 → 20) | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **gardé.** Score inchangé, contexte plus que divisé par deux |
-| 4 | — | `[=]` `TICK_S` 1,2 → 0,6 s (leur valeur en pratique) | 0,698 | 12/17 | 9/29 | 6,0 / 4,6 s | **rejeté.** Deux fois plus d'appels, latence inchangée |
+| 4 | 4aaa96e | `[=]` `TICK_S` 1,2 → 0,6 s (leur valeur en pratique) | 0,698 | 12/17 | 9/29 | 6,0 / 4,6 s | **rejeté.** Deux fois plus d'appels, latence inchangée |
+| 5 | e892a9f | `[=]` **borne haute : ASR parfait** (référence ré-émise en flux) | **0,820** | **15/17** | 7/29 | **0,6 / 0,8 s** | 26 coupures. Le prompt n'est pas le goulot |
 
 ### Ce que la deuxième session change
 
@@ -136,3 +137,37 @@ secondes de retard. C'est le vrai écart avec DuplexCascade, dont l'ASR streamin
 répond en continu — et ce n'est ni le prompt, ni le modèle, ni l'horloge.
 
 **Toute optimisation de latence qui ne touche pas whisper est du bruit.**
+
+
+### Test 5 — la borne haute, et ce qu'elle dit du projet
+
+Sessions régénérées avec une reconnaissance parfaite (`bench/asr_parfait.py`) :
+la transcription de référence ré-émise mot à mot, à l'instant où chaque mot est
+prononcé. Texte juste, aucun délai.
+
+| | base (whisper `tiny`) | ASR parfait | DuplexCascade |
+|---|---|---|---|
+| justesse | 0,690 | **0,820** | 0,858 |
+| fins de tour | 12/17 = 0,706 | **15/17 = 0,882** | 0,955 |
+| pauses ratées | 10/29 | 7/29 | — |
+| latence | 5,8 s | **0,7 s** | 1,2 s |
+| coupures | 2 | **26** | — |
+
+**Le prompt n'est pas le goulot.** Avec une entrée propre, la transposition par
+prompting arrive à 0,820 contre 0,858 pour un Qwen2-7B fine-tuné cinq heures sur
+huit H100. L'écart restant est de 0,038 — deux fois le bruit de mesure, donc
+réel, mais petit.
+
+Et la latence tombe de 5,8 s à 0,7 s, **sous la leur**. Ce qui confirme la
+décomposition : les six secondes étaient du délai whisper, rien d'autre.
+
+**Les 26 coupures sont le prix de la vitesse.** En répondant en 0,7 s au lieu de
+6, le système parle pendant que l'autre reprend son souffle. C'est un vrai
+défaut, mais c'en est un de système temps réel — pas de compréhension. On ne
+l'avait jamais vu parce qu'on était trop lent pour couper qui que ce soit.
+
+### Ce que ça change pour la suite de la file
+
+Le bloc 2 (le prompt, 24 tests) plafonne à +0,13 dans le meilleur des cas, et
+seulement si l'ASR suit. Le bloc « qualité des briques » n'est plus un test
+parmi d'autres : c'est le projet.
