@@ -101,9 +101,12 @@ def main():
         sens = TACHES[tache][2]
         passes = []
         for i in range(a.passes):
-            # refaire dès la 2e passe : sinon on relit les output.wav de la 1re
-            # et l'écart-type mesuré serait nul par construction.
-            r = une_passe(tache, a.echantillon, refaire=(i > 0))
+            # TOUJOURS refaire. Ne refaire qu'à partir de la 2e passe était un
+            # piège : à la première passe d'une NOUVELLE itération, lancer.py
+            # retrouvait les output.wav de l'itération précédente, les gardait,
+            # et on évaluait l'ancien code en croyant mesurer le nouveau. Dix
+            # itérations auraient donné dix fois le même chiffre.
+            r = une_passe(tache, a.echantillon, refaire=True)
             if "erreur" in r:
                 print(f"  {tache:12} ÉCHEC — {r['erreur']}")
                 break
