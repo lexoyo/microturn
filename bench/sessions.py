@@ -231,7 +231,14 @@ def evalue(dossier, muet=True):
         except ValueError:
             pass
 
+    # Deux latences, pas une. `parole_debut` est l'instant où le système décide
+    # de parler ; ce qu'un humain ressent, c'est l'instant du premier SON, une
+    # attaque de moteur plus tard (0,95 s mesurés pour piper). On mesurait la
+    # première et on parlait de la seconde.
     paroles = [e["t"] for e in ev if e["type"] == "parole_debut"]
+    attaques = [e.get("attaque", 0.0) or 0.0
+                for e in ev if e["type"] == "parole_debut"]
+    attaque = max(attaques) if attaques else 0.0
     coupures = sum(1 for e in ev if e["type"] == "coupure")
 
     repondues, delais, utilisees = 0, [], set()
@@ -265,6 +272,8 @@ def evalue(dossier, muet=True):
         "tor_pauses": tor_pauses,
         "justesse": justesse,
         "latence_med": round(sorted(delais)[len(delais)//2], 2) if delais else None,
+        "latence_vecue": round(sorted(delais)[len(delais)//2] + attaque, 2)
+                         if delais else None,
         "prises_de_parole": len(paroles),
         "coupures": coupures,
         "duree_rejeu_s": round(time.time() - t0, 1),
@@ -309,7 +318,8 @@ def main():
         tp += r["pauses"]; ti += r["intrusions"]; tc += r["coupures"]
         print(f"  {nom}  tours {r['repondues']}/{r['fins_de_tour']}  "
               f"pauses {r['intrusions']}/{r['pauses']}  "
-              f"justesse {r['justesse']}  lat {r['latence_med']}s  "
+              f"justesse {r['justesse']}  lat {r['latence_med']}s "
+              f"(vécue {r.get('latence_vecue')}s)  "
               f"coupures {r['coupures']}  [{r['duree_rejeu_s']}s]")
 
     if tf or tp:

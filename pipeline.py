@@ -251,7 +251,12 @@ class Session:
         self.texte_dit = texte
         self.robot_parle = True
         if self.trace:
-            self.trace.ev("parole_debut", texte=texte)
+            # `parole_debut` est l'instant où on DEMANDE la parole ; le premier
+            # son sort plus tard — le temps que le moteur attaque. Sans cette
+            # durée dans la trace, la latence mesurée est plus courte que celle
+            # qu'on entend, et c'est celle qu'on entend qui compte.
+            self.trace.ev("parole_debut", texte=texte,
+                          attaque=round(getattr(self.voix, "ATTAQUE_S", 0.0), 3))
         # Ferme le tour côté STT : sans ça le prochain transcript recontiendrait
         # tout ce à quoi on vient de répondre.
         self.eng.reset()

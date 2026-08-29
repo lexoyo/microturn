@@ -30,6 +30,8 @@ en croyant l'avoir trouvé.
 | 3 | 4f0e1e6 | `[=]` horizon 10 micro-tours système (`MICRO_TOURS` 48 → 20) | 0,698 | 12/17 | 9/29 | 5,8 / 4,6 s | **gardé.** Score inchangé, contexte plus que divisé par deux |
 | 4 | 4aaa96e | `[=]` `TICK_S` 1,2 → 0,6 s (leur valeur en pratique) | 0,698 | 12/17 | 9/29 | 6,0 / 4,6 s | **rejeté.** Deux fois plus d'appels, latence inchangée |
 | 5 | e892a9f | `[=]` **borne haute : ASR parfait** (référence ré-émise en flux) | **0,820** | **15/17** | 7/29 | **0,6 / 0,8 s** | 26 coupures. Le prompt n'est pas le goulot |
+| 6a | 615a9d2 | `[=]` whisper `tiny`, même audio (référence du test) | 0,670 | 6/8 | 9/22 | 4,75 s vécue | 4 coupures |
+| 6b | 615a9d2 | `[=]` whisper **`base`**, même audio | **0,784** | 6/8 | **4/22** | **7,15 s vécue** | 1 coupure. +0,114 de justesse, −2,4 s de latence |
 
 ### Ce que la deuxième session change
 
@@ -171,3 +173,38 @@ l'avait jamais vu parce qu'on était trop lent pour couper qui que ce soit.
 Le bloc 2 (le prompt, 24 tests) plafonne à +0,13 dans le meilleur des cas, et
 seulement si l'ASR suit. Le bloc « qualité des briques » n'est plus un test
 parmi d'autres : c'est le projet.
+
+
+### Test 6 — `base` corrige la compréhension et aggrave la latence
+
+Même audio, deux modèles, chacun repassé en streaming réel puis mesuré en
+déterministe (`bench/session_depuis_trace.py`, sans quoi on comparerait deux
+cadencements au lieu de deux modèles).
+
+| | `tiny` | `base` |
+|---|---|---|
+| justesse | 0,670 | **0,784** |
+| pauses ratées | 9/22 | **4/22** |
+| coupures | 4 | **1** |
+| latence vécue | **4,75 s** | 7,15 s |
+| coût par passe | **1,35 s** (max 2,72) | 3,63 s (max 5,77) |
+
+Le gain de justesse est de +0,114, soit six fois le bruit — c'est le plus gros
+effet mesuré après la borne haute. Sur la même phrase :
+
+    tiny :  « Ma pêle, comment je m'appelle ? »
+    base :  « Est-ce que tu sais comment je m'appelle ? »
+
+**Mais `base` coûte 2,4 s de latence en plus**, et c'est déjà le défaut n° 1 côté
+utilisateur. À 3,63 s par passe sur un PC de bureau, il est de toute façon hors
+de portée d'un Pi 3B.
+
+Les deux résultats ensemble disent la même chose : **le problème n'est pas la
+taille du modèle, c'est le mode de décodage.** Whisper re-décode une fenêtre
+entière à chaque passe ; plus il est précis, plus il est lent, et plus le dernier
+mot arrive tard. Un ASR streaming rendrait les mots au fil de l'eau sans ce
+compromis.
+
+Piste immédiatement testable, avant de changer d'ASR : la fenêtre est bornée à
+`PLAFOND_S = 20 s`. Le coût d'une passe est proportionnel à sa longueur — la
+réduire devrait réduire le délai à modèle constant.

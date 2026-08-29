@@ -23,7 +23,9 @@ import json, os, queue, threading, time
 import numpy as np
 import audio
 
-WHISPER_MODEL = "models/ggml-tiny-q5_1.bin"   # exactement le modèle mesuré sur le Pi
+# Exactement le modèle mesuré sur le Pi. Surchargeable pour comparer deux
+# tailles sur le même audio : `MICROTURN_WHISPER=models/ggml-base-q5_1.bin`.
+WHISPER_MODEL = os.environ.get("MICROTURN_WHISPER", "models/ggml-tiny-q5_1.bin")
 VOSK_DIR = "models/vosk-model-small-fr-0.22"
 
 # whisper n'a pas de transcription incrémentale : on lui redonne tout le tour à
