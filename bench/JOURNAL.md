@@ -531,3 +531,69 @@ contrainte sur une erreur réseau.
 Les réponses font 68 caractères en moyenne, soit 4,8 s de parole. Les raccourcir
 par le prompt coûte 0,063 de justesse : le modèle tronque la réponse plutôt que
 de la resserrer. Le temps d'antenne se réduira autrement, ou pas.
+
+## Sessions réelles du 29/08 — ce que le rejeu ne pouvait pas voir
+
+### Sur le Pi (`20260829-122725`) : la porte jetait 81 % de l'audio
+
+```
+  blocs transmis : 134      blocs jetés : 586
+  audio enregistré : 90,3 s pour une session de 104,2 s
+```
+
+La porte anti-écho se calibre sur le bruit ambiant et ferme au-dessus d'un seuil
+qui, sur ce micro USB, est plus haut qu'une voix normale :
+
+```
+  26,3s  fermée   voix 286   seuil 587
+  59,2s  OUVERTE  voix 5222              ← quand Alex insiste
+  80,2s  fermée   voix 418   seuil 8033
+```
+
+D'où les trous de sept à onze secondes dans la transcription, et les quatre
+« coupures » : la porte s'ouvre brutalement, le système voit du texte neuf et
+croit qu'on reprend la parole.
+
+**Piège de mesure évité de justesse** : le délai « dernier mot → parole » valait
+0,2 s, ce qui semblait excellent. Il chronométrait entre le moment où le système
+a ENFIN entendu un mot et sa réponse — pas depuis la parole réelle. Le même
+travers que pour le TTS le matin même : mesurer une étape et parler de la chaîne.
+
+### Sur shiao sans porte (`20260829-133258`) : ça marche
+
+```
+  dernier mot → parole : médiane 0,33 s   (min 0,04 · max 1,55)
+  latence d'appel      : médiane 0,44 s
+  coût STT par bloc    : médiane 49 ms    (budget 300)
+  16 réponses, 43 caractères en moyenne   (68 le matin)
+```
+
+Première conversation réellement tenue : il suit le fil (« Enchanté Tonton ! »,
+« La tour Eiffel mesure 320 mètres de haut »). Et `<|user is thinking|>` sort
+**66 fois sur 129 décisions**, alors qu'il n'était jamais sorti en rejeu.
+
+### Le défaut qui reste : cinq relances vides sur seize réponses
+
+Délai avant qu'Alex reprenne la parole, après chaque réponse :
+
+```
+   19,5s  0,5 s ⚠  « Je t'écoute. »
+   25,2s  0,5 s ⚠  « Vas-y, je suis prêt. »
+   51,7s  0,3 s ⚠  « Je suis désolé d'apprendre cela. »
+   54,1s  0,1 s ⚠  « Je peux essayer de vous aider avec autre chose. »
+   62,5s  0,0 s ⚠  « Je vais essayer de trouver quelque chose de sympa… »
+```
+
+Les onze autres réponses sont suivies de 3 à 11 s de silence : elles tombaient
+juste. **Les cinq fautives sont toutes des relances vides** — aucune n'apporte
+d'information.
+
+Ça déplace le diagnostic. Le problème n'est peut-être pas *quand parler* mais
+**quoi dire quand on n'a rien à dire**. Les trois variantes P1/P2/P3 essayaient
+de rendre le modèle prudent ; aucune ne lui offrait de porte de sortie. Or le
+prompt a `<|assistant_backchannel|>` — « tu as compris mais tu attends plus
+d'informations » — qui est fait exactement pour ça, et qui n'est jamais sorti.
+
+Une première analyse était fausse et corrigée : comparer les longueurs de
+transcript ne dit rien, puisqu'il est remis à zéro après chaque réponse. Le bon
+signal est le délai avant la reprise.
