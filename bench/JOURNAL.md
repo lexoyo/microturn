@@ -155,6 +155,14 @@ prononcé. Texte juste, aucun délai.
 | latence | 5,8 s | **0,7 s** | 1,2 s |
 | coupures | 2 | **26** | — |
 
+**⚠ Ce 0,820 n'est plus comparable à rien.** Il porte sur deux sessions, avec
+`gemini-2.5-flash-lite` et le prompt d'avant le catalogue par moteur. Il ne peut
+donc pas être mis en face du 0,824 de `llama-3.3-70b`, mesuré sur une session
+avec son propre prompt — un ASR réel ne bat pas un ASR parfait, l'écart vient de
+la base. À refaire avec `systeme` (et NON `systeme_sherpa` : avec une entrée
+ponctuée, la phrase sur la casse ment au modèle, ce qui coûte 0,103 — on
+mesurerait ce mensonge plutôt que la borne).
+
 **Le prompt n'est pas le goulot.** Avec une entrée propre, la transposition par
 prompting arrive à 0,820 contre 0,858 pour un Qwen2-7B fine-tuné cinq heures sur
 huit H100. L'écart restant est de 0,038 — deux fois le bruit de mesure, donc
@@ -421,6 +429,17 @@ d'une phrase coupée ressortirait au début de la suivante.
 ## Rendre le système prudent : les trois variantes échouent
 
 Base sherpa 0,761. Défaut visé : 5 pauses ratées sur 22.
+
+**⚠ Base périmée, relevé après coup.** Ces trois variantes ont été mesurées
+contre 0,761, alors que la base sherpa a été portée à **0,807** juste après, en
+restaurant la variante 22 qu'une série précédente avait écrasée. Les écarts
+chiffrés ci-dessous sont donc trop favorables aux variantes : lus contre 0,807,
+P1 perd 0,121, P2 0,092 et P3 0,063. La conclusion — aucune n'améliore — tient
+dans les deux lectures, et se durcit ; les amplitudes, elles, sont fausses.
+
+Deux leçons de méthode : une base doit être remesurée quand le code bouge entre
+deux séries, et un gain perdu en silence (la variante 22) contamine tout ce qui
+est mesuré ensuite.
 
 | variante | justesse | verdict |
 |---|---|---|
