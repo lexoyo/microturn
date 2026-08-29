@@ -25,7 +25,9 @@ TACHES = {
     "pause":       ("candor_pause_handling",       "eval_pause_handling.py",   "bas"),
     "pause_synth": ("synthetic_pause_handling",    "eval_pause_handling.py",   "bas"),
     "turn":        ("candor_turn_taking",          "eval_smooth_turn_taking.py", "haut"),
-    "interrupt":   ("synthetic_user_interruption", "eval_user_interruption.py", "haut"),
+    # notre adaptateur, pas le leur : le leur exige un client OpenAI pour une
+    # note GPT-4o hors périmètre (cf. bench/eval_interrupt.py)
+    "interrupt":   ("synthetic_user_interruption", "@eval_interrupt.py",       "haut"),
     "backchannel": ("icc_backchannel",             "eval_backchannel.py",      "bas"),
 }
 
@@ -68,10 +70,49 @@ def une_passe(tache, n, refaire):
     if r.returncode != 0:
         return {"erreur": f"alignement: {r.stderr.strip()[:200]}"}
 
-    r = lancer([PY_, os.path.join(EVAL, script), "--root_dir", corpus], cwd=EVAL)
+    # un script préfixé « @ » est l'un des nôtres, dans bench/
+    if script.startswith("@"):
+        chemin, dossier = os.path.join(ICI, "bench", script[1:]), ICI
+    else:
+        chemin, dossier = os.path.join(EVAL, script), EVAL
+    r = lancer([PY_, chemin, "--root_dir", corpus], cwd=dossier)
     if r.returncode != 0:
         return {"erreur": f"évaluation: {r.stderr.strip()[:200]}"}
     return chiffres(r.stdout)
+
+
+def accuracy(resultats):
+    """La « Averaged Turn-Taking Accuracy » de DuplexCascade (arXiv 2603.09180).
+
+    Le TOR change de sens d'une tâche à l'autre : bas est bon pour les pauses et
+    le backchannel, haut est bon pour la prise de parole et l'interruption.
+    Surveiller deux nombres qui se contredisent rend toute optimisation
+    ambiguë — on ne sait jamais si on progresse ou si on déplace le problème.
+    Eux définissent donc la justesse comme 1-TOR là où bas est bon, TOR là où
+    haut est bon, et en prennent la moyenne non pondérée.
+
+    On adopte leur définition telle quelle : c'est le seul moyen de se comparer
+    à eux, et ils sont le point de comparaison le plus juste qui existe (même
+    architecture en cascade, même principe de micro-tours ; ils entraînent leur
+    modèle là où nous faisons du prompting). Leur chiffre : 0,858.
+
+    Rendue à None si une seule tâche manque. Une moyenne partielle publiée sous
+    le même nom serait un piège — c'est exactement le défaut relevé dans
+    tests/evaluer.py.
+    """
+    parts = {}
+    for tache, d in resultats.items():
+        tor = None
+        for cle, v in d["valeurs"].items():
+            if "take turn" in cle.lower():
+                tor = v["moyenne"]
+        if tor is None:
+            continue
+        parts[tache] = (1 - tor) if d["sens_favorable"] == "bas" else tor
+    if len(parts) < len(resultats) or not parts:
+        return None
+    return {"par_tache": {k: round(v, 4) for k, v in parts.items()},
+            "moyenne": round(sum(parts.values()) / len(parts), 4)}
 
 
 def main():
@@ -125,13 +166,24 @@ def main():
         resultats[tache] = {"sens_favorable": sens, "valeurs": agrege}
 
     print(f"\n--- {time.time()-t0:.0f} s ---")
+    justesse = accuracy(resultats)
     for tache, d in resultats.items():
         fleche = "↓ mieux" if d["sens_favorable"] == "bas" else "↑ mieux"
         for cle, v in d["valeurs"].items():
             et = f" ± {v['ecart_type']}" if v["ecart_type"] is not None else ""
             print(f"  {tache:12} {cle:24} {v['moyenne']:.3f}{et}   ({fleche})")
 
+    if justesse:
+        print(f"\n  JUSTESSE MOYENNE  {justesse['moyenne']:.3f}"
+              f"   (DuplexCascade : 0.858, sur les 4 tâches)")
+        for k, v in justesse["par_tache"].items():
+            print(f"    {k:12} {v:.3f}")
+    else:
+        print("\n  justesse moyenne : non calculée — il manque des tâches. "
+              "Une moyenne partielle sous ce nom serait trompeuse.")
+
     rapport = {"code": empreinte, "modifie": sale, "note": a.note,
+               "justesse": justesse,
                "echantillon": a.echantillon, "passes": a.passes,
                "date": time.strftime("%Y-%m-%dT%H:%M:%S"), "resultats": resultats}
     chemin = os.path.join(ICI, "bench", "derniere_mesure.json")
