@@ -79,9 +79,13 @@ sortie = '''{"m": "<|user is talking|>"}'''
 [[exemples]]
 entree = "taille de la tour Eiffel"
 sortie = '''{"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}'''
+# Le silence qui SUIT une réponse. « is talking » y enseignait le
+# contraire de la bonne décision, dans le cas précis où le modèle se
+# trompait : +0,025 mesuré. Perdu une fois dans une série de
+# variantes, d'où ce commentaire — c'est un résultat, pas un détail.
 [[exemples]]
 entree = "<|no voice|>"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<|user is thinking|>"}'''
 [[exemples]]
 entree = "et aussi est-ce que tu peux"
 sortie = '''{"m": "<|user is talking|>"}'''

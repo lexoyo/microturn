@@ -86,3 +86,22 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def test_exemple_silence_apres_reponse():
+    """Le `<|no voice|>` qui suit une réponse doit enseigner `is thinking`.
+
+    Ce gain (+0,025) a été perdu une fois : une série de variantes a restauré un
+    catalogue pris avant son application, et la base mesurée ensuite était
+    amputée sans que rien ne le signale. Un test le dit maintenant."""
+    import llm
+    ex = llm.catalogue("fr")["exemples"]
+    silences = [(i, s) for i, (e, s) in enumerate(ex) if e == "<|no voice|>"]
+    assert len(silences) == 2, f"deux exemples de silence attendus, {len(silences)}"
+    apres_reponse = silences[-1][1]
+    assert "is thinking" in apres_reponse, (
+        f"le silence qui suit une réponse doit être `is thinking`, pas : {apres_reponse}")
+    print("  exemple du silence après réponse             OK")
+
+
+test_exemple_silence_apres_reponse()
