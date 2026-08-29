@@ -58,6 +58,32 @@ transcription de référence) ; latence entre le dernier mot et la réponse.
 
 ---
 
+## 1 bis. Traduire les transcriptions en anglais avant de les donner au modèle
+
+**Statut : à tester.** Proposée par Alex le 29/08/2026.
+
+Le prompt système et les jetons sont en anglais, l'entrée en français. Faudrait-il
+aligner en traduisant la transcription ?
+
+**Mon avis, à réfuter** : non, et pour deux raisons mesurées. Le QC a montré que ce
+qui fait s'effondrer les petits modèles, c'est la langue des **jetons**, pas celle
+de l'entrée — labels français : 2 bonnes décisions sur 21 sur le 1B, labels anglais :
+16. Et l'entrée française est précisément ce qui **ancre la réponse en français**
+(0 réponse en anglais sur 21 mesurées) ; la retirer, c'est risquer la dérive
+linguistique que le few-shot compense aujourd'hui.
+
+**Coût** : un appel de traduction avant chaque décision, donc latence et facture
+doublées, 50 fois par minute. Sauf à traduire dans le même appel — mais alors on
+demande deux tâches au modèle, ce qui est exactement ce qui pose déjà problème.
+
+**Ce qu'on perdrait** : les erreurs de transcription caractéristiques. Un traducteur
+« réparerait » ou déformerait « un an et plus en t'es non assez fan ce fil », alors
+que le modèle doit apprendre à reconnaître ce bruit et à répondre SPEAKING.
+
+**Protocole si on y revient** : rejouer une session avec et sans traduction,
+comparer le taux de détection des vraies questions et le taux de fausses prises de
+parole sur le bruit.
+
 ## 2. Le few-shot déséquilibré aide-t-il vraiment ?
 
 **Statut : à tester — et je me suis contredit dessus, donc il faut trancher.**

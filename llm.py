@@ -19,7 +19,17 @@ Deux choix de mise en œuvre qui comptent :
 """
 import http.client, json, os, threading, time
 
-MODEL = os.environ.get("MICROTURN_MODEL", "meta-llama/llama-3.2-3b-instruct")
+# Mesuré sur 12 cas, les deux classes séparées : les Llama 3.2 (1b comme 3b) ne
+# disent JAMAIS « elle a fini » — 0 question détectée sur 5, quel que soit le
+# prompt. Ils tiennent parfaitement les silences (7/7) et c'est tout : un modèle
+# qui répond toujours « elle parle encore » obtient un bon score global sur une
+# conversation réelle, où neuf ticks sur dix sont effectivement des silences.
+# C'est pourquoi il faut mesurer les deux classes séparément.
+#   gemini-2.5-flash-lite  9/12, questions 4/5, 0,52 s  <- retenu
+#   gpt-4o-mini           10/12, questions 4/5, 0,87 s  (trop lent pour le tick)
+#   nova-micro-v1          7/12, questions 1/5, 0,48 s
+#   llama-3.2-3b / 1b      7/12, questions 0/5
+MODEL = os.environ.get("MICROTURN_MODEL", "google/gemini-2.5-flash-lite")
 HOST, PATH = "openrouter.ai", "/api/v1/chat/completions"
 TIMEOUT = float(os.environ.get("MICROTURN_TIMEOUT", "1.5"))   # au-delà, la décision est périmée
 
@@ -29,39 +39,60 @@ TIMEOUT = float(os.environ.get("MICROTURN_TIMEOUT", "1.5"))   # au-delà, la dé
 # (« dois-je parler ? »). Un modèle générique s'en sort beaucoup mieux, et ça
 # sépare deux cas que notre ancien <WAIT> confondait — elle parle encore, contre
 # elle ne dit rien après ma réponse.
-SYSTEM = """Tu écoutes quelqu'un parler. Toutes les 1,2 seconde, tu reçois ce qui vient d'être transcrit — parfois quelques mots, parfois SILENCE si la personne n'a rien dit.
+# Le système et les labels sont en ANGLAIS, la réponse reste en français.
+# Ce n'est pas une coquetterie : des labels français font s'effondrer les petits
+# Llama sur une seule classe (Enomoto et al., NAACL 2025 — 89,7 → 33,7 de F1 en
+# français), et on l'a reproduit ici : 2 bonnes décisions sur 21 avec le prompt
+# français sur le 1B, contre 16 avec celui-ci. `PARLE` était le pire mot possible,
+# un impératif adressé au modèle pour le label censé le faire taire.
+# La langue de sortie, elle, est ancrée par l'entrée française et les exemples —
+# le few-shot est la meilleure parade connue à la dérive linguistique
+# (Marchisio et al., EMNLP 2024). Mesuré : 0 réponse en anglais sur 21.
+SYSTEM = """You are listening to someone speaking French. Every 1.2 seconds you \
+receive the words transcribed since the last check, or (silence) if she said nothing.
 
-Ton premier mot est TOUJOURS un de ces quatre états :
+Your first word is always one of these four:
 
-PARLE      elle est en train de parler, ou elle marque une pause au milieu de sa phrase
-FINI       elle a fini de parler et attend une réponse
-REFLECHIT  elle ne dit rien, mais je viens de lui répondre : elle réfléchit
-COUPE      elle se remet à parler alors que je suis en train de parler
+SPEAKING      her turn is still going: she is talking, or pausing mid-sentence to \
+breathe or find a word
+DONE          her turn is over and she is waiting for an answer
+THINKING      she is silent because you have just answered her
+INTERRUPTING  she starts talking while you are still talking
 
-Après FINI seulement, ajoute ta réponse sur la même ligne : UNE phrase courte et orale.
-Après PARLE, REFLECHIT ou COUPE, n'écris rien d'autre.
+After DONE, and only after DONE, continue on the same line with what to say out \
+loud, in French, one short spoken sentence. DONE always carries an answer.
 
-Ce qui compte le plus : une pause n'est pas une fin de phrase. Les gens respirent, hésitent, cherchent leurs mots. Tant que la phrase n'est pas terminée, c'est PARLE — même après plusieurs SILENCE d'affilée.
+DONE is for a complete question or request — something she is clearly waiting for an \
+answer to. SPEAKING is for everything that could still continue: a fragment, a \
+subject with no verb, a sentence cut mid-way.
 
-La transcription est automatique et souvent fausse. Si c'est incompréhensible, c'est PARLE : ne devine pas, ne demande pas ce qu'un mot bizarre veut dire, c'est une erreur de transcription."""
+Most checks fall in the middle of her turn, so SPEAKING is the common answer. People \
+breathe, hesitate and hunt for their words; several (silence) in a row are still one \
+single turn. But when she has clearly finished asking something, say DONE and answer \
+her — leaving a real question unanswered is just as wrong as cutting her off.
 
-# Le ratio est la clé. Dans une vraie conversation, « elle parle encore » est émis
-# une dizaine de fois pour une seule prise de parole — c'est structurel. Un modèle
-# instruction-tuné n'a aucun prior là-dessus : il VEUT répondre. Ces exemples
-# reproduisent ce déséquilibre, faute de pouvoir l'entraîner.
+The text comes from an error-prone speech recognizer and is often wrong. You do not \
+need to understand the words to do your job. When they make no sense, that is a \
+recognition error: answer SPEAKING.
+
+If the fragment could continue, SPEAKING. If she has finished asking, DONE."""
+
+# Quatre exemples, et ils portent le FORMAT à eux seuls : sans eux, 14 sorties sur
+# 21 sont invalides et le modèle repart en assistant serviable. Ils ne servent pas
+# à installer le ratio — ça, c'est la phrase « nine times out of ten », qui coûte
+# 12 jetons au lieu de 200.
+# L'exemple DONE porte une VRAIE réponse : quand tous les exemples s'arrêtent après
+# le label, le modèle apprend à s'arrêter après le label. C'était la cause des 15
+# « FINI » nus sur 16 observés dans les traces.
+# Le troisième est du bruit whisper réel : le prompt parlait de transcription
+# fausse sans jamais en montrer une.
 FEWSHOT = [
-    ("est-ce que tu peux", "PARLE"),
-    ("SILENCE", "PARLE"),
-    ("est-ce que tu peux allumer", "PARLE"),
-    ("la lumière du salon", "FINI c'est fait"),
-    ("SILENCE", "REFLECHIT"),
-    ("SILENCE", "REFLECHIT"),
-    ("alors je voudrais", "PARLE"),
-    ("SILENCE", "PARLE"),
-    ("SILENCE", "PARLE"),
-    ("te demander un truc", "PARLE"),
-    ("SILENCE", "PARLE"),
-    ("c'est quoi la capitale du Japon", "FINI Tokyo"),
+    ("est-ce que tu peux", "SPEAKING"),
+    ("(silence)", "SPEAKING"),
+    ("un an et plus en t'es non assez fan ce fil", "SPEAKING"),
+    ("allumer la lumière du salon", "DONE C'est allumé."),
+    ("(silence)", "THINKING"),
+    ("quelle heure il est", "DONE Il est bientôt minuit."),
 ]
 
 
@@ -128,13 +159,13 @@ class Decideur:
         msgs += (history or [])
         msgs.append({"role": "user", "content": transcript})
         body = json.dumps({"model": self.model, "messages": msgs,
-                           "max_tokens": 40, "temperature": 0.3})
+                           "max_tokens": 40, "temperature": 0, "stop": ["\n"]})
         # Le prompt exact part dans la trace, système et historique compris :
         # c'est la seule façon de comprendre APRÈS COUP pourquoi le modèle a mal
         # tranché. La clé, elle, ne voyage que dans les en-têtes (`_post`) et
         # n'est donc jamais écrite.
         self._tracer("llm_appel", modele=self.model, messages=msgs,
-                     max_tokens=40, temperature=0.3)
+                     max_tokens=40, temperature=0)
         t0 = time.time()
         try:
             with self.lock:
@@ -172,26 +203,116 @@ class Decideur:
 def _lire_controle(txt):
     """Rend (action, texte). Le premier mot est l'état perçu, le reste la réponse.
 
-    Le modèle s'engage sur l'état AVANT de rédiger : ça permet d'arrêter là quand
-    il ne doit pas parler, et surtout ça l'empêche de se convaincre de répondre en
-    générant d'abord du texte."""
+    Trois cas étaient auparavant confondus dans un même « elle parle encore » :
+    un vrai SPEAKING, un DONE sans réponse, et une sortie hors format. Les deux
+    derniers sont des pannes — les taire rendait le système muet ET faussait le
+    ratio, les deux en silence."""
     t = (txt or "").strip().strip("`*\"'")
     if not t:
+        return "format", ""
+    parts = t.split(None, 1)        # blancs et non " " : un \n avalait la réponse
+    etat = parts[0].strip(":.,!?<>[]()").upper()
+    reste = parts[1].strip() if len(parts) > 1 else ""
+    if etat.startswith("DONE") or etat.startswith("FINI"):
+        # Un DONE nu n'est PAS « elle parle encore » : c'est une décision de
+        # parler dont la réponse manque.
+        return ("parler", reste) if reste else ("parler_sans_texte", "")
+    if etat.startswith("SPEAK") or etat.startswith("PARLE"):
         return "parle", ""
-    premier, _, reste = t.partition(" ")
-    etat = premier.strip(":.,!?<>[]()").upper()
-    reste = reste.strip()
-    if etat.startswith("FINI"):
-        return ("parler", reste) if reste else ("parle", "")
-    if etat.startswith("REFLECH"):
+    if etat.startswith("THINK") or etat.startswith("REFLECH"):
         return "reflechit", ""
-    if etat.startswith("COUPE"):
+    if etat.startswith("INTERRUPT") or etat.startswith("COUPE"):
         return "coupe", ""
-    if etat.startswith("PARLE"):
-        return "parle", ""
-    # Le modèle a répondu sans jeton : il a désobéi au format. On ne prend pas
-    # le risque de parler sur une sortie qu'on ne comprend pas.
-    return "parle", ""
+    return "format", t              # tracé comme tel, jamais noyé dans « parle »
+
+
+class Decideur:
+    """Une connexion HTTPS réutilisée, protégée par un verrou (un appel à la fois)."""
+
+    def __init__(self, model=MODEL, timeout=TIMEOUT, trace=None):
+        self.model, self.timeout = model, timeout
+        self.trace = trace
+        self.conn = None
+        self.lock = threading.Lock()
+
+    def _post(self, body):
+        for essai in (1, 2):                 # une reconnexion si le serveur a fermé
+            try:
+                if self.conn is None:
+                    self.conn = http.client.HTTPSConnection(HOST, timeout=self.timeout)
+                self.conn.request("POST", PATH, body, {
+                    "Authorization": f"Bearer {KEY}",
+                    "Content-Type": "application/json",
+                    "Connection": "keep-alive"})
+                return json.loads(self.conn.getresponse().read())
+            except Exception:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
+                if essai == 2:
+                    raise
+        return {}
+
+    def decide(self, transcript, history=None):
+        """Rend (action, texte, latence).
+
+        action ∈ {parle, parler, reflechit, coupe, error}.
+
+        Une erreur est renvoyée telle quelle, JAMAIS confondue avec 'parle' :
+        l'appelant doit pouvoir réessayer au lieu de perdre l'énoncé."""
+        # Plus de porte locale : elle supprimait des appels, donc des occasions de
+        # décider, et elle tranchait le tour de parole AVANT le modèle — le VAD
+        # déguisé qu'on cherche justement à supprimer. Le modèle est désormais
+        # consulté à chaque tick, y compris sur du silence.
+        msgs = [{"role": "system", "content": SYSTEM}]
+        for u, a in FEWSHOT:
+            msgs += [{"role": "user", "content": u},
+                     {"role": "assistant", "content": a}]
+        msgs += (history or [])
+        msgs.append({"role": "user", "content": transcript})
+        body = json.dumps({"model": self.model, "messages": msgs,
+                           "max_tokens": 40, "temperature": 0, "stop": ["\n"]})
+        # Le prompt exact part dans la trace, système et historique compris :
+        # c'est la seule façon de comprendre APRÈS COUP pourquoi le modèle a mal
+        # tranché. La clé, elle, ne voyage que dans les en-têtes (`_post`) et
+        # n'est donc jamais écrite.
+        self._tracer("llm_appel", modele=self.model, messages=msgs,
+                     max_tokens=40, temperature=0)
+        t0 = time.time()
+        try:
+            with self.lock:
+                out = self._post(body)
+        except Exception as e:
+            dt = time.time() - t0
+            err = f"{type(e).__name__}: {e}"[:90]
+            self._tracer("llm_reponse", brut=None, erreur=err, latence=round(dt, 3))
+            self._tracer("decision", action="error", texte=err, source="reseau",
+                         transcript=transcript, latence=round(dt, 3))
+            return "error", err, dt
+        dt = time.time() - t0
+        try:
+            txt = (out["choices"][0]["message"].get("content") or "").strip()
+        except Exception:
+            err = str(out.get("error", out))[:90]
+            self._tracer("llm_reponse", brut=None, corps=out, erreur=err,
+                         latence=round(dt, 3))
+            self._tracer("decision", action="error", texte=err, source="reseau",
+                         transcript=transcript, latence=round(dt, 3))
+            return "error", err, dt
+        # `brut` est le texte du modèle AVANT `_lire_controle` : on veut pouvoir
+        # relire ce qu'il a réellement écrit, pas ce qu'on en a compris.
+        self._tracer("llm_reponse", brut=txt, corps=out, latence=round(dt, 3))
+        action, texte = _lire_controle(txt)
+        self._tracer("decision", action=action, texte=texte, source="reseau",
+                     transcript=transcript, latence=round(dt, 3))
+        return action, texte, dt
+
+    def _tracer(self, type, **champs):
+        if self.trace is not None:
+            self.trace.ev(type, **champs)
+
 
 
 if __name__ == "__main__":
