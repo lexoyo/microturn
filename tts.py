@@ -16,6 +16,11 @@ import json, os, subprocess, threading, time, wave
 
 ENGINE = os.environ.get("MICROTURN_TTS", "piper")
 PIPER = os.path.expanduser(os.environ.get("MICROTURN_PIPER", "~/.local/bin/piper"))
+# Le périphérique de SORTIE. `aplay` sans `-D` cherche un « default » qui
+# n'existe pas sur une image Raspberry Pi Lite : il échoue, et comme son stderr
+# part dans DEVNULL, le robot parle dans le vide sans un message. Trouvé en
+# session réelle, invisible en rejeu.
+APLAY = os.environ.get("MICROTURN_APLAY", "")
 VOICE = os.path.expanduser(os.environ.get(
     "MICROTURN_VOICE", "~/.local/share/piper/fr_FR-siwis-medium.onnx"))
 
@@ -119,8 +124,10 @@ class Speaker:
                                  start_new_session=True)
             return [p]
         synth = self._piper()
-        play = subprocess.Popen(["aplay", "-q", "-r", str(self.rate),
-                                 "-f", "S16_LE", "-c", "1", "-"],
+        cmd = ["aplay", "-q", "-r", str(self.rate), "-f", "S16_LE", "-c", "1"]
+        if APLAY:
+            cmd += ["-D", APLAY]
+        play = subprocess.Popen(cmd + ["-"],
                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
         self._sortie = play
