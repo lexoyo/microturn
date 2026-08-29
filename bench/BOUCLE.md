@@ -48,6 +48,27 @@ autre.** Deux questions, toujours les mêmes :
 Une QC qui ne trouve rien est suspecte : les deux premières ont trouvé quelque
 chose à chaque fois.
 
+## Un seul changement par itération
+
+Posé par Alex le 29/08/2026 : « en mode itératif, c'est un test par test ».
+Enfreint deux fois dans la même session, et les deux fois l'information a été
+perdue :
+
+- itération 1 : `MICRO_TOURS` **et** le rappel du tour changés ensemble. Score
+  inchangé — j'ai failli conclure que les deux étaient inutiles. Seule la
+  lecture de la trace a montré que le rappel marchait et qu'un détail de forme
+  l'annulait.
+- itération 7 : un exemple retiré **et** les champs renommés. 2/9, et on ne
+  saura jamais lequel des deux a coûté quatre questions.
+
+La tentation est toujours la même : « ces deux changements traitent la même
+cause, autant les faire ensemble ». C'est faux. Deux changements qui traitent
+la même cause peuvent avoir des effets opposés qui s'annulent — et on conclut
+alors que la cause n'était pas la bonne.
+
+Exception admise : revenir en arrière. Annuler une régression n'est pas un
+changement à mesurer, c'est un retour à un état déjà mesuré.
+
 ## Une itération
 
 1. **Choisir UNE hypothèse** dans la file ci-dessous. Une seule.

@@ -89,6 +89,38 @@ def dit_par_le_robot(dossier):
     return phrases
 
 
+def silences(dossier):
+    """Les silences de plus de PAUSE_MIN secondes, mesurés par ffmpeg.
+
+    Remplace une détection qui cherchait les trous ENTRE les segments de la
+    transcription de référence. Elle n'en trouvait jamais aucun : whisper
+    `small` produit des segments contigus qui recouvrent tout le fichier, même
+    quand il y a du silence à l'intérieur. Résultat, `pauses 0/0` sur toute la
+    session — la moitié de la métrique était morte et je ne mesurais que
+    « répond-il », jamais « se tait-il ». Un système bavard aurait eu un score
+    parfait.
+
+    Suggestion d'Alex. ffmpeg donne les bornes à la milliseconde, sans dépendre
+    du découpage de whisper, et sans rien faire tourner de lourd.
+    """
+    wav = os.path.join(dossier, "entree.wav")
+    if not os.path.exists(wav):
+        return []
+    r = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-i", wav, "-af",
+         f"silencedetect=noise=-40dB:d={PAUSE_MIN}", "-f", "null", "-"],
+        capture_output=True, text=True)
+    out, debut = [], None
+    for ligne in r.stderr.splitlines():
+        if "silence_start:" in ligne:
+            debut = float(ligne.rsplit("silence_start:", 1)[1].strip())
+        elif "silence_end:" in ligne and debut is not None:
+            fin = float(ligne.rsplit("silence_end:", 1)[1].split("|")[0].strip())
+            out.append((debut, fin))
+            debut = None
+    return out
+
+
 def occasions(segments, robot=()):
     """Les deux situations que le banc distingue, dérivées de la référence.
 
@@ -134,10 +166,6 @@ def occasions(segments, robot=()):
         if texte.endswith("?"):
             fins.append((float(t1), texte))
             continue
-        if i + 1 < len(segments):
-            t0_suivant = segments[i + 1].get("t0", segments[i + 1].get("start"))
-            if t0_suivant is not None and float(t0_suivant) - float(t1) >= PAUSE_MIN:
-                pauses.append((float(t1), texte))
     return fins, pauses
 
 
@@ -167,7 +195,12 @@ def evalue(dossier, muet=True):
     segs = reference(dossier)
     if not segs:
         return {"erreur": "pas de transcription de référence"}
-    fins, pauses = occasions(segs, dit_par_le_robot(dossier))
+    fins, _ = occasions(segs, dit_par_le_robot(dossier))
+    # Une pause est un silence qui ne SUIT PAS une fin de tour : après une
+    # question, le silence est une occasion de parler, pas de se taire. Les
+    # deux situations ont des exigences opposées, il faut les séparer.
+    pauses = [(d, "") for d, _f in silences(dossier)
+              if not any(0 <= d - q <= DELAI_MAX for q, _ in fins)]
     if not fins and not pauses:
         return {"erreur": "ni fin de tour ni pause dans la référence"}
 

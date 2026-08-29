@@ -70,3 +70,19 @@ enlève.
 
 Sensibilité mesurée à la formulation : 6/9 avec « moi », 2/9 avec « robot ».
 Un mot. Ce système est bien plus sensible aux mots qu'à la structure.
+| 9 | — | les exemples déséquilibrés (5 PARLE_ENCORE / 2 A_FINI) poussent au mutisme | rééquilibrage 4-3, un A_FINI de conversation | **6/9** | annulé. Aucun gain, et nous éloigne du papier (eux n'ont pas d'exemples) |
+| 10 | — | les marqueurs d'état sont superflus : l'historique alterné porte l'information, comme chez eux | les trois marqueurs d'état supprimés | **3/9**, parler 6, coupe 0 | **RÉGRESSION MAJEURE, −4 questions.** L'écart au papier était justifié |
+
+## Le résultat le plus intéressant pour l'article
+
+DuplexCascade se passe de marqueurs d'état parce que son modèle est **entraîné**
+à lire l'historique alterné. Un modèle générique en prompting ne le fait pas :
+sans les marqueurs, `parler` tombe de 12 à 6 et `ME_COUPE` disparaît
+complètement.
+
+Ce qu'ils obtiennent par le fine-tuning, nous devons le payer en verbosité de
+prompt. C'est mesuré, pas supposé : 7/9 avec les marqueurs, 3/9 sans.
+
+Et ça relativise la leçon « retirer fait gagner » : on peut retirer les RÈGLES
+(le prompt de 167 à 71 mots a fait gagner), pas les DONNÉES que le modèle n'a
+aucun moyen de reconstituer.
