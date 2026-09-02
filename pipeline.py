@@ -368,17 +368,32 @@ class Session:
         # on coupe juste après.
         cv = [self._cle(m) for m in mv]
         cc = [self._cle(m) for m in mc]
-        for taille in (3, 2, 1):
-            if len(cv) < taille:
-                continue
-            queue = cv[-taille:]
-            for i in range(len(cc) - taille, -1, -1):
-                if cc[i:i + taille] == queue:
-                    return " ".join(mc[i + taille:]).strip() or self._rien()
+        # Le DERNIER mot vu est instable par nature : un ASR en flux le complète
+        # au fil de la reconnaissance (M'ENTEND → M'ENTENDS, et en français les
+        # élisions font que ça n'arrête jamais). S'ancrer dessus échoue à chaque
+        # complétion — les trois tailles ratent, le repli compte le même nombre
+        # de mots des deux côtés et rend ZÉRO. Le système devient alors sourd
+        # pour le reste du tour : mesuré en session le 03/09, quarante secondes
+        # où le modèle n'a jamais reçu autre chose que « SALUT TU M' ».
+        # On tente donc l'ancrage complet d'abord — exact quand le dernier mot
+        # n'a pas bougé — puis, s'il échoue, sur les mots STABLES seulement.
+        # L'ordre compte : l'inverse renverrait le dernier mot vu à chaque tick.
+        for source in (cv, cv[:-1]):
+            for taille in (3, 2, 1):
+                if len(source) < taille:
+                    continue
+                queue = source[-taille:]
+                for i in range(len(cc) - taille, -1, -1):
+                    if cc[i:i + taille] == queue:
+                        return " ".join(mc[i + taille:]).strip() or self._rien()
         # Plus aucun repère : la fenêtre a entièrement changé. Ne jamais rendre
         # plus de mots qu'il n'en est apparu depuis le tick précédent, sinon on
-        # présente au modèle un énoncé ancien comme s'il était neuf.
+        # présente au modèle un énoncé ancien comme s'il était neuf. Exception :
+        # si le texte a grandi en CARACTÈRES sans gagner de mot, c'est le dernier
+        # mot qui s'est complété — le rendre, plutôt que de ne rien rendre.
         neufs = max(0, len(mc) - len(mv))
+        if not neufs and len(self.transcript) > len(self.vu):
+            neufs = 1
         return " ".join(mc[len(mc) - neufs:]).strip() or self._rien()
 
     def _est_echo(self, delta):

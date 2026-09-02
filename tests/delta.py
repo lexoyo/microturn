@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""`Session._delta` — la fonction la plus subtile du projet, et la moins couverte.
+
+Elle répond à « qu'est-ce qui vient d'être dit depuis le tick précédent ? ».
+Deux pièges l'ont déjà cassée en session réelle, chacun documenté ci-dessous.
+"""
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import pipeline
+
+
+class Faux(pipeline.Session):
+    """Une `Session` réduite à ce que `_delta` lit : `vu` et `transcript`."""
+    def __init__(self):
+        self.silence = "<|no voice|>"
+    def _muet_mesure(self):
+        return False
+    def _rien(self):
+        return self.silence
+
+
+CAS = [
+    # (vu au tick precedent, transcript courant, delta attendu, pourquoi)
+    ("", "SALUT",
+     "SALUT", "premier mot du tour"),
+    ("SALUT", "SALUT",
+     "<|no voice|>", "rien de neuf : silence, pas une repetition"),
+    ("EST CE QUE TU PEUX", "EST CE QUE TU PEUX ME DIRE",
+     "ME DIRE", "cas nominal : des mots s'ajoutent, le reste est stable"),
+
+    # Piege 1 — le dernier mot se COMPLETE. Un ASR en flux le fait sans arret,
+    # et en francais les elisions le rendent permanent. Avant le 03/09,
+    # l'ancrage ratait et le repli rendait ZERO : le systeme devenait sourd
+    # pour le reste du tour (quarante secondes mesurees en session).
+    ("SALUT TU M'", "SALUT TU M'ENTENDS",
+     "M'ENTENDS", "le dernier mot vu s'est complete"),
+    ("BONJOUR JE VOU", "BONJOUR JE VOUDRAIS SAVOIR",
+     "VOUDRAIS SAVOIR", "complete ET suivi de nouveaux mots"),
+    ("JE VAIS AU", "JE VAIS AUX TOILETTES",
+     "AUX TOILETTES", "complete en changeant d'orthographe"),
+
+    # Piege 2 — l'ASR se CORRIGE en amont. Un ancrage par le prefixe tombe a
+    # zero et renvoie toute la phrase comme si elle venait d'etre dite : le
+    # modele la lit comme un enonce neuf et complet, et repond au milieu.
+    ("BONJOUR JE VOUDRAIS", "BONSOIR JE VOUDRAIS SAVOIR",
+     "SAVOIR", "un mot du debut a ete corrige"),
+]
+
+
+def main():
+    s, echecs = Faux(), 0
+    for vu, courant, attendu, pourquoi in CAS:
+        s.vu, s.transcript = vu, courant
+        obtenu = s._delta()
+        if obtenu != attendu:
+            echecs += 1
+            print(f"  ECHEC  {pourquoi}")
+            print(f"         vu={vu!r} courant={courant!r}")
+            print(f"         attendu {attendu!r}, obtenu {obtenu!r}")
+    print(f"  delta : {len(CAS) - echecs}/{len(CAS)}")
+    return 1 if echecs else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

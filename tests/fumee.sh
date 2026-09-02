@@ -43,6 +43,7 @@ essai "tampon vidé, porte fermée" $PY tests/reset_tampon.py
 # reste de ce fichier tournent en --muet, donc sur `Silencieux`. C'est
 # par ce trou qu'un `aplay` qui ne se terminait jamais est passé jusqu'en
 # session réelle.
+essai "calcul du delta"                          $PY tests/delta.py
 essai "son réel (Speaker, pas Silencieux)" $PY tests/son_reel.py
 echo "=== étages isolés ==="
 essai "décideur (réseau)"          $PY llm.py fr "[je n'ai pas parlé] tu peux allumer la lumière du salon"
