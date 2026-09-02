@@ -65,6 +65,8 @@ class Speaker:
         self._synth = None                   # piper, résident
         self._sortie = None                  # l'`aplay` du moment
         self.plaintes = []                   # ce qu'`aplay` a eu à dire
+        self.servis = 0                      # octets PCM envoyés à `aplay`
+        self.jetes = 0                       # octets purgés (phrase coupée)
         self._gen = 0                        # phrase courante
         self._purger = False                 # jeter le PCM d'une phrase coupée
         # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
@@ -173,10 +175,12 @@ class Speaker:
                 # qui marque sa fin. Sans ça, on entend la fin de la phrase
                 # interrompue, puis la nouvelle ne sort jamais — c'est le
                 # « ça coupe au milieu » entendu en session.
+                self.jetes += len(bloc)
                 continue
             if sortie is None:
                 continue                     # rien à servir
             try:
+                self.servis += len(bloc)
                 sortie.stdin.write(bloc)
                 sortie.stdin.flush()
                 ecrit = True
