@@ -43,6 +43,27 @@ déterministe gratuit — plus de patch du module `time` (le défaut G2 de la QC
 le cœur devient testable sans attendre. Une seule règle : aucun appel à l'horloge
 système dans le cœur.
 
+**`t` est du temps AUDIO, et il ne vient pas de l'ASR.** C'est la position dans
+le flux — le compteur d'échantillons de la source, ce que le code fait déjà
+(`pipeline.py:245` rend `cap.lus`). Exact, monotone, insensible à la charge CPU.
+Deux raisons de ne pas le prendre de l'ASR :
+
+- **les formats divergent** : Whisper rend `start`/`end` par segment, les autres
+  moteurs n'ont ni la même granularité ni la même origine. Ce serait un
+  adaptateur par moteur pour une information que la source possède déjà,
+  exactement ;
+- **et surtout, quand l'ASR ne rend rien, il n'y a pas d'observation.** Si `t` ne
+  venait que de lui, le temps s'arrêterait pendant les silences — précisément là
+  où il faut décider si la personne réfléchit ou a fini.
+
+**Conséquence sur le contrat : l'hôte pousse des observations même vides**, à
+cadence régulière. Le battement vient de la source, le texte vient de l'ASR ;
+ce sont deux choses distinctes qui voyagent dans le même objet. Un hôte qui ne
+pousse que lorsqu'il a du texte obtient un système qui ne détecte jamais un
+silence — et rien ne le lui dira. **À valider explicitement** : refuser (ou au
+moins signaler) un flux dont les observations non vides sont espacées de plus de
+quelques ticks.
+
 **Le contexte est un dict, pas des champs figés.** C'est le point d'entrée des
 « producteurs » du § 10 d'`IDEES.md` : caméra, ambiance sonore, domotique. Il
 faut donc dire **comment un dict devient du texte pour le modèle** — un
