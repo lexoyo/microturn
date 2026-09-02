@@ -205,7 +205,13 @@ def evalue(dossier, muet=True):
     if not fins and not pauses:
         return {"erreur": "ni fin de tour ni pause dans la référence"}
 
-    trace = os.path.join("/tmp", "rejeu_" + os.path.basename(dossier.rstrip("/")))
+    # Le répertoire de trace était fixe : deux passes lancées EN PARALLÈLE sur
+    # la même session se l'écrasaient l'une l'autre, et la seconde mesurait la
+    # trace de la première. `MICROTURN_TRACE` donne à chaque passe le sien —
+    # sans quoi le seul moyen de mesurer trois passes reste la série, soit
+    # quarante minutes de réseau pour cinq minutes de travail.
+    base = os.environ.get("MICROTURN_TRACE") or "/tmp"
+    trace = os.path.join(base, "rejeu_" + os.path.basename(dossier.rstrip("/")))
     subprocess.run(["rm", "-rf", trace])
     # `--deterministe` : horloge virtuelle, appel bloquant. Sans lui le rejeu
     # tournait en temps réel et un appel réseau lent faisait sauter des ticks —

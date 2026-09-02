@@ -944,3 +944,187 @@ DuplexCascade. Elle ne mesure rien de ce qu'elle annonce. Non gardée.
   indépendantes : ~40 minutes de réseau pour ce qui en demandait cinq en
   parallèle. Et trois passes par configuration, là où une seule suffisait vu
   l'ampleur de l'écart. Méthode à corriger, pas les chiffres.
+
+## Qwen2.5-7B avec notre prompt : ce que le fine-tuning apporte vraiment — 03/09/2026
+
+L'écart avec DuplexCascade (0,858) mélangeait deux choses : leur fine-tuning, et
+le fait qu'ils tournent sur Qwen2-7B quand nous tournons sur
+`gemini-2.5-flash-lite`. Une seule mesure sépare les deux : **notre prompt, tel
+quel, sur un Qwen de la même famille et de la même taille.** Qwen2-7B n'est plus
+sur OpenRouter ; `qwen/qwen-2.5-7b-instruct` est la génération suivante.
+
+Sessions `20260829-032332-sherpa` et `20260829-073852-sherpa`, rejeu `--muet`
+déterministe, 17 fins de tour et 29 pauses. **Trois passes par modèle, lancées en
+parallèle**, chacune avec son propre répertoire de trace — cinq minutes de
+réseau au lieu des quarante que coûtait la série (le défaut relevé hier).
+
+Catalogue figé pour toutes les passes : `locales/fr.toml` au commit `b511c42`
+(sha256 `78ecb656…`), c'est-à-dire **sans « courte »** et **avec le tutoiement**.
+Le prompt réellement envoyé est `systeme_sherpa`, vérifié dans la trace et non
+supposé. Un autre travail modifiait `locales/fr.toml` dans l'arbre pendant la
+mesure : les passes tournent sur une copie prise à HEAD, jamais sur l'arbre.
+
+### Les deux dimensions, séparément
+
+| | TOR fins ↑ | TOR pauses ↓ | justesse | passes |
+|---|---|---|---|---|
+| **gemini-2.5-flash-lite** (base) | **0,824** (14/17) | 0,207 (6/29) | **0,808** | 3 |
+| **qwen-2.5-7b-instruct** | **0,471** (8/17) | 0,172 (5/29) | **0,649** | 3 |
+| DuplexCascade (Qwen2-7B fine-tuné) | | | 0,858 | |
+
+Par session, et par passe :
+
+| | 032332 fins | 032332 pauses | 073852 fins | 073852 pauses |
+|---|---|---|---|---|
+| gemini ×3 | 8/9 | 1/7 | 6/8 | 5/22 |
+| qwen p1 | 3/9 | 1/7 | 6/8 | 6/22 |
+| qwen p2 | 3/9 | 1/7 | 5/8 | 5/22 |
+| qwen p3 | 3/9 | 1/7 | 4/8 | 1/22 |
+
+**Ce qui s'effondre, c'est la détection de fin de tour, et elle seule.** −0,353,
+soit six fins de tour sur dix-sept. L'écart sur les pauses (−0,035) est sous
+l'écart-type des passes Qwen (σ = 0,091) : il ne dit rien.
+
+**Écarts, face au bruit.** σ de la justesse sur les trois passes Qwen = 0,020 ;
+l'écart entre deux moyennes de trois passes a pour écart-type ~0,016.
+
+| écart | valeur | verdict |
+|---|---|---|
+| Qwen − notre base | **−0,159** | ~10 σ, hors de tout doute |
+| Qwen − DuplexCascade | **−0,209** | idem |
+| notre base − l'historique 0,816 | −0,008 | **sous le bruit — le contrôle retombe bien** |
+
+### Le mécanisme : Qwen ne dit jamais « il réfléchit »
+
+Distribution des marqueurs sur 897 décisions (trois passes) :
+
+| marqueur | qwen | gemini |
+|---|---|---|
+| `<\|user is talking\|>` | **657 (73 %)** | 145 (16 %) |
+| `<\|user is thinking\|>` | 101 (11 %) | **609 (68 %)** |
+| `<\|user finish talking\|>` | 109 (12 %) | 132 (15 %) |
+| `<\|user interruption\|>` | 27 | 0 |
+| `<\|user backchannel\|>` | 3 | 0 |
+| tronqué | 0 | 11 |
+
+Une inversion complète sur le silence : là où gemini répond « il se tait, mais il
+réfléchit », Qwen répond « sa phrase n'est pas finie ». Or « sa phrase n'est pas
+finie » est justement l'état qui interdit de conclure le tour. C'est le défaut
+mesuré sur les Llama 3.2 en août, en moins total : Qwen prend la parole presque
+autant que gemini (109 fois contre 132) — mais **au mauvais moment**.
+
+### La sortie contrainte : Qwen tient le schéma strict, sans réserve
+
+| | appels | sous schéma strict | replis de contrainte | erreurs réseau | décisions perdues |
+|---|---|---|---|---|---|
+| qwen | 299 ×3 | **897/897** | **0** | **0** | 3 (0,3 %) |
+| gemini | 299 ×3 | **897/897** | **0** | **0** | 11 (1,2 %) |
+
+Aucune dégradation d'un côté ni de l'autre : les deux modèles ont tourné dans le
+même régime de contrainte, la comparaison est légitime. Le petit modèle n'est pas
+celui qui perd le plus de décisions — **c'est gemini**, avec onze réponses
+tronquées (`finish_reason: length` sur `max_tokens = 60`, ou `error`), coupées à
+`{"m": "<|user`. Les trois pertes de Qwen sont d'une autre nature :
+`<|user backchannel|>`, un jeton **valide dans l'enum** mais que `lire_controle`
+ne mappe sur aucune action — il tombe en `format` et la décision est jetée.
+
+**Et la cascade de repli ne peut de toute façon pas se déclencher.**
+`Decideur.decide()` construit son `response_format` en dur au niveau strict et
+n'appelle jamais `self.contrainte()`. `_degrade()` incrémente `self.niveau` et
+l'écrit dans la trace, mais aucune requête suivante n'en tient compte. Un modèle
+qui refuserait le schéma perdrait donc 100 % de ses décisions — exactement ce que
+le commentaire au-dessus de `NIVEAUX` dit vouloir éviter. Sans effet ici, les
+deux modèles acceptant le schéma ; à corriger avant de tester un modèle qui ne
+l'accepte pas.
+
+### Latence et coût
+
+| | latence d'appel méd. | p90 | max | coût / passe | tokens d'entrée / appel |
+|---|---|---|---|---|---|
+| gemini | **0,36 s** | 0,46 s | 0,81 s | **0,028 $** | 861 |
+| qwen | 0,53 s | 0,88 s | **3,30 s** | 0,039 $ | **1 332** |
+
+Même prompt, **55 % de tokens d'entrée en plus** : c'est le tokenizer de Qwen sur
+du français. À prix affiché quasi égal, il revient 42 % plus cher. Et sur un tick
+de 1,2 s, son p90 mange 73 % du budget quand son maximum le dépasse trois fois —
+invisible ici (l'horloge du rejeu est virtuelle), bloquant en session réelle.
+
+La « latence vécue » de Qwen sur `032332` (1,15 s contre 3,75 s) **ne veut rien
+dire** : elle est la médiane de trois réponses sur neuf questions.
+
+### Le piège de l'agrégat, dans nos propres chiffres
+
+La passe 3 de Qwen a la **pire** détection (7/17 contre 9/17 en passe 1) et le
+**meilleur** agrégat (0,671 contre 0,644). Elle a raté deux fins de tour de plus,
+donc parlé moins, donc dérangé 2 pauses sur 29 au lieu de 7. L'agrégat la
+récompense d'avoir échoué. C'est le défaut annoncé, reproduit à l'identique.
+
+Et gemini rend **0,808 trois fois au millième** — pas une mesure morte : les
+trois traces diffèrent (178/181/179 appels sur la seconde session, 4/2/5 réponses
+tronquées). Le score est stable parce que 17 fins et 29 pauses sont une métrique
+grossière, pas parce que la sortie est identique. Qwen, lui, varie.
+
+### Au passage : retirer « courte » a ramené le tic, sans bouger la justesse
+
+Le commit `b511c42` de cette nuit retire « courte » de la consigne de réponse. Le
+banc ne le voit pas, `bench/compter_travers.py` si — deux passes de contrôle avec
+l'ancienne rédaction, tout le reste identique :
+
+| gemini | justesse | TOR fins | longueur méd. | tic « grand modèle » (073852) |
+|---|---|---|---|---|
+| avec « courte » | 0,826 · 0,808 | 0,824 | 57 car | **4 %** |
+| sans « courte » | 0,808 ×3 | 0,824 | 77 car | **30 %** |
+
+Les réponses s'allongent d'un tiers et **le tic revient**. La justesse ne bouge
+pas d'un iota — c'est exactement la leçon déjà écrite : une variante qui touche à
+ce que le modèle DIT ne déplace aucun marqueur. À arbitrer par Alex : « courte »
+n'a pas de sens comme consigne, mais c'est elle qui tenait le registre.
+
+Qwen, lui, fait **0 % de tic** sur les deux sessions. Le tic est un trait de
+gemini, pas du prompt.
+
+### La réponse
+
+**À modèle constant, le fine-tuning vaut environ +0,21 de justesse, soit six fins
+de tour sur dix-sept — et le prompting sur un bon petit modèle en récupère les
+trois quarts sans une seule heure de GPU.**
+
+| | justesse |
+|---|---|
+| Qwen2.5-7B, prompting seul | 0,649 |
+| DuplexCascade, Qwen2-7B fine-tuné 5 h sur 8×H100 | 0,858 |
+| nous, `gemini-2.5-flash-lite`, prompting seul | 0,808 |
+
+Le chiffre qui manquait à l'article n'est donc pas 0,042. C'est **0,209 pour le
+fine-tuning** et **0,159 rattrapés par le changement de modèle**.
+
+### Ce dont je ne suis pas sûr
+
+- **0,858 n'est pas mesuré sur le même banc.** C'est Full-Duplex-Bench, anglais,
+  avec des pauses annotées par des humains ; nous mesurons deux sessions
+  françaises d'Alex avec des pauses dérivées de ffmpeg. Le journal le dit déjà :
+  « comparables ENTRE NOS VERSIONS, et seulement indicatifs face aux leurs ».
+  **Toute soustraction avec 0,858 est indicative, pas une mesure.** Le seul
+  chiffre solide ici est l'écart Qwen ↔ gemini, mesuré sur le même banc.
+- **Le prompt a été réglé SUR gemini**, sur cinquante-huit variantes. Le faire
+  tourner sur Qwen n'est pas « tout le reste identique » du point de vue de Qwen :
+  c'est un prompt étranger. Une partie des 0,209 est du réglage manquant, pas du
+  fine-tuning. Je ne peux pas dire quelle part.
+- **Qwen2.5 n'est pas Qwen2.** Si 2.5 est meilleur en base, l'écart vrai sur
+  Qwen2 est plus grand que 0,209. Ce biais joue en sens inverse du précédent, et
+  je ne sais pas lequel domine.
+- **17 fins de tour, 29 pauses.** Une fin de tour vaut 0,059 de TOR. Les écarts
+  sont à ±1 tour près.
+- **Les passes ont tourné à six en parallèle**, ce que les mesures de référence
+  n'ont pas fait. Zéro erreur réseau des deux côtés et un contrôle qui retombe à
+  0,808 disent que ça n'a pas dérangé — ce n'est pas une preuve que ça ne pouvait
+  pas.
+- **Le coût est reconstruit** depuis les tokens tracés et les prix relevés le
+  03/09, pas lu dans le champ `usage.cost` : la trace ne l'enregistre pas.
+- **Le dépôt a bougé sous la mesure.** Les huit passes tournent sur le code et le
+  catalogue de `b511c42`, gelés dans une copie. Depuis, `5fe623a` a corrigé
+  `_delta` et `tts` et **retiré « en tutoyant »** : le catalogue courant n'est
+  donc plus celui mesuré ici. Les corrections de code touchent les deux modèles
+  de la même façon et ne changent pas la comparaison Qwen ↔ gemini ; le retrait
+  du tutoiement, lui, est un troisième changement de prompt non mesuré, qui
+  s'ajoute au retrait de « courte » dont l'effet sur le tic est chiffré ci-dessus.
