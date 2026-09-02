@@ -84,12 +84,22 @@ class Speaker:
     # génération fait jeter au lecteur le PCM devenu sans objet.
 
     def _prechauffer(self):
-        """Démarre piper et lui fait produire du son qu'on jette."""
+        """Démarre piper et lui fait produire du son qu'on jette.
+
+        Le « jette » n'était pas assuré : ce PCM reste dans le tube de piper, et
+        si une vraie phrase arrive avant qu'il soit drainé, il sort DEVANT elle.
+        Entendu en session le 03/09 — un « ah » au début. On arme donc la purge,
+        qui jette tout jusqu'au premier silence, exactement comme après une
+        phrase coupée."""
         try:
+            with self.lock:
+                self._purger = True
             synth = self._piper()
             synth.stdin.write(b"a\n")       # une syllabe, juste pour charger
             synth.stdin.flush()
         except Exception:
+            with self.lock:
+                self._purger = False         # ne pas laisser la purge armée
             pass                             # le préchauffage ne doit rien casser
 
     def _piper(self):
@@ -475,7 +485,6 @@ class Silencieux:
 
 
 if __name__ == "__main__":
-    import sys
     txt = " ".join(sys.argv[1:]) or "Bonjour Alex, je suis microturn, et je parle en local."
     for eng in ("espeak", "piper"):
         if eng == "piper" and not os.path.exists(PIPER):
