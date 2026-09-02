@@ -399,12 +399,23 @@ class Session:
         # Compter en MOTS rendrait zéro ici, et le système deviendrait sourd
         # pour le reste du tour — mesuré en session le 03/09, quarante secondes.
         if len("".join(cc)) > len("".join(cv)):
-            neufs = [" ".join(mc[j1:j2])
-                     for tag, i1, i2, j1, j2 in blocs.get_opcodes()
-                     if tag in ("insert", "replace") and j1 > 0]
-            # `j1 > 0` : une insertion EN TÊTE n'est pas de la parole neuve,
-            # c'est l'ASR qui réécrit le début (les génériques hallucinés de
-            # whisper arrivent tous par là).
+            neufs = []
+            for tag, i1, i2, j1, j2 in blocs.get_opcodes():
+                if tag not in ("insert", "replace"):
+                    continue
+                bout = " ".join(mc[j1:j2])
+                # En TÊTE, deux cas opposés qu'il faut distinguer. Un `replace`
+                # est l'ASR qui se corrige (« bonjour » → « bonsoir ») : rien de
+                # neuf. Un `insert` peut être un générique halluciné par whisper
+                # (« Sous-titrage… ») OU de la vraie parole préfixée — et là,
+                # écarter par la POSITION rendait zéro sur « OUI » → « JE NE
+                # SAIS PAS OUI », c'est-à-dire le mode sourd qui a coûté
+                # quarante secondes de conversation. Ce n'est pas la position
+                # qui distingue les deux, c'est le filtre d'artefacts, qui est
+                # mesuré et testé.
+                if j1 == 0 and (tag == "replace" or not stt.utile(bout)):
+                    continue
+                neufs.append(bout)
             if neufs:
                 return " ".join(neufs).strip() or self._rien()
         return self._rien()

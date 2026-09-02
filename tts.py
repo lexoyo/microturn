@@ -130,10 +130,16 @@ class Speaker:
         Bloquant : appelé depuis le thread de `_parler`, jamais depuis `say()`.
         Sérialisé par `_verrou_synth` — piper est un seul processus, et deux
         écritures concurrentes mélangeraient les réponses de son stdout."""
+        # UNE ligne = UN wav = UNE ligne sur stdout. Un saut de ligne dans le
+        # texte produit donc deux fichiers pour un `say()`, et toutes les
+        # phrases suivantes lisent le chemin de la précédente : le décalage est
+        # DÉFINITIF pour la session. `strip()` n'ôte que les bords ; une réponse
+        # JSON du modèle peut très bien contenir un `\n` au milieu.
+        text = " ".join(text.split())
         with self._verrou_synth:
             try:
                 p = self._piper()
-                p.stdin.write((text.strip() + "\n").encode())
+                p.stdin.write((text + "\n").encode())
                 p.stdin.flush()
                 ligne = p.stdout.readline().decode().strip()
             except (BrokenPipeError, ValueError, OSError):

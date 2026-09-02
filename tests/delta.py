@@ -54,6 +54,17 @@ CAS = [
     ("je peux venir", "je ne peux pas venir",
      "ne pas", "insertions au milieu"),
 
+    # Piege 5 — tout le texte neuf arrive AVANT l'ancre. Ecarter les
+    # insertions en tete par leur POSITION rendait zero ici, c'est-a-dire le
+    # mode sourd qui a coute quarante secondes de conversation. C'est le filtre
+    # d'artefacts qui distingue une hallucination de la parole, pas la place.
+    ("OUI", "JE NE SAIS PAS OUI",
+     "JE NE SAIS PAS", "parole neuve devant une ancre d'un mot"),
+    ("LA", "JE SUIS LA",
+     "JE SUIS", "l'ancre est le dernier mot de la phrase"),
+    ("NON", "MAIS NON",
+     "MAIS", "un seul mot insere en tete"),
+
     # Piege 4 — whisper hallucine un generique EN TETE (« Sous-titrage… »).
     # Ce n'est pas de la parole neuve : ne rien rendre.
     ("merci beaucoup", "sous-titrage merci beaucoup",
@@ -64,6 +75,16 @@ CAS = [
     # modele la lit comme un enonce neuf et complet, et repond au milieu.
     ("BONJOUR JE VOUDRAIS", "BONSOIR JE VOUDRAIS SAVOIR",
      "SAVOIR", "un mot du debut a ete corrige"),
+
+    # Invariants a epingler : le comportement est bon, rien ne le protegeait.
+    # Celui du milieu a casse deux fois — renvoyer tout le tour comme neuf fait
+    # repondre le modele au milieu du propos.
+    ("BONJOUR JE VOUDRAIS SAVOIR", "BONJOUR JE VOUDRAIS",
+     "<|no voice|>", "l'ASR a RACCOURCI sa transcription"),
+    ("BONJOUR", "",
+     "<|no voice|>", "transcript vide"),
+    ("   ", "BONJOUR",
+     "BONJOUR", "vu ne contient que du blanc"),
 ]
 
 
