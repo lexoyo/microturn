@@ -27,6 +27,26 @@ class Observation:
     context: dict | None = None  # {"voice": True, "speakers": 2, "sound": "music"}
 ```
 
+### Le prérequis, énoncé sans le contourner
+
+**Décision du 02/09 : l'entrée exige un ASR en mode flux, et on dit
+explicitement avec lesquels on a mesuré.** Pas de promesse de compatibilité
+universelle tant qu'elle n'est pas vérifiée — un « marche avec tous les ASR »
+non testé se paie en rapports de bug.
+
+| moteur | statut |
+|---|---|
+| `sherpa-onnx` zipformer streaming fr (`2023-04-14`, int8) | **la référence** — tous les chiffres du projet en viennent |
+| `whisper.cpp` (`tiny`, `base`) | mesuré, fonctionne, mais non causal : il re-transcrit tout le tour à chaque passe |
+| `vosk` | mesuré et écarté — perdant sur les trois axes |
+| tout le reste | **non testé, donc non promis** |
+
+Le contrat exact — texte cumulatif du tour, ou du segment plus un drapeau
+`final` — dépend de la forme réelle des sorties des moteurs courants. Une
+recherche est en cours ; en attendant, la référence est le comportement de
+sherpa : un texte cumulatif révisable, avec une détection de fin de segment
+qu'on peut régler.
+
 ### Trois décisions non évidentes
 
 **Le texte est cumulatif, pas incrémental.** L'ASR rend le texte complet du tour
