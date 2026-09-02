@@ -236,26 +236,66 @@ mots-clés `turn-taking`, `end-of-turn`, `EOU`, `backchannel`, `endpointing`.
 
 ---
 
-## 8. Questions ouvertes, par ordre d'importance
+## 8. Détection et réponse : trois modes
 
-1. **La spéculation.** Aujourd'hui `Decideur.decide()` rend l'état **et** la
-   réponse dans le même appel : quand la personne s'arrête, la réponse est déjà
-   prête. Séparer détecteur et répondeur en deux points d'extension supprime
-   cette spéculation, et la latence redevient détection **puis** aller-retour
-   complet. C'est peut-être le vrai prix du mélange qu'on critique par
-   ailleurs — il achèterait de la latence, pas de la justesse. **La mesure en
-   cours ne le verra pas, elle ne mesure que la justesse.**
-2. **Audio ou texte en entrée ?** L'ASR sorti, la bibliothèque peut soit
+### Décision du 02/09 — les trois modes sont une option, pas un choix de conception
+
+Le problème : aujourd'hui `Decideur.decide()` rend l'état **et** la réponse dans
+le même appel. Quand la personne s'arrête, la réponse est déjà prête. Séparer
+détecteur et répondeur supprime cette spéculation et rajoute un aller-retour.
+Mais faire faire la détection de fin de phrase par un gros modèle coûte cher.
+
+**Tranché : c'est une option offerte par la bibliothèque, pas une architecture
+imposée.** Et la forme retenue évite d'avoir deux produits — **un champ
+facultatif dans l'événement, pas deux API** :
+
+```
+turn_end(text="...", draft=None)    # mode séparé  : l'hôte appelle son modèle
+turn_end(text="...", draft="...")   # mode fusionné : la réponse est déjà là
+```
+
+Le protocole `Decider` reste unique, sa sortie porte une réponse facultative.
+Aucune branche dans le cœur ; changer de mode ne change pas le code de l'hôte.
+
+**Les trois modes** :
+
+| mode | détection | réponse | latence | coût |
+|---|---|---|---|---|
+| **séparé** | petit modèle, local | l'hôte appelle après `turn_end` | détection **+** aller-retour | le plus bas |
+| **fusionné** | le gros modèle, à chaque tick | même appel que la détection | minimale | 159 appels pour 13 réponses (mesuré) |
+| **spéculatif** | petit modèle, local | déclenchée **en avance** quand la fin approche, en parallèle | ≈ fusionné | ~20-30 appels au lieu de 159 |
+
+Le mode **spéculatif** domine probablement les deux autres et n'était dans aucun
+énoncé : il donne la latence du fusionné pour environ cinq fois moins d'appels au
+gros modèle, au prix des générations jetées — arbitrage réglé par un seuil que
+l'hôte choisit. Il ne demande aucune conception supplémentaire : c'est le même
+champ `draft`, rempli plus tôt.
+
+**Deux conséquences à assumer dans l'API** :
+
+- En mode fusionné, **détecteur et répondeur ne sont plus deux points d'extension
+  mais un seul**. Sans ça, un développeur croira pouvoir associer un petit
+  détecteur local à un gros répondeur, et découvrira que dans ce mode c'est le
+  même objet.
+- Le mode fusionné perd l'argument central du projet — pas de réseau dans la
+  boucle serrée. C'est pourtant **le seul qu'on ait mesuré** : les 0,826 en
+  viennent. Les chiffres des deux autres modes n'existent pas encore.
+
+---
+
+## 9. Questions ouvertes, par ordre d'importance
+
+1. **Audio ou texte en entrée ?** L'ASR sorti, la bibliothèque peut soit
    continuer à consommer de l'audio avec un ASR injecté, soit ne plus consommer
    que du texte horodaté plus un indicateur de voix. La seconde option règle
    d'un coup toute la portabilité (plus aucune dépendance plateforme), mais perd
    l'information acoustique dont `SEUIL_VOIX` et la distinction silence / bruit
    se servent aujourd'hui.
-3. **Le prompt dépend de l'ASR.** Mesuré : la phrase décrivant la casse de
+2. **Le prompt dépend de l'ASR.** Mesuré : la phrase décrivant la casse de
    l'entrée vaut **+0,063 quand elle est vraie et −0,103 quand elle est fausse**.
    Si l'ASR est branchable, le prompt du détecteur doit l'être aussi et lui être
    apparié. Le catalogue le fait déjà sans que ce soit assumé comme une décision
    d'architecture (`systeme` contre `systeme_sherpa`).
-4. **Le tick appartient-il à la bibliothèque ou à l'hôte ?** `TICK_S = 1.2` porte
+3. **Le tick appartient-il à la bibliothèque ou à l'hôte ?** `TICK_S = 1.2` porte
    toute la logique de tour de parole. Le laisser régler par l'hôte, c'est
    accepter qu'il puisse le mettre faux et ne plus rien détecter, sans message.
