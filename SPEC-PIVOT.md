@@ -329,6 +329,36 @@ gros modèle, au prix des générations jetées — arbitrage réglé par un seu
 l'hôte choisit. Il ne demande aucune conception supplémentaire : c'est le même
 champ `draft`, rempli plus tôt.
 
+### Mesuré le 02/09 : le mode séparé coûte de la justesse, pas seulement de la latence
+
+On croyait que le prix de la séparation était la latence. **C'est faux : elle
+coûte d'abord de la détection.** Cinq passes sur les deux sessions de référence,
+les deux dimensions comptées séparément :
+
+| | TOR fins ↑ | justesse |
+|---|---|---|
+| **base** — détection + réponse dans le même appel | **0,812** | 0,816 |
+| détection seule, mais réponses encore dans les exemples | 0,745 | 0,821 |
+| **détection pure** — plus de consigne, plus d'exemples, plus de schéma | **0,647** | 0,772 |
+
+**−0,165 de TOR fins**, soit près de trois fins de tour ratées sur dix-sept.
+
+**Mais l'essentiel du bénéfice ne vient pas de l'acte de générer** : retirer la
+génération seule coûte 0,067, retirer en plus les réponses des exemples coûte
+0,098 de plus. Autrement dit — **ce qui aide n'est pas de calculer la réponse,
+c'est de savoir à quoi elle ressemblerait.**
+
+*Conséquence directe pour le mode séparé* : il est jouable, mais **pas** en
+retirant simplement la consigne. Son prompt doit garder des exemples montrant à
+quoi ressemble une fin de tour *répondable*. C'est gratuit, et ça récupère les
+deux tiers de l'écart.
+
+*Et l'agrégat ment ici, exactement comme redouté* : la variante intermédiaire
+rend 0,821 contre 0,816 pour la base — « aucun effet » — alors que sa détection
+est six points plus basse. Un système qui rate des fins de tour parle moins, donc
+intervient moins dans les pauses, et la seconde dimension le récompense d'avoir
+échoué sur la première. **Ne jamais juger sur l'agrégat.**
+
 **Deux conséquences à assumer dans l'API** :
 
 - En mode fusionné, **détecteur et répondeur ne sont plus deux points d'extension
