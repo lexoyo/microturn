@@ -12,7 +12,7 @@ Deux moteurs, choisis par MICROTURN_TTS :
 Aucun shell n'est utilisé : les processus sont chaînés directement, ce qui évite
 le quoting, un /bin/sh par phrase, et les surprises de `echo` sous dash (Pi OS).
 """
-import json, os, subprocess, sys, threading, time, wave
+import atexit, json, os, shutil, signal, subprocess, tempfile, threading, time, wave
 
 ENGINE = os.environ.get("MICROTURN_TTS", "piper")
 PIPER = os.path.expanduser(os.environ.get("MICROTURN_PIPER", "~/.local/bin/piper"))
@@ -55,289 +55,181 @@ def voice_rate(voice=VOICE, default=22050):
 
 
 class Speaker:
+    """Parole non bloquante et interruptible, par FICHIER et non par tube.
+
+    Chaque phrase est synthétisée dans un WAV complet, puis jouée d'un bloc.
+    C'est ce que font tous les projets sérieux qui intègrent piper —
+    wyoming-piper (Home Assistant), rhasspy3, pipecat, le serveur HTTP de
+    piper : **aucun n'utilise `--output-raw`**.
+
+    Pourquoi : `--output-raw` ne rend que des octets concaténés, sans le moindre
+    marqueur de fin de phrase. On en était réduit à déduire la fin d'un silence
+    de 0,35 s dans le tube — faux dès que piper met plus longtemps entre deux
+    blocs, ce qui arrive dès qu'il partage le CPU avec l'ASR. On fermait alors
+    `aplay` en pleine phrase, et le reste du son sortait **avec la phrase
+    suivante**. Mesuré le 03/09 : « Bonjour. » servait 1,58 s pour 0,38 s
+    attendues, et la phrase d'après n'en recevait aucune.
+
+    Avec un fichier, la frontière est explicite : piper écrit le WAV, rend son
+    chemin sur stdout, et on le joue. Plus de tube partagé, plus de purge, plus
+    de compteur de génération dans le flux audio, plus de sous-alimentation
+    d'`aplay` — le fichier est complet avant le premier son.
+
+    Le prix : le premier son attend la fin de la synthèse (~0,2 s ici, ~2,9 s
+    sur un Pi 3B pour une longue phrase). C'est l'arbitrage que tous les autres
+    ont fait.
+
+    piper reste RÉSIDENT : le relancer coûte ~8 s sur le Pi. Résident et tube
+    sont deux choses distinctes, et c'est le tube qui posait problème."""
+
     def __init__(self, engine=ENGINE, voice=VOICE, langue="fr"):
         self.engine = engine
         self.voice = voice
-        self.langue = langue                 # code espeak-ng, pas le nom du fichier
+        self.langue = langue
         self.rate = voice_rate(voice)
-        self.procs = []                      # tous les fils vivants, pas seulement le dernier
         self.lock = threading.RLock()
-        self._synth = None                   # piper, résident
+        self._synth = None                   # piper résident
         self._sortie = None                  # l'`aplay` du moment
-        self.plaintes = []                   # ce qu'`aplay` a eu à dire
-        self.servis = 0                      # octets PCM envoyés à `aplay`
-        self.jetes = 0                       # octets purgés (phrase coupée)
-        self._gen = 0                        # phrase courante
-        self._purger = False                 # jeter le PCM d'une phrase coupée
-        self._restants = 0                   # morceaux de la phrase en cours
-        self._sorti = threading.Event()      # un morceau vient de sortir
-        # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
-        # tombe sur la PREMIÈRE réponse de la conversation, celle qui donne le
-        # ton. On le paie au démarrage, pendant qu'il ne se passe rien.
-        if self.engine != "espeak":
+        self._gen = 0                        # invalide une phrase en vol
+        self._parlant = False                # de `say()` à la fin d'`aplay`
+        self._dossier = tempfile.mkdtemp(prefix="microturn-tts-")
+        # Chaque WAV est effacé après lecture ; ceci n'est que la ceinture pour
+        # un arrêt brutal, où le `finally` de `_parler` ne passe pas.
+        atexit.register(shutil.rmtree, self._dossier, True)
+        if engine == "piper":
             threading.Thread(target=self._prechauffer, daemon=True).start()
 
-    # -- piper RÉSIDENT --------------------------------------------------
-    # Mesuré sur le Pi 3B : relancer piper à chaque phrase coûte 8 s, dont la
-    # quasi-totalité en chargement du modèle. Gardé en vie, il rend le premier
-    # échantillon en moins de 10 ms. C'est huit secondes de latence par réponse,
-    # soit plus que tout le reste de la chaîne réuni.
-    #
-    # Le prix à payer : on ne peut plus tuer piper pour couper la parole, car il
-    # sert aussi la phrase suivante. On tue donc `aplay` seul, et un compteur de
-    # génération fait jeter au lecteur le PCM devenu sans objet.
+    # -- piper résident, protocole « une ligne in, un chemin out » ----------
 
     def _prechauffer(self):
-        """Démarre piper et lui fait produire du son qu'on jette.
+        """Charge le modèle sans rien faire entendre.
 
-        Le « jette » repose sur `_lire`, qui écarte le PCM tant qu'aucun `aplay`
-        n'est ouvert. C'est une course : si une vraie phrase arrive pendant que
-        piper prononce encore la syllabe de chauffe, celle-ci sort DEVANT elle —
-        un « ah » entendu en session le 03/09. On arme donc la purge, qui jette
-        jusqu'au premier silence, et on chauffe sur une syllabe MUETTE plutôt
-        que sur une voyelle."""
+        La synthèse va dans un fichier qu'on efface : rien ne peut fuir vers le
+        haut-parleur, contrairement au tube où la syllabe de chauffe sortait
+        devant la première phrase."""
         try:
-            with self.lock:
-                self._purger = True
-            synth = self._piper()
-            synth.stdin.write(b".\n")       # ponctuation seule : rien à dire
-            synth.stdin.flush()
+            chemin = self._synthetiser("Bonjour.")
+            if chemin:
+                os.unlink(chemin)
         except Exception:
-            with self.lock:
-                self._purger = False         # ne pas laisser la purge armée
+            pass                             # la chauffe ne doit rien casser
 
     def _piper(self):
-        """Le processus résident, démarré à la première phrase."""
+        """Le processus résident. `--output_dir` : un WAV par ligne d'entrée."""
         if self._synth is not None and self._synth.poll() is None:
             return self._synth
         self._synth = subprocess.Popen(
-            [PIPER, "-m", self.voice, "--output-raw"],
+            [PIPER, "-m", self.voice, "--output_dir", self._dossier, "-q"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, start_new_session=True)
-        th = threading.Thread(target=self._lire, args=(self._synth,), daemon=True)
-        th.start()
         return self._synth
 
-    # Sans PCM pendant ce délai, piper a fini sa phrase et on ferme `aplay`.
-    #
-    # Le réglage a deux bords, et les deux s'entendent :
-    #   trop court, il se déclenche ENTRE deux morceaux d'une même phrase et la
-    #     coupe en tranches (« bonjour ceci … est un test ») ;
-    #   trop long, le robot reste « en train de parler » après avoir fini, donc
-    #     il ne se laisse pas interrompre et son état ment au décideur.
-    # 0,35 s tient sur ce PC ; le Pi synthétise plus lentement et pourra
-    # demander davantage. `MICROTURN_FIN_PHRASE` pour l'ajuster sans recompiler.
-    FIN_PHRASE_S = float(os.environ.get("MICROTURN_FIN_PHRASE", "0.35"))
+    def _synthetiser(self, text):
+        """Une phrase → un fichier WAV complet. Rend son chemin, ou None.
 
-    def _lire(self, synth):
-        """Draine piper en continu et route le PCM vers l'`aplay` du moment.
-
-        piper ne marque pas la fin d'une phrase : on la déduit d'un silence de
-        lecture, et on FERME alors l'entrée d'`aplay`.
-
-        Cette fermeture n'est pas un détail. `aplay` ne se termine que quand son
-        entrée se ferme ; tant qu'il tourne, `speaking()` répond vrai. Sans elle,
-        le système se croit en train de parler pour le reste de la session :
-        mesuré en session réelle, neuf « coupures » sur treize prises de parole,
-        dont huit tombaient APRÈS la fin de la phrase — une phrase de 3,4 s
-        « coupée » 18,5 s après son début. Et l'état « je parle » envoyé au
-        décideur était faux tout du long."""
-        import select
-        ecrit = False                        # du PCM a-t-il été servi ?
-        while synth.poll() is None:
-            pret = select.select([synth.stdout], [], [], self.FIN_PHRASE_S)[0]
-            if not pret:
-                # Ne fermer QUE si cette phrase a déjà produit du son. piper met
-                # de 0,8 à 2,9 s avant son premier échantillon : fermer avant
-                # rendrait `speaking()` faux pendant qu'on parle — l'exact
-                # symétrique du défaut qu'on corrige.
-                with self.lock:
-                    self._purger = False     # le silence clôt la purge
-                    reste = self._restants
-                self._sorti.set()                # un morceau vient de finir
-                if reste > 0:
-                    # Silence ENTRE deux morceaux de la même phrase : piper
-                    # n'a pas fini. Fermer ici couperait la phrase en deux —
-                    # c'est le « bonjour ceci … est un test » entendu en
-                    # session, et le risque n° 1 de la QC du candidat 60.
-                    with self.lock:
-                        self._restants -= 1
-                    continue
-                if ecrit:
-                    with self.lock:
-                        if self._sortie is not None:
-                            try:
-                                self._sortie.stdin.close()   # `aplay` peut finir
-                            except (BrokenPipeError, ValueError, OSError):
-                                pass
-                            self._sortie = None
-                    ecrit = False
-                continue
+        Bloquant : appelé depuis le thread de `_parler`, jamais depuis `say()`.
+        Sérialisé par `_verrou_synth` — piper est un seul processus, et deux
+        écritures concurrentes mélangeraient les réponses de son stdout."""
+        with self._verrou_synth:
             try:
-                bloc = synth.stdout.read(4096)
+                p = self._piper()
+                p.stdin.write((text.strip() + "\n").encode())
+                p.stdin.flush()
+                ligne = p.stdout.readline().decode().strip()
             except (BrokenPipeError, ValueError, OSError):
-                break                        # processus fermé sous nos pieds
-            if not bloc:
-                break
-            with self.lock:
-                sortie, purger = self._sortie, self._purger
-            if purger:
-                # Une phrase a été coupée : piper garde son PCM en tube et le
-                # servirait à la phrase SUIVANTE. On le jette jusqu'au silence
-                # qui marque sa fin. Sans ça, on entend la fin de la phrase
-                # interrompue, puis la nouvelle ne sort jamais — c'est le
-                # « ça coupe au milieu » entendu en session.
-                self.jetes += len(bloc)
-                continue
-            if sortie is None:
-                continue                     # rien à servir
-            try:
-                self.servis += len(bloc)
-                sortie.stdin.write(bloc)
-                sortie.stdin.flush()
-                ecrit = True
-            except (BrokenPipeError, ValueError, OSError):
-                pass                         # `aplay` tué par stop()
+                return None
+        return ligne if ligne and os.path.exists(ligne) else None
 
-    # -- interne : lance la chaîne de processus, verrou déjà tenu --
-    def _spawn(self, text):
-        if self.engine == "espeak":
-            p = subprocess.Popen(["espeak-ng", "-v", self.langue, "-s", "165", text],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 start_new_session=True)
-            return [p]
-        synth = self._piper()
-        # PAS de `-q` et PAS de stderr jeté : `aplay` signale ses
-        # sous-alimentations (« underrun!!! ») sur stderr, et c'est le seul
-        # endroit où un son haché se voit autrement qu'à l'oreille. Le projet a
-        # déjà payé ce silence une fois — `aplay` sans `-D` échouait sans un mot.
-        cmd = ["aplay", "-r", str(self.rate), "-f", "S16_LE", "-c", "1"]
-        if APLAY:
-            cmd += ["-D", APLAY]
-        if APLAY_BUFFER_US:
-            cmd += ["--buffer-time", str(APLAY_BUFFER_US),
-                    "--period-time", str(max(1000, APLAY_BUFFER_US // 4))]
-        play = subprocess.Popen(cmd + ["-"],
-                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE, start_new_session=True)
-        threading.Thread(target=self._plaintes, args=(play,), daemon=True).start()
-        self._sortie = play
-        self._gen += 1
-        threading.Thread(target=self._feed, args=(synth, text), daemon=True).start()
-        return [play]                        # piper N'EST PAS dans la liste : on ne
-                                             # le tue jamais, c'est tout l'intérêt
+    _verrou_synth = threading.Lock()
 
-    # Premier morceau court, suivants plus longs. Mesuré sur le Pi : piper ne
-    # diffuse RIEN au fil de la synthèse — il fabrique la phrase entière puis la
-    # sort d'un bloc, donc la latence avant le premier son EST la durée de
-    # synthèse complète (2966 ms pour 41 caractères en voix `medium`).
-    #
-    # Découper la rend proportionnelle au seul premier morceau. Ça ne marche que
-    # parce que le ratio synthèse/audio est sous 1 (0,58 en `low`, 0,93 en
-    # `medium`) : les morceaux suivants sont prêts avant que le précédent ait
-    # fini de se jouer. Au-dessus de 1, on entendrait des trous.
-    PREMIER_CAR = 16
-    SUITE_CAR = 60
-
-    @classmethod
-    def _morceaux(cls, texte):
-        """Découpe sur la ponctuation forte, sinon au mot le plus proche."""
-        reste, out = texte.strip(), []
-        cible = cls.PREMIER_CAR
-        while reste:
-            if len(reste) <= cible:
-                out.append(reste)
-                break
-            # une ponctuation dans la zone ? c'est la meilleure coupure
-            coupe = max((reste.rfind(c, 0, cible + 12) for c in ".,;:!?"), default=-1)
-            if coupe < cible // 2:
-                coupe = reste.rfind(" ", 0, cible)
-            if coupe <= 0:
-                coupe = cible
-            out.append(reste[:coupe + 1].strip())
-            reste = reste[coupe + 1:].strip()
-            cible = cls.SUITE_CAR
-        return [m for m in out if m]
-
-    def _plaintes(self, play):
-        """Remonte ce qu'`aplay` écrit sur stderr, au lieu de le jeter.
-
-        Une sous-alimentation (« underrun!!! ») rend le son haché : des mots
-        détachés du reste de la phrase. Indiscernable à l'oreille d'un défaut de
-        synthèse, et invisible dans nos traces — mais `aplay` le dit."""
-        try:
-            for ligne in iter(play.stderr.readline, b""):
-                msg = ligne.decode(errors="replace").strip()
-                if msg:
-                    self.plaintes.append(msg)
-                    print(f"  aplay: {msg}", file=sys.stderr)
-        except (ValueError, OSError):
-            pass                             # tube fermé par stop()
-
-    def _feed(self, proc, text):
-        """Sert les morceaux UN PAR UN, en s'arrêtant si on est coupé.
-
-        Écrire toute la phrase d'un coup laisse piper la synthétiser jusqu'au
-        bout même après un `stop()` : il ne sait pas qu'on l'a interrompu. Sur le
-        Pi, une phrase de 60 caractères prend 4 s à fabriquer, et la réponse
-        suivante attend derrière — donc couper le robot le rend muet plusieurs
-        secondes, ce qui est le contraire du but.
-
-        En n'envoyant le morceau suivant qu'une fois le précédent sorti, une
-        interruption n'a plus qu'un seul morceau à purger."""
-        morceaux = self._morceaux(text)
-        with self.lock:
-            gen = self._gen
-            # Un silence par frontière : le lecteur doit les laisser passer sans
-            # fermer `aplay`, sinon la phrase sort en tranches.
-            self._restants = len(morceaux) - 1
-        try:
-            for i, m in enumerate(morceaux):
-                with self.lock:
-                    if self._gen != gen:
-                        break                # coupé : ne pas nourrir la suite
-                    self._restants = len(morceaux) - 1 - i
-                proc.stdin.write((m + "\n").encode())
-                proc.stdin.flush()           # et NON close() : le processus resservira
-                if i + 1 < len(morceaux):
-                    # laisser piper sortir celui-ci avant de donner le suivant
-                    self._sorti.clear()
-                    self._sorti.wait(timeout=8.0)
-        except (BrokenPipeError, ValueError):
-            pass                             # coupé par stop() entre-temps
+    # -- parler ------------------------------------------------------------
 
     def say(self, text):
         """Parle sans bloquer. Coupe ce qui était en cours. Atomique."""
         text = text.strip()
         if not text:
             return
-        self.servis = self.jetes = 0         # compteurs de CETTE prise de parole
-        with self.lock:                      # kill + spawn dans UNE section critique,
-            self._stop_locked()              # sinon deux appels concurrents laissent
-            self.procs = self._spawn(text)   # des processus orphelins increvables
+        with self.lock:
+            self._stop_locked()
+            self._gen += 1
+            gen = self._gen
+            # `speaking()` doit être vrai DÈS MAINTENANT, pas au premier son :
+            # sinon le décideur croit qu'on s'est tu pendant qu'on synthétise,
+            # et le barge-in comme l'écho reposent sur cet état.
+            self._parlant = True
+        threading.Thread(target=self._parler, args=(text, gen),
+                         daemon=True).start()
+
+    def _parler(self, text, gen):
+        chemin = None
+        try:
+            if self.engine == "espeak":
+                self._jouer_espeak(text, gen)
+                return
+            chemin = self._synthetiser(text)
+            with self.lock:
+                if self._gen != gen:
+                    return                   # coupé pendant la synthèse
+                if chemin is None:
+                    self._parlant = False
+                    return
+                cmd = ["aplay", "-q"]
+                if APLAY:
+                    cmd += ["-D", APLAY]
+                if APLAY_BUFFER_US:
+                    cmd += ["--buffer-time", str(APLAY_BUFFER_US),
+                            "--period-time", str(max(1000, APLAY_BUFFER_US // 4))]
+                play = subprocess.Popen(cmd + [chemin], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
+                                        start_new_session=True)
+                self._sortie = play
+            play.wait()
+        except Exception:
+            pass
+        finally:
+            with self.lock:
+                if self._gen == gen:         # personne n'a parlé depuis
+                    self._parlant = False
+                    self._sortie = None
+            if chemin:
+                try:
+                    os.unlink(chemin)
+                except OSError:
+                    pass
+
+    def _jouer_espeak(self, text, gen):
+        """Mode dégradé : espeak parle tout seul, rien à cadrer."""
+        p = subprocess.Popen(["espeak-ng", "-v", self.langue, "-s", "165", text],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        with self.lock:
+            if self._gen != gen:
+                p.kill()
+                return
+            self._sortie = p
+        p.wait()
+
+    # -- couper ------------------------------------------------------------
 
     def _stop_locked(self):
+        """Invalide la phrase en vol et tue le lecteur. Verrou déjà tenu.
+
+        Rien à purger : le WAV appartient à cette phrase et à elle seule. Le
+        compteur de génération suffit — s'il a bougé, le thread qui synthétise
+        encore jettera son fichier au lieu de le jouer."""
         self._gen += 1
-        self._sortie = None
-        # piper continue de produire la phrase coupée : tout ce qui sort du tube
-        # jusqu'au prochain silence appartient au passé et doit être jeté.
-        if self.procs:
-            self._purger = True
-        self._restants = 0
-        self._sorti.set()                    # débloquer `_feed` s'il attendait
-        for p in self.procs:
-            if p.poll() is None:
-                try:
-                    # start_new_session garantit pgid == pid : pas de getpgid(),
-                    # qui renverrait le groupe d'un autre si le PID a été recyclé.
-                    os.killpg(p.pid, 9)
-                except (ProcessLookupError, PermissionError):
-                    pass
+        self._parlant = False
+        p, self._sortie = self._sortie, None
+        if p is not None and p.poll() is None:
             try:
-                p.wait(timeout=0.5)          # reaping déterministe, et aplay rend ALSA
-            except subprocess.TimeoutExpired:
-                pass
-        self.procs = []
+                # start_new_session garantit pgid == pid : pas de getpgid(),
+                # qui échouerait si le processus vient de mourir.
+                os.killpg(p.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                try:
+                    p.kill()
+                except OSError:
+                    pass
 
     def stop(self):
         with self.lock:
@@ -345,18 +237,22 @@ class Speaker:
 
     def speaking(self):
         with self.lock:
-            return any(p.poll() is None for p in self.procs)
+            return self._parlant
 
-    def wait(self):
-        """Attend la fin de la parole. Ne tient pas le verrou pendant l'attente,
-        sinon stop() — donc le barge-in — serait bloqué tout du long."""
+    def wait(self, timeout=30.0):
+        t0 = time.time()
+        while self.speaking() and time.time() - t0 < timeout:
+            time.sleep(0.02)
+
+    def close(self):
+        self.stop()
         with self.lock:
-            procs = list(self.procs)
-        for p in procs:
-            try:
-                p.wait()
-            except Exception:
-                pass
+            if self._synth is not None and self._synth.poll() is None:
+                try:
+                    os.killpg(self._synth.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        shutil.rmtree(self._dossier, ignore_errors=True)
 
 
 class Enregistreur:
@@ -545,6 +441,7 @@ class Silencieux:
 
 
 if __name__ == "__main__":
+    import sys
     txt = " ".join(sys.argv[1:]) or "Bonjour Alex, je suis microturn, et je parle en local."
     for eng in ("espeak", "piper"):
         if eng == "piper" and not os.path.exists(PIPER):
