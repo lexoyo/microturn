@@ -53,11 +53,14 @@ de faire l'interprétation. Rien à ajouter dans la bibliothèque.
 qu'un signal d'écoute a été émis. Ce que l'hôte en fait — un son préenregistré,
 un « mhm » synthétisé, rien du tout — ne le regarde pas.
 
-*Nuance ajoutée le 02/09* : la bibliothèque gère le backchannel **dans les deux
-sens**, mais pas sur le même canal. Celui de l'utilisateur est une
-**observation** (§ 3) ; celui de l'agent — l'`assistant_backchannel` du papier —
-est un **conseil d'action**, émis à part. Les confondre reviendrait à remélanger
-observation et décision, l'erreur même que ce pivot corrige.
+*Tranché le 02/09.* **La bibliothèque signale toujours le backchannel capté**
+— c'est une observation, elle entre dans les états du § 3. En revanche
+l'`assistant_backchannel` du papier (émettre un « mhm ») **n'est pas de son
+ressort** : c'est au second modèle, celui de l'hôte, de se débrouiller avec.
+
+C'est cohérent avec la règle du § 2 : émettre un signal d'écoute suppose de
+savoir où en est la réponse — donc de connaître l'aval. La bibliothèque ne le
+sait pas et n'a pas à le savoir.
 
 **Conséquence n° 3 — pas d'entrée `assistant_speaking()` dans l'API.** Une
 version antérieure de cette spec en prévoyait une ; elle est écartée. Elle
