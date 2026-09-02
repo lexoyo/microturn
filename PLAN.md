@@ -23,7 +23,9 @@ det.feed(Observation(t=12.4, text="EST CE QUE TU PEUX ME DIRE LA"))
 @dataclass(frozen=True)
 class Observation:
     t: float                     # secondes depuis le début, source unique du temps
-    text: str = ""               # transcription CUMULATIVE du tour en cours
+    text: str = ""               # transcription CUMULATIVE du SEGMENT en cours
+    segment: int = 0             # identifiant du segment ASR
+    final: bool = False          # ce segment est figé et ne sera plus revu
     context: dict | None = None  # {"voice": True, "speakers": 2, "sound": "music"}
 ```
 
@@ -49,9 +51,35 @@ qu'on peut régler.
 
 ### Trois décisions non évidentes
 
-**Le texte est cumulatif, pas incrémental.** L'ASR rend le texte complet du tour
-en cours, révisable — c'est ce que font tous les ASR en flux. Le calcul du delta
-reste **chez nous**, parce que c'est le morceau le plus subtil du projet :
+**Le texte est cumulatif par SEGMENT, et c'est nous qui recollons.** Recherche du
+02/09, sur les moteurs réels : la segmentation de l'ASR ne coïncide pas avec le
+tour de parole. Un moteur qui ferme un segment sur quelques centaines de
+millisecondes de silence coupe **au milieu d'une pause de réflexion** — le cas
+même que cette bibliothèque existe pour détecter. Demander à l'hôte de recoller
+(contrat « texte du tour ») lui ferait refaire notre travail, mal.
+
+D'où trois champs et non un : `text` (cumulatif du segment, révisable),
+`segment` (change quand l'ASR ferme), `final` (ce segment ne bougera plus).
+
+**Précédent à citer plutôt qu'à imposer** : Deepgram est le seul moteur qui
+sépare proprement `is_final` (« ce segment est figé ») de `speech_final` (« le
+tour est fini »). Ni Google, ni Soniox, ni Speechmatics ne le font. Notre
+contrat reprend cette distinction, et c'est **nous** qui produisons le second.
+
+**Le contrat append-only est disqualifié**, et pas par principe : trois projets
+ont dû réinventer la stabilité par-dessus (`wyoming_streaming_asr` jette le
+dernier mot et calcule un suffixe à la main, sans pouvoir retirer un mot révisé ;
+`RealtimeSTT` y consacre ~400 lignes ; Pipecat/Soniox republie même les tokens
+finaux en interim). La forme append-only n'est pas plus simple : c'est la même
+complexité déplacée chez le producteur, **avec l'information détruite au
+passage**.
+
+**À prévoir dès la v1 : un tier de stabilité intermédiaire.** Trois moteurs l'ont
+inventé indépendamment — la `stability` de Google, le `stop_history_eou` de
+NVIDIA Riva, le `PREFLIGHT_TRANSCRIPT` de LiveKit. C'est un besoin universel, pas
+une coquetterie.
+
+Le calcul du delta reste **chez nous**, parce que c'est le morceau le plus subtil du projet :
 `_delta()` ancre par la **queue** et non par le préfixe, précisément pour survivre
 au moment où l'ASR se ravise (mesuré deux fois comme critique). Un ancrage naïf
 retombe à zéro dès la première correction et renvoie la phrase entière comme
