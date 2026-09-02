@@ -258,6 +258,7 @@ class Speaker:
         text = text.strip()
         if not text:
             return
+        self.servis = self.jetes = 0         # compteurs de CETTE prise de parole
         with self.lock:                      # kill + spawn dans UNE section critique,
             self._stop_locked()              # sinon deux appels concurrents laissent
             self.procs = self._spawn(text)   # des processus orphelins increvables

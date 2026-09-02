@@ -743,7 +743,18 @@ class Session:
                 self.robot_parle = self.voix.speaking()
                 if not self.robot_parle and self.parle_depuis is not None:
                     if self.trace:
-                        self.trace.ev("parole_fin", texte=self.texte_dit)
+                        # Ce qui a RÉELLEMENT été envoyé au haut-parleur, en
+                        # regard de ce qu'on croyait dire. Un écart net entre
+                        # `audio_s` et `estime_s` est la signature d'une phrase
+                        # tronquée ou d'un reste de la précédente — invisible
+                        # autrement que par l'oreille d'Alex jusqu'au 03/09.
+                        servis = getattr(self.voix, "servis", None)
+                        self.trace.ev(
+                            "parole_fin", texte=self.texte_dit,
+                            octets=servis,
+                            audio_s=(round(servis / 2 / 22050, 2)
+                                     if servis else None),
+                            jetes=getattr(self.voix, "jetes", None))
                     self.parle_depuis = None
                     self.parle_fin = now
 
