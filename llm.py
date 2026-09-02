@@ -423,7 +423,17 @@ class Decideur:
         # taux. Sans ça, « le cache est activé » resterait une croyance.
         u = out.get("usage") or {}
         detail = u.get("prompt_tokens_details") or {}
+        # `finish_reason` dit POURQUOI la génération s'est arrêtée. Le schéma
+        # contraint garantit la grammaire de chaque jeton, pas que la génération
+        # aille au bout : si le serveur l'interrompt, on reçoit un préfixe de
+        # JSON valide en cours de route. Mesuré le 03/09 en session — trois
+        # réponses sur quarante-cinq coupées à `{"m": "<|user`, avec un `usage`
+        # à zéro des deux côtés. Sans ce champ, on ne pouvait qu'émettre des
+        # hypothèses.
+        fin = (out["choices"][0].get("finish_reason")
+               or out["choices"][0].get("native_finish_reason"))
         self._tracer("llm_reponse", brut=brut, latence=round(dt, 3),
+                     fin=fin,
                      tokens_entree=u.get("prompt_tokens"),
                      tokens_caches=detail.get("cached_tokens"),
                      tokens_sortie=u.get("completion_tokens"))
