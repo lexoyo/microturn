@@ -12,7 +12,7 @@ Deux moteurs, choisis par MICROTURN_TTS :
 Aucun shell n'est utilisé : les processus sont chaînés directement, ce qui évite
 le quoting, un /bin/sh par phrase, et les surprises de `echo` sous dash (Pi OS).
 """
-import json, os, subprocess, threading, time, wave
+import json, os, subprocess, sys, threading, time, wave
 
 ENGINE = os.environ.get("MICROTURN_TTS", "piper")
 PIPER = os.path.expanduser(os.environ.get("MICROTURN_PIPER", "~/.local/bin/piper"))
@@ -64,6 +64,7 @@ class Speaker:
         self.lock = threading.RLock()
         self._synth = None                   # piper, résident
         self._sortie = None                  # l'`aplay` du moment
+        self.plaintes = []                   # ce qu'`aplay` a eu à dire
         self._gen = 0                        # phrase courante
         self._purger = False                 # jeter le PCM d'une phrase coupée
         # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
@@ -180,7 +181,12 @@ class Speaker:
                                  start_new_session=True)
             return [p]
         synth = self._piper()
-        cmd = ["aplay", "-q", "-r", str(self.rate), "-f", "S16_LE", "-c", "1"]
+        # PAS de `-q` et PAS de stderr jeté : `aplay` signale ses
+        # sous-alimentations (« underrun!!! ») sur stderr, et c'est le seul
+        # endroit où un son haché se voit autrement qu'à l'oreille. Le projet a
+        # déjà payé ce silence une fois — `aplay` sans `-D` échouait sans un
+        # mot, et il a fallu qu'Alex dise « je ne l'entends pas ».
+        cmd = ["aplay", "-r", str(self.rate), "-f", "S16_LE", "-c", "1"]
         if APLAY:
             cmd += ["-D", APLAY]
         if APLAY_BUFFER_US:
@@ -188,21 +194,36 @@ class Speaker:
                     "--period-time", str(max(1000, APLAY_BUFFER_US // 4))]
         play = subprocess.Popen(cmd + ["-"],
                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, start_new_session=True)
+                                stderr=subprocess.PIPE, start_new_session=True)
+        threading.Thread(target=self._plaintes, args=(play,), daemon=True).start()
         self._sortie = play
         self._gen += 1
         threading.Thread(target=self._feed, args=(synth, text), daemon=True).start()
         return [play]                        # piper N'EST PAS dans la liste : on ne
                                              # le tue jamais, c'est tout l'intérêt
 
-    # Premier morceau court, suivants plus longs. Mesuré sur le Pi : piper ne
-    # diffuse RIEN au fil de la synthèse — il fabrique la phrase entière puis la
     # Le découpage en morceaux a été RETIRÉ le 03/09. Il divisait la latence
     # avant le premier son par 2,5 (2890 → 1135 ms), mais il a produit les trois
     # bugs les plus coûteux du projet : la phrase sortie en tranches (« bonjour
     # ceci … est un test un peu plus long »), le silence de fin de phrase qui se
     # déclenchait entre deux morceaux, et la comptabilité des morceaux restants
     # à tenir sous interruption. On envoie désormais la phrase d'un bloc.
+    def _plaintes(self, play):
+        """Remonte ce qu'`aplay` écrit sur stderr, au lieu de le jeter.
+
+        Une sous-alimentation (« underrun!!! ») rend le son haché : des mots
+        détachés du reste de la phrase. C'est indiscernable à l'oreille d'un
+        défaut de synthèse, et invisible dans nos traces — mais `aplay` le dit,
+        si on l'écoute."""
+        try:
+            for ligne in iter(play.stderr.readline, b""):
+                msg = ligne.decode(errors="replace").strip()
+                if msg:
+                    self.plaintes.append(msg)
+                    print(f"  aplay: {msg}", file=sys.stderr)
+        except (ValueError, OSError):
+            pass                             # tube fermé par stop()
+
     def _feed(self, proc, text):
         """Envoie la phrase à piper, d'un seul bloc.
 

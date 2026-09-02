@@ -368,33 +368,44 @@ class Session:
         # on coupe juste après.
         cv = [self._cle(m) for m in mv]
         cc = [self._cle(m) for m in mc]
-        # Le DERNIER mot vu est instable par nature : un ASR en flux le complète
-        # au fil de la reconnaissance (M'ENTEND → M'ENTENDS, et en français les
-        # élisions font que ça n'arrête jamais). S'ancrer dessus échoue à chaque
-        # complétion — les trois tailles ratent, le repli compte le même nombre
-        # de mots des deux côtés et rend ZÉRO. Le système devient alors sourd
-        # pour le reste du tour : mesuré en session le 03/09, quarante secondes
-        # où le modèle n'a jamais reçu autre chose que « SALUT TU M' ».
-        # On tente donc l'ancrage complet d'abord — exact quand le dernier mot
-        # n'a pas bougé — puis, s'il échoue, sur les mots STABLES seulement.
-        # L'ordre compte : l'inverse renverrait le dernier mot vu à chaque tick.
-        for source in (cv, cv[:-1]):
-            for taille in (3, 2, 1):
-                if len(source) < taille:
-                    continue
-                queue = source[-taille:]
-                for i in range(len(cc) - taille, -1, -1):
-                    if cc[i:i + taille] == queue:
-                        return " ".join(mc[i + taille:]).strip() or self._rien()
-        # Plus aucun repère : la fenêtre a entièrement changé. Ne jamais rendre
-        # plus de mots qu'il n'en est apparu depuis le tick précédent, sinon on
-        # présente au modèle un énoncé ancien comme s'il était neuf. Exception :
-        # si le texte a grandi en CARACTÈRES sans gagner de mot, c'est le dernier
-        # mot qui s'est complété — le rendre, plutôt que de ne rien rendre.
-        neufs = max(0, len(mc) - len(mv))
-        if not neufs and len(self.transcript) > len(self.vu):
-            neufs = 1
-        return " ".join(mc[len(mc) - neufs:]).strip() or self._rien()
+        # Alignement de GAUCHE À DROITE des mots déjà vus dans le texte courant,
+        # puis on rend ce qui dépasse. Deux méthodes ont échoué avant celle-ci :
+        #
+        #   - le préfixe commun tombe à zéro dès que l'ASR corrige un mot du
+        #     début, et on renvoyait toute la phrase comme si elle venait d'être
+        #     dite : le modèle la lit comme un énoncé neuf et complet, et répond
+        #     au milieu du propos. Mesuré deux fois en 20 s ;
+        #   - l'ancrage sur les DERNIERS mots vus, cherché en partant de la fin,
+        #     s'accroche à la mauvaise occurrence dès qu'un mot se répète
+        #     (« correspondance ou » → « correspondance oui ou » rendait vide).
+        #
+        # `get_matching_blocks` aligne dans l'ordre, donc les répétitions ne
+        # piègent plus. Et comme il n'aligne que ce qui correspond vraiment, une
+        # hallucination de préfixe (« Sous-titrage… » collé devant) n'est pas
+        # prise pour du texte neuf.
+        import difflib
+        blocs = difflib.SequenceMatcher(None, cv, cc, autojunk=False)
+        apres = 0
+        for i, j, n in blocs.get_matching_blocks():
+            if n:
+                apres = max(apres, j + n)
+        if mc[apres:]:
+            return " ".join(mc[apres:]).strip() or self._rien()
+        # Rien APRÈS l'alignement, alors que du texte est arrivé : c'est une
+        # insertion au milieu, ou le dernier mot qui vient de se compléter
+        # (« m' » → « m'entends » : zéro mot de plus, sept caractères de plus).
+        # Compter en MOTS rendrait zéro ici, et le système deviendrait sourd
+        # pour le reste du tour — mesuré en session le 03/09, quarante secondes.
+        if len("".join(cc)) > len("".join(cv)):
+            neufs = [" ".join(mc[j1:j2])
+                     for tag, i1, i2, j1, j2 in blocs.get_opcodes()
+                     if tag in ("insert", "replace") and j1 > 0]
+            # `j1 > 0` : une insertion EN TÊTE n'est pas de la parole neuve,
+            # c'est l'ASR qui réécrit le début (les génériques hallucinés de
+            # whisper arrivent tous par là).
+            if neufs:
+                return " ".join(neufs).strip() or self._rien()
+        return self._rien()
 
     def _est_echo(self, delta):
         """Reconnaît sa propre voix dans ce que le STT vient de rendre.

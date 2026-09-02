@@ -39,6 +39,26 @@ CAS = [
     ("JE VAIS AU", "JE VAIS AUX TOILETTES",
      "AUX TOILETTES", "complete en changeant d'orthographe"),
 
+    # Piege 3 — un mot se REPETE. L'ancrage cherche en partant de la fin
+    # s'accrochait a la mauvaise occurrence et rendait zero.
+    ("correspondance ou", "correspondance oui ou",
+     "oui", "le mot d'ancrage se repete plus loin"),
+    ("oui oui", "oui oui oui",
+     "oui", "repetition pure"),
+    ("je veux je", "je veux je veux",
+     "veux", "groupe repete"),
+    ("de sept heures p", "de sept heures pour p",
+     "pour", "insertion avant un mot identique"),
+    ("peux me dire s y l", "peux me dire si le train",
+     "si le train", "plusieurs mots partiels recolles"),
+    ("je peux venir", "je ne peux pas venir",
+     "ne pas", "insertions au milieu"),
+
+    # Piege 4 — whisper hallucine un generique EN TETE (« Sous-titrage… »).
+    # Ce n'est pas de la parole neuve : ne rien rendre.
+    ("merci beaucoup", "sous-titrage merci beaucoup",
+     "<|no voice|>", "hallucination de prefixe"),
+
     # Piege 2 — l'ASR se CORRIGE en amont. Un ancrage par le prefixe tombe a
     # zero et renvoie toute la phrase comme si elle venait d'etre dite : le
     # modele la lit comme un enonce neuf et complet, et repond au milieu.
