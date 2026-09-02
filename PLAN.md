@@ -195,12 +195,26 @@ simulé. C'est le meilleur exemple pédagogique, parce qu'il **démontre la thè
 projet** — la détection se fait sur le sens, pas sur le son — et c'est le test le
 plus rapide de la suite.
 
-### `examples/illustrate/` — écouter sans répondre
+### `examples/chat/` — la voix comme clavier
 
-À chaque `TURN_END`, produire autre chose qu'une voix : une image, une recherche,
-un affichage. Il montre que la bibliothèque sert à des systèmes **qui ne parlent
-pas**, donc que le TTS était bien un accessoire. C'est aussi le premier
-consommateur du `draft` en mode fusionné.
+Tu parles ; à chaque `TURN_END`, la phrase est envoyée **comme si tu avais appuyé
+sur Entrée**. Rien d'autre : pas de TTS, pas de modèle de réponse, pas de
+`draft`.
+
+C'est le meilleur des trois, pour trois raisons :
+
+- **c'est la métaphore fondatrice du projet, rendue littérale** — tout le
+  `SPEC-PIVOT.md` la répète, ici on la voit tourner ;
+- **c'est utile tout de suite**, sans rien brancher derrière : de la dictée dans
+  n'importe quel champ de saisie, où le passage à la ligne est décidé par le sens
+  et non par un raccourci clavier ou un silence de 700 ms ;
+- **il démontre l'autonomie de la bibliothèque** mieux qu'un discours : ni voix
+  de sortie, ni LLM de réponse, et pourtant le système fait quelque chose que
+  personne d'autre ne fait.
+
+*Idée écartée* : un exemple « écouter et illustrer » (image ou recherche à chaque
+fin de tour). Même démonstration — un système qui ne parle pas — mais il demande
+un modèle et une clé pour tourner, là où le chat ne demande rien.
 
 ---
 
