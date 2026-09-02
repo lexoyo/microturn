@@ -19,7 +19,7 @@ d'état décrivant l'utilisateur.
 Ce qu'elle apporte, dans l'ordre où ça se défend :
 
 1. **Elle permet de faire du full-duplex à partir de n'importe quel modèle, sans
-   fine-tuning.** C'est ce que 0,826 contre 0,858 démontre — le prompt tient lieu
+   fine-tuning.** C'est ce que 0,816 contre 0,858 démontre — le prompt tient lieu
    d'entraînement.
 2. Elle groupe détection et réponse en **un seul appel** quand on le lui demande,
    pour un gain de latence important (cf. § 8).
@@ -191,7 +191,7 @@ Recherche du 02/09, sources dans `ARTICLE-NOTES.md`.
   l'aval** — notre contrainte, déjà implémentée. Mais il rend des **prédictions
   continues**, sans machine à états et sans le texte de la phrase. **Notre delta
   face à lui est la couche d'états et le texte, pas le signal.**
-- **Notre 0,826 n'est comparable qu'à DuplexCascade**, dont la métrique est
+- **Notre 0,816 n'est comparable qu'à DuplexCascade**, dont la métrique est
   propre à ce papier. Le terrain commun du domaine est
   [eot-bench](https://github.com/livekit/eot-bench) : reproductible, données
   publiques, 14 langues dont le français.
@@ -366,7 +366,7 @@ intervient moins dans les pauses, et la seconde dimension le récompense d'avoir
   détecteur local à un gros répondeur, et découvrira que dans ce mode c'est le
   même objet.
 - Le mode fusionné perd l'argument central du projet — pas de réseau dans la
-  boucle serrée. C'est pourtant **le seul qu'on ait mesuré** : les 0,826 en
+  boucle serrée. C'est pourtant **le seul qu'on ait mesuré** : les 0,816 en
   viennent. Les chiffres des deux autres modes n'existent pas encore.
 
 ---

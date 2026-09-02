@@ -205,7 +205,9 @@ exécutable.
 
 sherpa-onnx → détecteur → piper. C'est le prototype `v0.1` réduit à un exemple.
 Sa fonction n'est pas de démontrer, c'est de **prouver la non-régression** : il
-doit retomber sur 0,826 après extraction, sinon on a cassé quelque chose.
+doit retomber sur **0,816 ± 0,015, en moyenne de trois passes** après
+extraction, sinon on a cassé quelque chose. **Pas 0,826 sur une passe** : voir
+l'étape 5.
 
 ### `examples/no_audio/` — le cœur sans un octet de son
 
@@ -284,7 +286,15 @@ dans l'extra `bench`, c'est le seul chemin vers un fichier audio mesurable.
 
 ### Étape 5 — remesurer
 
-Retomber sur **0,826**. C'est la seule preuve que l'extraction n'a rien cassé.
+Retomber sur **0,816 ± 0,015, moyenne de trois passes**. C'est la seule preuve
+que l'extraction n'a rien cassé.
+
+⚠️ **Le critère ne peut pas être « 0,826 sur une passe »**, et cette erreur était
+écrite ici avant le 02/09. L'écart-type est de 0,015 sur une passe, donc l'écart
+entre **deux** passes uniques a pour écart-type σ√2 ≈ 0,021 : **une passe à 0,791
+est parfaitement compatible avec un code intact.** Prendre 0,826 comme référence
+produirait des fausses alertes en série pendant l'extraction — et, pire, ferait
+« corriger » du code qui n'a rien.
 `tests/fumee.sh` est écrit contre la CLI et sera périmé : à réécrire contre l'API.
 
 ### Étape 6 — se comparer aux autres
