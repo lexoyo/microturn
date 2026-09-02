@@ -73,7 +73,7 @@ d'identifier côté détection/génération.
 |---|---|
 | `silence` | rien |
 | `speaking` | il parle, phrase en cours |
-| `thinking` | il se tait **mais n'a pas fini** — ce qu'un VAD ne sait pas voir |
+| `thinking` | il se tait **mais n'a pas fini** — ce qu'un VAD ne sait pas voir ; *intra-turn pause* dans la littérature, cf. § 7 |
 | `backchannel` | signal d'écoute, pas une prise de parole |
 
 **Événement** (ponctuel, avec charge utile) :
@@ -138,6 +138,11 @@ Recherche du 02/09, sources dans `ARTICLE-NOTES.md`.
 - Ces outils rendent tous une **décision ou une probabilité binaire de fin de
   tour**. Aucun ne produit la machine à états du § 3. C'est la seule
   différenciation propre — reste à savoir si un développeur la paierait.
+- **MaAI** (Kyoto, MIT) est le concurrent le plus proche du périmètre :
+  turn-taking et backchannel en temps réel, autonome, **sans connaissance de
+  l'aval** — notre contrainte, déjà implémentée. Mais il rend des **prédictions
+  continues**, sans machine à états et sans le texte de la phrase. **Notre delta
+  face à lui est la couche d'états et le texte, pas le signal.**
 - **Notre 0,826 n'est comparable qu'à DuplexCascade**, dont la métrique est
   propre à ce papier. Le terrain commun du domaine est
   [eot-bench](https://github.com/livekit/eot-bench) : reproductible, données
@@ -149,7 +154,89 @@ eot-bench en français. C'est le seul endroit où notre chiffre devient comparab
 
 ---
 
-## 7. Questions ouvertes, par ordre d'importance
+---
+
+## 7. Le vocabulaire du domaine
+
+Recherche du 02/09. **À employer partout** : ces mots rendent le projet
+trouvable, et la plupart de nos états portent un nom depuis cinquante ans.
+
+### Trois niveaux à ne pas confondre
+
+```
+endpointing  ⊂  end-of-turn detection (EOU)  ⊂  turn-taking prediction (PTTM)
+```
+
+- **endpointing** — terme historique de l'ASR, décision binaire sur le signal
+  acoustique. C'est le mot de MRCPv2 (RFC 6787).
+- **end-of-turn detection / EOU** — même décision, mais avec des indices
+  sémantiques et pragmatiques. « Semantic end-of-turn detector » est le terme
+  précis (Aldeneh et al. 2018).
+- **turn-taking prediction / PTTM** — pas une décision mais une prévision
+  continue de l'activité vocale à venir des deux interlocuteurs. Famille
+  TurnGPT / VAP.
+
+**Nous ne sommes dans aucun des trois** : nous produisons une machine à états
+observée. Il n'existe pas de terme consacré pour ça — espace lexical libre, avec
+son revers : personne ne cherchera la bibliothèque par ce mot-clé.
+
+### Nos états ont des noms depuis 1974
+
+Sacks, Schegloff & Jefferson (1974) distinguent trois silences, et la
+distinction est exactement la nôtre :
+
+| terme du domaine | sens | notre état |
+|---|---|---|
+| **pause** | silence **à l'intérieur** d'un tour | `thinking` |
+| **gap** | silence court **entre** deux tours, à un TRP | ce qui suit `turn_end` |
+| **lapse** | silence long, personne ne reprend | `departed` (encore ouvert) |
+
+⚠️ « pause » seul est ambigu hors analyse conversationnelle. Employer
+**intra-turn pause** ou **turn-holding pause**.
+
+Autres termes à reprendre tels quels : **TRP** (*transition-relevance place*, le
+moment où le tour peut changer), **the floor** (la ressource disputée),
+**backchannel** (Yngve, 1970 — en français, la littérature dit « régulateur »).
+
+### Le précédent le plus proche : FSTTM
+
+Raux & Eskenazi, NAACL 2009, *A Finite-State Turn-Taking Model* : six états
+(`USER`, `SYSTEM`, `FREE_S`, `FREE_U`, `BOTH_S`, `BOTH_U`). Notre `thinking` est
+leur `FREE_U` ; « il commence à parler pendant que l'agent parle » est leur
+`BOTH_S`.
+
+**La différence est exactement notre parti pris** : le FSTTM modélise le floor
+*joint* et sert à **choisir une action**, donc il connaît l'aval. Ce que nous
+construisons est **la projection du FSTTM sur le seul axe utilisateur, en mode
+observation**. C'est la formule la plus juste du périmètre, et rien de tel n'a
+été trouvé dans la littérature ni dans le logiciel libre.
+
+### Un cadre à connaître : IU (Incremental Units)
+
+Schlangen & Skantze, EACL 2009. Formalise le transport incrémental entre modules
+qui ne savent pas qui les consomme — notre principe d'indépendance de l'aval,
+déjà publié. Ses opérations `add` / `commit` / **`revoke`** décrivent la révision
+d'une hypothèse déjà émise : c'est précisément ce que gère notre `_delta` quand
+l'ASR se ravise. Implémentations : InproTK (Java), retico (Python, peu adopté).
+
+IU donne le **transport**, pas le modèle du tour. Les deux sont complémentaires.
+
+### Le nom
+
+**`microturn` est libre partout (PyPI, npm, crates.io) mais mauvais pour ce
+périmètre.** « micro-turn » n'existe pas dans la littérature, et pour quelqu'un
+du domaine un « tout petit tour de parole » *est* un backchannel — le nom pointe
+donc vers le plus mineur de nos états.
+
+Candidats libres et vérifiés : **turnstream** (aucune collision, nulle part),
+**floorstate** (le plus juste conceptuellement), **turnfsm** (exact, laid).
+
+Décision non prise. Si le nom reste, lui adosser une tagline descriptive et des
+mots-clés `turn-taking`, `end-of-turn`, `EOU`, `backchannel`, `endpointing`.
+
+---
+
+## 8. Questions ouvertes, par ordre d'importance
 
 1. **La spéculation.** Aujourd'hui `Decideur.decide()` rend l'état **et** la
    réponse dans le même appel : quand la personne s'arrête, la réponse est déjà
