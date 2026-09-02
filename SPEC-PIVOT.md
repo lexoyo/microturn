@@ -11,8 +11,22 @@ est en cours. « Observateur » est employé ici comme nom de travail.
 
 ## 1. Ce que devient le projet
 
-**Une bibliothèque qui fait une seule chose : transformer un flux d'entrée en
-transitions d'état décrivant l'utilisateur.**
+**Un détecteur de fin de tour qui se fonde sur le sens, pas sur le son.**
+
+En un mot : une bibliothèque qui transforme un flux d'entrée en transitions
+d'état décrivant l'utilisateur.
+
+Ce qu'elle apporte, dans l'ordre où ça se défend :
+
+1. **Elle permet de faire du full-duplex à partir de n'importe quel modèle, sans
+   fine-tuning.** C'est ce que 0,826 contre 0,858 démontre — le prompt tient lieu
+   d'entraînement.
+2. Elle groupe détection et réponse en **un seul appel** quand on le lui demande,
+   pour un gain de latence important (cf. § 8).
+3. Elle gère le **backchannel dans les deux sens** : celui de l'utilisateur comme
+   observation, celui de l'agent comme conseil d'action sur un canal séparé.
+4. Elle ne touche jamais au signal : c'est ce qui la distingue de tous les
+   détecteurs existants, qui partent de l'audio (cf. § 7).
 
 Le comportement visé est celui d'un clavier : on reçoit la ligne quand
 l'utilisateur a appuyé sur Entrée. Pas de phrase à moitié faite.
@@ -38,6 +52,12 @@ de faire l'interprétation. Rien à ajouter dans la bibliothèque.
 **Conséquence n° 2 — le backchannel n'est pas une action.** L'observateur signale
 qu'un signal d'écoute a été émis. Ce que l'hôte en fait — un son préenregistré,
 un « mhm » synthétisé, rien du tout — ne le regarde pas.
+
+*Nuance ajoutée le 02/09* : la bibliothèque gère le backchannel **dans les deux
+sens**, mais pas sur le même canal. Celui de l'utilisateur est une
+**observation** (§ 3) ; celui de l'agent — l'`assistant_backchannel` du papier —
+est un **conseil d'action**, émis à part. Les confondre reviendrait à remélanger
+observation et décision, l'erreur même que ce pivot corrige.
 
 **Conséquence n° 3 — pas d'entrée `assistant_speaking()` dans l'API.** Une
 version antérieure de cette spec en prévoyait une ; elle est écartée. Elle
@@ -108,7 +128,32 @@ encore de l'audio, ou seulement du texte horodaté ?
 
 ---
 
-## 5. Docker
+## 5. L'entrée : du texte horodaté, jamais du signal
+
+**Tranché le 02/09.** La bibliothèque ne consomme **que du texte horodaté**,
+éventuellement accompagné de contexte typé (musique, présence de voix, plusieurs
+locuteurs). Elle ne voit jamais un octet de son.
+
+**Ce que ça règle** : toute la portabilité, d'un coup. Plus d'`arecord`, plus de
+PortAudio, plus de question Windows/macOS. Le cœur devient du Python pur,
+testable sans audio, sans réseau et sans horloge réelle.
+
+**Ce que ça ne coûte pas — vérifié.** On aurait pu croire qu'on perd
+l'information acoustique. C'est faux : elle **ne sert déjà plus**. Les trois cas
+— silence, silence répété, son sans transcription — produisent tous la même
+chaîne `<|no voice|>`, et le catalogue le dit noir sur blanc (`fr.toml:95-99`) :
+« la crête audio est toujours mesurée dans `audio.py` (seuil −40 dBFS) mais ne
+sert plus qu'en interne — le prompt n'a que leurs marqueurs ». C'était un choix
+délibéré, conforme au design des chercheurs, dont le code ne regarde que
+`delta_text.strip()`.
+
+Le contexte typé rouvre donc cette porte **proprement** : en tant que champ
+déclaré, et non en tant que seuil caché dans le code (`SEUIL_VOIX = 328`, calibré
+sur un seul micro et jamais vérifié sur un autre).
+
+---
+
+## 6. Docker
 
 **Non pour le cœur, oui pour les modules déportés.**
 
@@ -124,7 +169,7 @@ matériel ou pas ».
 
 ---
 
-## 6. Ce que la concurrence impose de savoir
+## 7. Ce que la concurrence impose de savoir
 
 Recherche du 02/09, sources dans `ARTICLE-NOTES.md`.
 
@@ -156,7 +201,7 @@ eot-bench en français. C'est le seul endroit où notre chiffre devient comparab
 
 ---
 
-## 7. Le vocabulaire du domaine
+## 8. Le vocabulaire du domaine
 
 Recherche du 02/09. **À employer partout** : ces mots rendent le projet
 trouvable, et la plupart de nos états portent un nom depuis cinquante ans.
@@ -187,12 +232,22 @@ distinction est exactement la nôtre :
 
 | terme du domaine | sens | notre état |
 |---|---|---|
-| **pause** | silence **à l'intérieur** d'un tour | `thinking` |
-| **gap** | silence court **entre** deux tours, à un TRP | ce qui suit `turn_end` |
+| **pause** | silence **à l'intérieur** d'un tour | *aucun marqueur* — absorbé par `speaking` |
+| **gap** | silence court **entre** deux tours, à un TRP | `thinking` (cf. ci-dessous) |
 | **lapse** | silence long, personne ne reprend | `departed` (encore ouvert) |
 
 ⚠️ « pause » seul est ambigu hors analyse conversationnelle. Employer
 **intra-turn pause** ou **turn-holding pause**.
+
+**Ce que `thinking` veut dire chez nous — vérifié le 02/09.** Le prompt ne le
+tranche pas : il dit seulement « il se tait, mais il réfléchit », et **aucun
+exemple ne le montre**. Mais l'usage effectif penche pour le *gap* : le
+changement retenu (+0,025) remplaçait le `<|no voice|>` **qui suit une réponse de
+l'assistant** par `is thinking`.
+
+**Conséquence : la pause intra-tour n'a aucun marqueur chez nous.** C'est
+`speaking` qui l'absorbe. C'est précisément la distinction qu'un VAD ne sait pas
+faire et que nous revendiquons — à décider si elle mérite son propre état.
 
 Autres termes à reprendre tels quels : **TRP** (*transition-relevance place*, le
 moment où le tour peut changer), **the floor** (la ressource disputée),
@@ -236,7 +291,7 @@ mots-clés `turn-taking`, `end-of-turn`, `EOU`, `backchannel`, `endpointing`.
 
 ---
 
-## 8. Détection et réponse : trois modes
+## 9. Détection et réponse : trois modes
 
 ### Décision du 02/09 — les trois modes sont une option, pas un choix de conception
 
@@ -283,19 +338,25 @@ champ `draft`, rempli plus tôt.
 
 ---
 
-## 9. Questions ouvertes, par ordre d'importance
+## 10. Questions ouvertes, par ordre d'importance
 
-1. **Audio ou texte en entrée ?** L'ASR sorti, la bibliothèque peut soit
-   continuer à consommer de l'audio avec un ASR injecté, soit ne plus consommer
-   que du texte horodaté plus un indicateur de voix. La seconde option règle
-   d'un coup toute la portabilité (plus aucune dépendance plateforme), mais perd
-   l'information acoustique dont `SEUIL_VOIX` et la distinction silence / bruit
-   se servent aujourd'hui.
-2. **Le prompt dépend de l'ASR.** Mesuré : la phrase décrivant la casse de
+1. **Le prompt dépend de l'ASR.** Mesuré : la phrase décrivant la casse de
    l'entrée vaut **+0,063 quand elle est vraie et −0,103 quand elle est fausse**.
    Si l'ASR est branchable, le prompt du détecteur doit l'être aussi et lui être
    apparié. Le catalogue le fait déjà sans que ce soit assumé comme une décision
    d'architecture (`systeme` contre `systeme_sherpa`).
-3. **Le tick appartient-il à la bibliothèque ou à l'hôte ?** `TICK_S = 1.2` porte
+2. **Le tick appartient-il à la bibliothèque ou à l'hôte ?** `TICK_S = 1.2` porte
    toute la logique de tour de parole. Le laisser régler par l'hôte, c'est
    accepter qu'il puisse le mettre faux et ne plus rien détecter, sans message.
+3. **La pause intra-tour mérite-t-elle son propre état ?** Elle n'a aucun
+   marqueur aujourd'hui (§ 8) et c'est pourtant la distinction qu'un VAD ne sait
+   pas faire.
+
+---
+
+## 11. Le nom
+
+**Décision du 02/09 : on garde `microturn` pour l'instant.** Le § 8 explique
+pourquoi ce n'est pas le bon nom pour ce périmètre ; ce n'est pas bloquant, et le
+renommage peut attendre que le périmètre soit stabilisé. Candidats libres si on
+renomme : `turnstream`, `floorstate`, `turnfsm`.
