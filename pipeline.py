@@ -263,13 +263,13 @@ class Session:
             return
         etat = "appel en cours" if self.en_vol else "en attente"
         vu = self.transcript[-40:] if self.transcript else "rien entendu"
-        self.log(f"·  {etat} — transcript stt : {vu!r}")
+        self.log(f"·  {etat} — stt transcript: {vu!r}")
 
     # ---------- parole ----------
     def _dire(self, texte):
         if not texte:
             return
-        self.log(f"▶  {texte}")
+
         self.voix.say(texte)                 # ne bloque pas
         self.parle_depuis = time.time()
         self.texte_dit = texte
@@ -465,7 +465,7 @@ class Session:
             # Ceinture : un mutisme définitif ne doit pas dépendre de
             # l'exhaustivité d'un `except`.
             if time.time() - self.t_vol > 4 * TICK_S:
-                self.log("⚠  appel sans réponse, on repart")
+                self.log("⚠  call returned nothing, retrying")
                 self.en_vol = False
             else:
                 return              # un seul appel en vol ; le texte s'accumule
@@ -521,6 +521,17 @@ class Session:
         threading.Thread(target=self._interroger, args=(delta, self.seq),
                          daemon=True).start()
 
+    def _tour(self, delta, action, dt, suffixe=""):
+        """Un micro-tour, dans le vocabulaire des chercheurs.
+
+        Le lecteur du papier cherche les jetons de contrôle, pas nos noms
+        d'actions internes. Une ligne = un tick : ce qu'on a envoyé au décideur,
+        le marqueur qu'il rend, et sa latence. C'est exactement la boucle que
+        DuplexCascade décrit, rendue visible."""
+        entree = " ".join(delta.split())[:44]
+        marqueur = self.jetons.get(action, action)
+        self.log(f"{entree:<44} → {marqueur:<26} {dt:.2f}s {suffixe}".rstrip())
+
     def _appliquer(self, action, texte, delta, dt, seq):
         """L'action découle mécaniquement de l'état perçu."""
         # Le chien de garde relance sans pouvoir annuler le thread parti : sa
@@ -530,7 +541,7 @@ class Session:
         # alors qu'un appel plus récent était encore en vol — d'où un troisième
         # appel, une file derrière le verrou, et le chien de garde en cascade.
         if seq != self.seq:
-            self.log(f"⌛ ({dt:.2f}s) périmée, ignorée · {self._envoye(delta)}")
+            self.log(f"           ⌛ stale, dropped ({dt:.2f}s)")
             return
         self.en_vol = False
         self.stats.append((action, dt))
@@ -538,7 +549,7 @@ class Session:
             # Traité AVANT d'écrire l'historique : sinon la troncature à
             # MICRO_TOURS s'applique d'abord et le retrait des deux entrées
             # fantômes emporte deux vrais micro-tours avec lui.
-            self.log(f"⚠  réseau ({dt:.2f}s) {texte}")
+            self.log(f"           ⚠ network ({dt:.2f}s) {texte}")
             self.vu = ""            # l'énoncé n'est pas perdu : il repartira
             return
         # Le marqueur seul vaut décision de parler — uniquement sur le banc
@@ -568,8 +579,7 @@ class Session:
             self.micro_tours[-2]["content"] = delta[:-len(marqueur)] + \
                 self.repete.replace("{n}", str(n))
             self.stats.append(("silence_replie", 0.0))
-            self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}"
-                     f"  [replié ×{n}]")
+            self._tour(delta, "parle", dt, f"[folded ×{n}]")
             return
         self.silences = 1 if muet else 0
         # Le MÊME format que les exemples et que la sortie contrainte. L'historique
@@ -595,11 +605,12 @@ class Session:
             # une latence qu'on vient de descendre à 0,33 s. À zéro, on retrouve
             # exactement le comportement d'avant.
             if TICKS_SILENCE and self.silences < TICKS_SILENCE:
-                self.log(f"⏸  ({dt:.2f}s) réponse retenue, {self.silences}/"
-                         f"{TICKS_SILENCE} tick(s) de silence")
+                self.log(f"           ⏸ reply held, {self.silences}/"
+                         f"{TICKS_SILENCE} silent tick(s)")
                 if self.trace:
                     self.trace.ev("retenue", texte=texte, silences=self.silences)
                 return
+            self._tour(delta, "parler", dt, f"▶ {texte}")
             self._dire(texte)
         elif action in ("coupe", "parle"):
             # Comme DuplexCascade : n'importe quel tick où elle parle pendant
@@ -618,7 +629,7 @@ class Session:
                         (self.silence, self.bruit_sans_texte))
                     and not self._est_echo(delta)):
                 self.voix.stop()
-                self.log("✂  coupé, tu reprends la parole")
+                self._tour(delta, "coupe", dt, "✂ speech cut")
                 if self.trace:
                     self.trace.ev("coupure")
             else:
@@ -628,7 +639,7 @@ class Session:
                 # Trente-trois secondes d'affilée sans qu'aucune ligne ne sorte,
                 # alors que le décideur répondait toutes les 1,2 s — impossible
                 # de distinguer ça d'un plantage.
-                self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}")
+                self._tour(delta, action, dt)
         elif action == "reflechit":
             # Pas de ligne : c'est la décision la plus fréquente de toutes et
             # elle noyait le reste. Elle reste dans la TRACE (`type=decision`),
@@ -637,12 +648,11 @@ class Session:
         elif action == "parler_sans_texte":
             # Une décision de parler dont la réponse manque. La confondre avec
             # l'attente rendait le système muet ET faussait le ratio, en silence.
-            self.log(f"⚠  ({dt:.2f}s) a décidé de répondre, sans réponse "
-                     f"· {self._envoye(delta)}")
+            self._tour(delta, action, dt, "⚠ no reply")
         elif action == "format":
-            self.log(f"⚠  ({dt:.2f}s) hors format : {texte[:50]}")
+            self.log(f"           ⚠ malformed: {texte[:50]}")
         else:
-            self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}")
+            self._tour(delta, action, dt)
 
     # ---------- boucle principale ----------
     def run_deterministe(self):
@@ -756,7 +766,8 @@ class Session:
                         and self.voix.speaking()):
                     self.voix.stop()
                     self.porte.barge_in = False
-                    self.log("✂  coupé, tu reprends la parole")
+                    self.log(f"{'(audio gate)':<44} → "
+                             f"{self.jetons['coupe']:<26} ✂ speech cut")
                     if self.trace:
                         self.trace.ev("coupure", origine="porte")
 
@@ -785,7 +796,7 @@ class Session:
                     prochain = max(now, prochain + TICK_S)
                     self._tick()
         except KeyboardInterrupt:
-            self.log("[arrêt]")
+            self.log("[stopped]")
         finally:
             self.close()
         return self.stats
@@ -802,13 +813,13 @@ class Session:
         if self.rendu:
             total = self._horloge()
             n = self.voix.rendre(self.rendu, total)
-            self.log(f"rendu: {self.rendu} — {total/audio.RATE:.2f} s, "
+            self.log(f"rendered: {self.rendu} — {total/audio.RATE:.2f} s, "
                      f"{n} prise(s) de parole")
         th = getattr(self.eng, "th", None)
         if th is not None:
             th.join(timeout=8)
             if th.is_alive():
-                self.log("⚠  le moteur STT n'a pas rendu la main")
+                self.log("⚠  the STT engine never returned")
         if self.trace:
             dossier = self.trace.close(
                 bruit_final=round(self.porte.bruit or 0, 1) if self.porte else None,
