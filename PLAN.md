@@ -1,0 +1,251 @@
+# Plan d'implémentation de la nouvelle architecture
+
+`SPEC-PIVOT.md` dit **ce qu'on construit**. Ce fichier dit **comment**, et dans
+quel ordre. Point de départ figé : tag `v0.1-prototype`.
+
+Les noms de classes sont provisoires (le nom du projet lui-même n'est pas
+tranché, cf. `SPEC-PIVOT.md` § 11).
+
+---
+
+## 1. L'entrée : des observations horodatées
+
+### Le mécanisme
+
+Un appel **synchrone**, poussé par l'hôte. Pas de thread dans le cœur, pas d'I/O,
+pas d'horloge réelle.
+
+```python
+det.feed(Observation(t=12.4, text="EST CE QUE TU PEUX ME DIRE LA"))
+```
+
+```python
+@dataclass(frozen=True)
+class Observation:
+    t: float                     # secondes depuis le début, source unique du temps
+    text: str = ""               # transcription CUMULATIVE du tour en cours
+    context: dict | None = None  # {"voice": True, "speakers": 2, "sound": "music"}
+```
+
+### Trois décisions non évidentes
+
+**Le texte est cumulatif, pas incrémental.** L'ASR rend le texte complet du tour
+en cours, révisable — c'est ce que font tous les ASR en flux. Le calcul du delta
+reste **chez nous**, parce que c'est le morceau le plus subtil du projet :
+`_delta()` ancre par la **queue** et non par le préfixe, précisément pour survivre
+au moment où l'ASR se ravise (mesuré deux fois comme critique). Un ancrage naïf
+retombe à zéro dès la première correction et renvoie la phrase entière comme
+neuve. C'est aussi l'opération `revoke` du modèle IU (`SPEC-PIVOT.md` § 8) : on
+implémente un concept publié, pas un bricolage.
+
+**Le temps vient de `t`, jamais de `time.time()`.** C'est ce qui rend le rejeu
+déterministe gratuit — plus de patch du module `time` (le défaut G2 de la QC), et
+le cœur devient testable sans attendre. Une seule règle : aucun appel à l'horloge
+système dans le cœur.
+
+**Le contexte est un dict, pas des champs figés.** C'est le point d'entrée des
+« producteurs » du § 10 d'`IDEES.md` : caméra, ambiance sonore, domotique. Il
+faut donc dire **comment un dict devient du texte pour le modèle** — un
+`ContextRenderer` par défaut qui sérialise en une ligne, remplaçable. Sans ça, on
+aura un champ que personne ne sait utiliser.
+
+### Le tick appartient à la bibliothèque
+
+`feed()` accumule et déclenche un tick quand `t` a assez avancé (défaut 1,2 s).
+L'hôte peut le régler, mais pas l'oublier : le laisser piloter le tick, c'est
+accepter qu'il le mette faux et que plus rien ne soit détecté, sans message.
+
+---
+
+## 2. Les hooks : deux vitesses, et c'est le point délicat
+
+L'objectif est de **déclencher un TTS ou de l'interrompre**. Ces deux actions
+n'ont pas du tout les mêmes contraintes de latence, et c'est ce qui commande le
+mécanisme.
+
+| | déclencher | interrompre |
+|---|---|---|
+| événement | `TURN_END` | `SPEAKING` |
+| tolérance | ~1 tick | **le plus vite possible** |
+| source | décision du modèle | l'ASR rend du texte |
+
+**Conséquence : deux chemins d'émission.**
+
+- **Chemin lent** — les états qui demandent un jugement (`THINKING`, `TURN_END`)
+  sortent au tick, après la décision du modèle.
+- **Chemin rapide** — `SPEAKING` est émis **dès que du texte non vide arrive**,
+  sans attendre le tick ni le réseau. C'est ce qui rend le barge-in utilisable :
+  le prototype actuel coupe déjà le TTS localement sans attendre la réponse
+  distante (`pipeline.py:709-712`), et cette propriété ne doit pas être perdue
+  dans l'extraction.
+
+### La forme
+
+Un callback unique, appelé **dans le thread de l'appelant** :
+
+```python
+det = Detector(decider=..., on_event=mon_hook)
+```
+
+Pourquoi pas un itérateur pour le cœur : un itérateur fait *tirer* les
+événements par la boucle de l'hôte, donc l'interruption attend le prochain tour
+de boucle. Le callback la livre dans la microseconde.
+
+⚠️ **Le danger, à documenter en gras dans le README** : le hook tourne chez
+l'appelant. Un hook lent bloque `feed()`, et on retombe exactement sur les
+débordements de tampon que tout le projet a passé son temps à éliminer.
+Fournir un `QueuedSink` pour les distraits, et écrire l'invariant en tête :
+*personne ne bloque sur de l'I/O.*
+
+### Par-dessus, l'API du débutant
+
+Une classe mince (~60 lignes) qui possède un thread, lit une source et expose un
+itérateur — c'est celle du README et des exemples :
+
+```python
+for ev in Stream(source=MicSource(), asr=Sherpa(), decider=Remote()):
+    if ev.kind is TURN_END:
+        parler(ev.draft or mon_llm(ev.text))
+```
+
+Les deux sont le même paquet. Le cœur est push et testable ; l'enveloppe est
+confortable.
+
+---
+
+## 3. La sortie
+
+```python
+@dataclass(frozen=True)
+class Event:
+    kind: Kind                    # SILENCE | SPEAKING | THINKING | BACKCHANNEL | TURN_END
+    t: float
+    text: str = ""                # rempli sur TURN_END : la phrase complète
+    draft: str | None = None      # la réponse, en mode fusionné ou spéculatif (§ 9 de la spec)
+    confidence: float | None = None
+```
+
+**Émission au changement d'état seulement**, jamais à chaque tick — sinon l'hôte
+est noyé sous des `SPEAKING` identiques. L'état courant reste lisible à tout
+moment par `det.state`.
+
+**`confidence` n'est pas décoratif.** eot-bench démontre que tout l'intérêt d'un
+détecteur est dans le balayage seuil/latence ; rendre une décision binaire ferme
+la porte au réglage du compromis par l'hôte. À rendre dès qu'on sait le produire.
+
+---
+
+## 4. Les états
+
+Repris de `SPEC-PIVOT.md` § 3, sans changement.
+
+| | sens |
+|---|---|
+| `SILENCE` | rien |
+| `SPEAKING` | il parle, phrase en cours (absorbe aujourd'hui la pause intra-tour) |
+| `THINKING` | il se tait mais n'a pas fini — le *gap* de Sacks-Schegloff-Jefferson |
+| `BACKCHANNEL` | signal d'écoute, pas une prise de parole |
+| `TURN_END` | événement, porte la phrase complète |
+
+Pas d'`INTERRUPTION` : c'est un `SPEAKING` reçu pendant que l'hôte parle, et
+l'hôte est seul à le savoir.
+
+Ouverts : `PARTIAL` (texte en cours, opt-in), `DEPARTED` (le *lapse*), et la
+question de savoir si la pause intra-tour mérite son propre état.
+
+---
+
+## 5. Les exemples livrés avec le framework
+
+Trois, choisis pour couvrir trois usages différents — et chacun est aussi un test
+exécutable.
+
+### `examples/companion/` — ce qu'on a déjà, et le seul mesuré
+
+sherpa-onnx → détecteur → piper. C'est le prototype `v0.1` réduit à un exemple.
+Sa fonction n'est pas de démontrer, c'est de **prouver la non-régression** : il
+doit retomber sur 0,826 après extraction, sinon on a cassé quelque chose.
+
+### `examples/no_audio/` — le cœur sans un octet de son
+
+Des observations tapées à la main, avec leurs horodatages, poussées dans
+`feed()`. Aucune dépendance : ni micro, ni ASR, ni réseau si le décideur est
+simulé. C'est le meilleur exemple pédagogique, parce qu'il **démontre la thèse du
+projet** — la détection se fait sur le sens, pas sur le son — et c'est le test le
+plus rapide de la suite.
+
+### `examples/illustrate/` — écouter sans répondre
+
+À chaque `TURN_END`, produire autre chose qu'une voix : une image, une recherche,
+un affichage. Il montre que la bibliothèque sert à des systèmes **qui ne parlent
+pas**, donc que le TTS était bien un accessoire. C'est aussi le premier
+consommateur du `draft` en mode fusionné.
+
+---
+
+## 6. Le plan des choses à faire
+
+Ordre contraint : chaque étape est le filet de la suivante.
+
+### Étape 0 — nettoyer avant d'extraire
+
+Sinon on extrait du mensonge.
+
+- Trancher `[etats]` (QC C1/G4) : la section est **vide** dans les deux
+  catalogues, donc le modèle ne sait pas que l'assistant parle, `<|user
+  interruption|>` n'est jamais sorti (0 fois sur 153), et **toutes les lignes de
+  log affichent `[muet]`** quel que soit l'état réel.
+- Supprimer le code mort du candidat 59 (`TICKS_SILENCE`) et `Vosk`.
+- Corriger G3 : `robot_parle` n'est jamais rafraîchi en rejeu déterministe. Mine
+  amorcée pour le jour où les marqueurs d'état reviennent.
+
+### Étape 1 — le filet
+
+Tests unitaires de `_delta`, `_cle`, `_est_echo`, `lire_controle`, **écrits sur
+le code actuel**. Ces fonctions sont pures ou quasi ; trente lignes chacune, sans
+audio ni réseau. Aujourd'hui **rien ne les protège** — le banc lance
+`pipeline.py` en sous-processus, il teste une CLI, pas du code.
+
+### Étape 2 — extraire le `Detector`
+
+Les ~220 lignes qui comptent (`_cle`, `_rien`, `_delta`, `_tick`, `_appliquer`),
+avec `t` injecté et la durée de parole en paramètre. Le reste de `pipeline.py`
+est de l'orchestration et de la CLI.
+
+### Étape 3 — rendre `llm.py` importable
+
+`import llm` **échoue aujourd'hui sans clé OpenRouter** : `KEY = _key()` s'exécute
+au chargement et lève `SystemExit`. Plus huit autres `sys.exit` déguisés dans le
+chargement des catalogues. Une bibliothèque ne peut pas faire ça, et surtout pas
+pour une clé dont le point d'extension « répondeur » est censé se passer.
+Clé paresseuse, exceptions typées.
+
+### Étape 4 — sortir le TTS et l'ASR
+
+Derrière leurs protocoles. Garder `Silencieux` **dans** la bibliothèque, renommé
+en modèle de durée de parole, avec ses deux constantes remontées dans la
+signature — elles sont fausses d'un facteur trois sur Pi. Garder `Enregistreur`
+dans l'extra `bench`, c'est le seul chemin vers un fichier audio mesurable.
+
+### Étape 5 — remesurer
+
+Retomber sur **0,826**. C'est la seule preuve que l'extraction n'a rien cassé.
+`tests/fumee.sh` est écrit contre la CLI et sera périmé : à réécrire contre l'API.
+
+### Étape 6 — se comparer aux autres
+
+Passer sur **eot-bench en français**. Notre chiffre n'est aujourd'hui comparable
+qu'à DuplexCascade, dont la métrique est propre à ce papier. C'est le seul
+terrain où l'on saura ce qu'on vaut face à Smart Turn et LiveKit — et si l'on est
+derrière, autant l'apprendre en deux jours qu'en six mois.
+
+---
+
+## Ce qui reste à trancher avant l'étape 2
+
+1. **Le prompt doit être apparié à l'ASR** (+0,063 si la description de l'entrée
+   est vraie, −0,103 si elle est fausse). Si l'ASR est branchable, le catalogue
+   de prompts doit l'être aussi.
+2. **La pause intra-tour** mérite-t-elle son propre état ? C'est la distinction
+   qu'un VAD ne sait pas faire, donc l'argument de vente, et elle n'a aucun
+   marqueur aujourd'hui.
