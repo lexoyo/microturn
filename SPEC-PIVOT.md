@@ -323,11 +323,19 @@ Aucune branche dans le cœur ; changer de mode ne change pas le code de l'hôte.
 | **fusionné** | le gros modèle, à chaque tick | même appel que la détection | minimale | 159 appels pour 13 réponses (mesuré) |
 | **spéculatif** | petit modèle, local | déclenchée **en avance** quand la fin approche, en parallèle | ≈ fusionné | ~20-30 appels au lieu de 159 |
 
-Le mode **spéculatif** domine probablement les deux autres et n'était dans aucun
-énoncé : il donne la latence du fusionné pour environ cinq fois moins d'appels au
-gros modèle, au prix des générations jetées — arbitrage réglé par un seuil que
-l'hôte choisit. Il ne demande aucune conception supplémentaire : c'est le même
-champ `draft`, rempli plus tôt.
+**Le mode spéculatif est déclassé (02/09).** J'avais écrit qu'il donnait « la
+latence du fusionné pour cinq fois moins d'appels » : c'est faux. Lancer le gros
+modèle sur le même tick que le détecteur, sans attendre son verdict, fait gagner
+**le temps du détecteur — ~0,2 s — et rien de plus**.
+
+Gagner davantage supposerait de lancer la génération plusieurs ticks avant la
+fin, donc sur une phrase incomplète (« la taille de la tour Eiffel… **de Pise** »)
+et de jeter dès que le texte change. Ça ne paie que si les derniers ticks
+n'apportent aucun mot. Aucun chiffre là-dessus.
+
+Il reste dans l'API — même classe composite, chevauchement gratuit — mais comme
+**optimisation du mode séparé**, pas comme troisième voie. L'arbitrage réel est
+binaire : un modèle, ou deux.
 
 ### Mesuré le 02/09 : le mode séparé coûte de la justesse, pas seulement de la latence
 
