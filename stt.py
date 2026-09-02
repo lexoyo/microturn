@@ -230,6 +230,20 @@ class Vosk:
         self.rec = KaldiRecognizer(self.model, audio.RATE)
         self.charge_s = time.time() - t0
 
+    @staticmethod
+    def _suffixe(path):
+        """Déduit le nom commun des trois fichiers du modèle.
+
+        On cherche l'encodeur — il n'y en a qu'un — et on retire son préfixe.
+        Les variantes int8 sont préférées : c'est ce que le projet mesure, et
+        c'est trois fois plus léger sur le Pi."""
+        import glob
+        cands = sorted(glob.glob(os.path.join(path, "encoder-*.int8.onnx"))
+                       or glob.glob(os.path.join(path, "encoder-*.onnx")))
+        if not cands:
+            raise SystemExit(f"aucun encodeur sherpa dans {path}")
+        return os.path.basename(cands[0])[len("encoder-"):]
+
     _raz = False
 
     def run(self, cap, q, stop):
@@ -325,8 +339,14 @@ class Rejeu:
 
 
 
-SHERPA_DIR = os.environ.get(
-    "MICROTURN_SHERPA", "models/sherpa-onnx-streaming-zipformer-fr-2023-04-14")
+# Un modèle par langue. `MICROTURN_SHERPA` l'emporte : c'est un réglage de la
+# machine, la table n'est qu'un défaut. Les noms de fichiers diffèrent d'un
+# modèle à l'autre, ils sont déduits du dossier (cf. `Sherpa._suffixe`).
+SHERPA_MODELES = {
+    "fr": "models/sherpa-onnx-streaming-zipformer-fr-2023-04-14",
+    "en": "models/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+}
+SHERPA_DIR = os.environ.get("MICROTURN_SHERPA", "")
 
 
 class Sherpa:
@@ -349,10 +369,20 @@ class Sherpa:
 
     dernier_cout = 0.0
 
-    def __init__(self, path=SHERPA_DIR, langue="fr", threads=2):
+    def __init__(self, path=None, langue="fr", threads=2):
         import sherpa_onnx
         t0 = time.time()
-        suffixe = "epoch-29-avg-9-with-averaged-model.int8.onnx"
+        path = path or SHERPA_DIR or SHERPA_MODELES.get(langue) or SHERPA_MODELES["fr"]
+        if not os.path.isdir(path):
+            raise SystemExit(
+                f"pas de modele sherpa pour « {langue} » dans {path}.\n"
+                f"  Modeles connus : {', '.join(SHERPA_MODELES)}\n"
+                f"  Ou pose MICROTURN_SHERPA sur un dossier de modele.")
+        # Le nom des fichiers change d'un modèle à l'autre : le français de
+        # 2023-04-14 est en `epoch-29-avg-9-with-averaged-model`, l'anglais de
+        # 2023-06-26 en `epoch-99-avg-1-chunk-16-left-128`. Le coder en dur
+        # n'autorisait qu'UN modèle au monde. On le déduit du dossier.
+        suffixe = self._suffixe(path)
         self.reglages = {"modele": path, "threads": threads, "int8": True,
                          "bloc_ms": 300, "endpoint": True}
         self.rec = sherpa_onnx.OnlineRecognizer.from_transducer(
@@ -368,6 +398,20 @@ class Sherpa:
         self.flux = self.rec.create_stream()
         self.fige = ""
         self.charge_s = time.time() - t0
+
+    @staticmethod
+    def _suffixe(path):
+        """Déduit le nom commun des trois fichiers du modèle.
+
+        On cherche l'encodeur — il n'y en a qu'un — et on retire son préfixe.
+        Les variantes int8 sont préférées : c'est ce que le projet mesure, et
+        c'est trois fois plus léger sur le Pi."""
+        import glob
+        cands = sorted(glob.glob(os.path.join(path, "encoder-*.int8.onnx"))
+                       or glob.glob(os.path.join(path, "encoder-*.onnx")))
+        if not cands:
+            raise SystemExit(f"aucun encodeur sherpa dans {path}")
+        return os.path.basename(cands[0])[len("encoder-"):]
 
     _raz = False
 

@@ -214,8 +214,10 @@ class Session:
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
             robot_parle=lambda: self.robot_parle,
+            # sherpa aussi : il a un modèle PAR LANGUE, et sans ça il
+            # retombait toujours sur le français, quel que soit `--langue`.
             **({"langue": cat["divers"]["whisper"]}
-               if moteur == "whisper" else {}), **kw)
+               if moteur in ("whisper", "sherpa") else {}), **kw)
         if self.trace is not None and hasattr(self.eng, "reglages"):
             # les réglages du moteur ne sont connus qu'après sa construction, et
             # ce sont eux qui font varier le RTF du simple au double (audio_ctx,

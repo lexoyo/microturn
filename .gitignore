@@ -12,3 +12,4 @@ tests/prises/
 
 # Bacs à sable des séries de mesure : une copie du catalogue, jamais du code.
 *.sauve
+models/sherpa-onnx-streaming-zipformer-en-2023-06-26/
