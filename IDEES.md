@@ -76,6 +76,12 @@ linguistique que le few-shot compense aujourd'hui.
 doublées, 50 fois par minute. Sauf à traduire dans le même appel — mais alors on
 demande deux tâches au modèle, ce qui est exactement ce qui pose déjà problème.
 
+> ⚠️ **Cette phrase valait mieux que la section qui la contient.** Écrite le
+> 29/08 à propos de la traduction, elle énonce le problème d'architecture repris
+> le 02/09 au § 11 — et elle y est restée plusieurs jours sans être relue. Notée
+> ici pour la trace : une idée rangée sous la mauvaise rubrique est une idée
+> perdue.
+
 **Ce qu'on perdrait** : les erreurs de transcription caractéristiques. Un traducteur
 « réparerait » ou déformerait « un an et plus en t'es non assez fan ce fil », alors
 que le modèle doit apprendre à reconnaître ce bruit et à répondre SPEAKING.
@@ -331,3 +337,116 @@ Règle de conception associée : **un capteur n'écrit que quand il change d'ét
 plugins actifs. Mesurer la justesse, la latence, et la taille du prompt envoyé.
 Le premier plugin à écrire est la prosodie (f0 : « sa voix retombe »), qui vise
 la pire dimension mesurée — les pauses ratées.
+
+---
+
+## 11. Séparer la détection de fin de tour de la génération de réponse
+
+**Statut : en cours (première mesure lancée le 02/09).** Formulé par Alex le
+02/09/2026 : « on a mélangé deux concepts — détecter qu'une phrase est finie, et
+décider quoi répondre ». L'intuition dormait déjà en § 1 bis depuis le 29/08.
+
+Aujourd'hui un seul appel rend le marqueur de tour de parole **et** le texte à
+dire. C'est hérité de DuplexCascade, où le fine-tuning rend les deux
+indissociables — mais nous ne fine-tunons pas, donc rien ne nous y oblige.
+
+**Trois faits mesurés qui motivent la question** :
+
+- Full-Duplex-Bench ne note que la détection. **La qualité des réponses n'a
+  jamais été mesurée**, donc n'importe lequel des sept changements gardés a pu
+  la dégrader sans qu'on le voie.
+- Le tutoiement (variante 58) fait tomber le tic de formulation de 32 % à 0 %
+  pour 0,023 de justesse de détection : **les deux axes bougent
+  indépendamment.**
+- Sur la session réelle `20260829-134719` : 159 décisions, **13 prises de parole
+  (8,2 %)**, 109 029 tokens d'entrée pour 1 756 de sortie, latence médiane
+  0,465 s (p90 1,009 s) sur un budget de tick de 1,2 s. **91,8 % des tokens
+  d'entrée sont dépensés par des ticks qui ne disent rien.**
+
+**Hypothèse à réfuter** : le mélange n'apporte rien à la détection. Si c'est
+vrai, un détecteur dédié — sortie limitée aux six valeurs de l'énumération,
+prompt débarrassé de tout ce qui sert à rédiger — obtient la même justesse pour
+une fraction du contexte.
+
+**Hypothèse concurrente, à ne pas écarter d'avance** : un modèle qui sait ce
+qu'il s'apprêterait à répondre juge mieux si le tour est fini. Auquel cas la
+séparation coûte de la justesse, et l'arbitrage devient un compromis.
+
+**Protocole**, dans cet ordre :
+
+1. Rejouer les deux sessions avec un prompt de **détection seule**. Écart sous
+   ±0,017 (le bruit) ⇒ le mélange n'apportait rien, la séparation est gratuite
+   du côté du score. Mesurer aussi la taille du prompt envoyé.
+2. Se donner une **mesure de la seconde tâche**, qui n'existe pas. Le seul
+   indicateur déjà compté est la part de réponses portant le tic de formulation.
+   Occasion de trancher la variante 55 (les relances vides), indécidable en
+   rejeu parce qu'elle ne se manifeste qu'en session réelle.
+3. Alors seulement, **refaire le verdict des LLM locaux** (§ 9) sur la tâche
+   réduite : `RESULTATS.md` § 3 les classe « inutilisables » (SmolLM2-135M,
+   7,64 s) **sur 48 tokens de sortie**. Une détection en demande une poignée. Le
+   verdict n'est acquis dans aucun sens : le débit de 6,3 tok/s ne dit rien du
+   coût de traitement du prompt, jamais mesuré séparément sur le Pi.
+
+**Le coût, à ne pas cacher** : en cascade, le tick où l'on répond paie les deux
+appels. Ordre de grandeur ~0,7 s contre 0,465 s aujourd'hui — **estimation, pas
+mesure**, qui suppose un détecteur plus court que l'appel actuel. Il ne concerne
+que 8,2 % des ticks : surcoût rare contre allègement permanent.
+
+**Ce que ça rend faux ailleurs** : la trace change de forme (deux appels par
+tick à instrumenter), et les comparaisons avec les sessions existantes cessent
+d'être directes.
+
+---
+
+## 12. Repasser le TTS du Pi en `low`, ou mesurer le trou de `medium`
+
+**Statut : à mesurer.** Ouvert le 02/09/2026 en écrivant la partie I.
+
+Le ratio synthèse / audio décide si les morceaux découpés arrivent à temps :
+mesuré à **0,93 pour `medium`** (2,97 s de synthèse pour 3,20 s d'audio, soit
+7 % de marge) et **0,58 pour `low`** (1,72 s pour 2,97 s). Sous 1, la parole est
+continue ; au-dessus, on entend un trou au milieu d'une phrase.
+
+Or le Pi passe la chaîne complète à **600 MHz, la moitié de sa fréquence**
+(`RESULTATS-PI.md` § 5), en moins de quarante secondes et en partant froid.
+
+**Hypothèse** : sous throttling, le ratio de `medium` passe au-dessus de 1 et la
+parole se troue ; `low` tient. ⚠️ **Ce lien n'est aujourd'hui qu'une inférence**
+— il n'a jamais été mesuré directement, et c'est précisément ce qui manque pour
+décider.
+
+**Protocole** : sur le Pi, enregistrer la sortie de `Speaker` sur une dizaine de
+réponses, à froid puis après trente secondes de charge sur les quatre cœurs.
+Compter les creux de PCM entre deux morceaux d'une même phrase, et relever la
+fréquence CPU en regard. Refaire en `low`.
+
+**L'arbitrage qui suit n'est pas technique** : `low` échantillonne à 16 kHz au
+lieu de 22 — c'est une décision de qualité de voix, à trancher à l'oreille par
+Alex, pas par le score.
+
+---
+
+## 13. Conteneuriser : non pour le cœur, oui pour les modules déportés
+
+**Statut : tranché le 02/09/2026 par Alex.** Écarté pour le cœur, retenu comme
+piste pour les modules distants du § 10.
+
+**Pourquoi pas pour le cœur.** La couche entre un conteneur et `/dev/snd`
+tomberait exactement sur **la zone la plus fragile du système**. Une journée
+entière a été passée sur ALSA : `aplay` sans `-D` qui échoue en silence, la
+sortie HDMI, le tampon, les trois bugs de `Speaker`. Ajouter une indirection là
+où l'on débogue déjà à l'oreille, pour résoudre un problème d'installation qu'un
+script et un `requirements` figé règlent à 90 %, est un mauvais échange.
+
+**Pourquoi oui pour les modules déportés.** Vision, génération d'image,
+recherche web : ils **n'ouvrent aucun périphérique son**, tournent déjà sur une
+autre machine (§ 10, transport MQTT), et leurs dépendances sont lourdes et
+conflictuelles — c'est exactement le problème qu'un conteneur résout bien.
+
+**La ligne de partage n'est pas « conteneur ou pas », c'est « touche au matériel
+ou pas ».** Audio et capture micro d'un côté, tout le reste de l'autre.
+
+**Ce qui pourrait faire revenir la décision** : une contribution extérieure qui
+échoue à installer le cœur, ou un passage à PipeWire qui changerait la donne
+côté audio. Pas avant.
+
