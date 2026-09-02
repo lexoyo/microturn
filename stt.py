@@ -394,9 +394,23 @@ class Sherpa:
             enable_endpoint_detection=True,
             rule1_min_trailing_silence=2.4,
             rule2_min_trailing_silence=1.2,
-            rule3_min_utterance_length=20)
+            # La règle 3 force un endpoint après N secondes d'énoncé continu,
+            # SANS ÉGARD AU CONTENU — donc tôt ou tard au milieu d'un mot. Et
+            # ce qui est figé échappe définitivement à la révision de sherpa :
+            # « SUMMARISE » coupé pendant qu'il s'écrivait a donné « SUM » dans
+            # le figé, puis « ARISE » au segment suivant, et le transcript
+            # portait « PLEASE SUM ARISE OUR DIALOGUE ». Vu en session le
+            # 03/09, et reproduit hors de notre code : sherpa seul, en flux par
+            # blocs de 300 ms, révise correctement SUM → SUMMARI → SUMMARISE.
+            #
+            # Cette règle ne nous sert à rien : notre tour se ferme quand on
+            # prend la parole, pas sur une durée. À 60 s elle ne garantit plus
+            # qu'une chose — qu'un tour d'une minute finisse par se fermer.
+            rule3_min_utterance_length=float(
+                os.environ.get("MICROTURN_SHERPA_TOUR_MAX", "60")))
         self.flux = self.rec.create_stream()
         self.fige = ""
+        self.recolles = 0                # coupures recollées sans espace
         self.charge_s = time.time() - t0
 
     @staticmethod
@@ -461,6 +475,8 @@ class Sherpa:
         th.start()
 
         vu = ""
+        dit_encore = False               # le segment s'allongeait-il encore ?
+        _seg_vu = ""
         while not stop.is_set():
             if self._raz:
                 # Fin de tour : on repart à vide, sinon le transcript
@@ -486,10 +502,39 @@ class Sherpa:
             if self.rec.is_endpoint(self.flux):
                 bout = self.rec.get_result(self.flux)
                 if bout:
-                    self.fige = (self.fige + " " + bout).strip()
+                    # Toutes les coupures ne se valent pas. Les règles 1 et 2
+                    # de sherpa se déclenchent sur un SILENCE : le mot est fini,
+                    # un espace le sépare légitimement du suivant. La règle 3 se
+                    # déclenche sur une DURÉE, sans égard au contenu — donc tôt
+                    # ou tard en plein milieu d'un mot. Et ce qui est figé
+                    # échappe définitivement à la révision de sherpa.
+                    #
+                    # Mesuré le 03/09 : « SUMMARISE » coupé pendant qu'il
+                    # s'écrivait a laissé « SUM » dans le figé puis « ARISE »
+                    # au segment suivant, et le transcript portait « PLEASE SUM
+                    # ARISE OUR DIALOGUE ». Reproduit hors de notre code :
+                    # sherpa seul, en flux, révise correctement SUM → SUMMARI →
+                    # SUMMARISE. C'est bien la coupure qui gèle une hypothèse
+                    # transitoire.
+                    #
+                    # On ne peut pas demander à sherpa quelle règle a tranché.
+                    # Mais la règle 3 est la seule qui puisse couper SANS
+                    # silence, donc la seule qui coupe alors que le décodeur
+                    # produisait encore des jetons : c'est exactement ce que
+                    # `dit_encore` observe.
+                    self.fige = ((self.fige + bout) if dit_encore
+                                 else (self.fige + " " + bout)).strip()
+                    if dit_encore:
+                        self.recolles += 1
                 self.rec.reset(self.flux)
                 vu = ""
+                dit_encore = False
                 continue
+            # Le décodeur a-t-il allongé le segment courant à ce tour ? Si oui
+            # et qu'un endpoint tombe au prochain, il tombe en pleine parole.
+            _seg = self.rec.get_result(self.flux)
+            dit_encore = bool(_seg) and _seg != _seg_vu
+            _seg_vu = _seg
             txt = (self.fige + " " + self.rec.get_result(self.flux)).strip()
             if txt and txt != vu:
                 vu = txt
