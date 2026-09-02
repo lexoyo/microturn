@@ -25,6 +25,11 @@ ICI = os.path.dirname(os.path.abspath(__file__))
 # mesures concurrentes se disputent `locales/fr.toml` et l'une des deux évalue
 # un prompt qu'elle n'a pas écrit.
 LOCALES = os.environ.get("MICROTURN_LOCALES") or os.path.join(ICI, "locales")
+# Banc « détection seule » : retirer "r" du SCHÉMA, et pas seulement du prompt.
+# Sans ça la consigne « ne rends que le marqueur » reste facultative — mesuré le
+# 02/09/2026 : le modèle a quand même produit une réponse dans 23 décisions sur
+# 39, et la variante ne mesurait donc pas ce qu'elle prétendait mesurer.
+SANS_R = bool(os.environ.get("MICROTURN_SANS_R"))
 
 # Mesuré sur 12 cas, les deux classes comptées séparément : les Llama 3.2 (1b
 # comme 3b) ne disent JAMAIS « c'est fini » — 0 question détectée sur 5, quel que
@@ -373,14 +378,14 @@ class Decideur:
         # parseur découpait sur le premier mot, alors que le modèle répondait
         # parfaitement. Coût : environ dix tokens de sortie en plus, soit 0,2 s.
         jetons = list(dict.fromkeys(self.jetons.values()))
+        props = {"m": {"type": "string", "enum": jetons}}
+        if not SANS_R:
+            props["r"] = {"type": "string"}
         corps = {"model": self.model, "messages": msgs, "max_tokens": 60,
                  "temperature": 0,
                  "response_format": {"type": "json_schema", "json_schema": {
                      "name": "tour", "strict": True, "schema": {
-                         "type": "object",
-                         "properties": {
-                             "m": {"type": "string", "enum": jetons},
-                             "r": {"type": "string"}},
+                         "type": "object", "properties": props,
                          "required": ["m"], "additionalProperties": False}}}}
         # Le prompt exact part dans la trace, système et historique compris : c'est
         # la seule façon de comprendre APRÈS COUP pourquoi le modèle a mal tranché.

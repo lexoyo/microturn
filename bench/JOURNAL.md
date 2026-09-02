@@ -820,3 +820,127 @@ le compteur est à zéro par construction. La condition n'est jamais satisfaite.
 Le faire correctement demanderait de mettre la réponse en attente et de la
 redéclencher N ticks plus tard. Vu que le coût en latence était déjà rédhibitoire
 (1,2 s par tick sur une latence de 0,33 s), abandonné plutôt qu'approfondi.
+
+## Le mélange détection + réponse aide-t-il la détection ? — 02/09/2026
+
+Le système transpose DuplexCascade par prompting : une seule requête par tick
+fait DEUX tâches, décider si le tour est fini et écrire la réponse. Chez eux le
+fine-tuning apprend les deux conjointement, et l'argument implicite est que
+préparer la réponse aide à décider. Chez nous, jamais mesuré. La question est
+directement architecturale : si la détection tient seule, elle peut descendre
+sur un petit modèle local et la génération partir ailleurs.
+
+### Le piège, avant la mesure
+
+Un prompt qui ne rend que `{"m": ...}` tombe dans `parler_sans_texte` : le
+pipeline **ne prend jamais la parole**, et le banc rend 0,500. C'est le piège du
+candidat 59, en pire — là le chiffre était visiblement absurde, ici il est
+plausible. Un système muet et un système bavard rendent tous les deux 0,500.
+
+Le harnais a donc été adapté, **pas le prompt** : `MICROTURN_MARQUEUR_SEUL`
+(pipeline.py) fait valoir le marqueur seul comme décision de parler, avec un
+texte de remplissage de **55 caractères** — la médiane exacte des réponses de la
+base, pour que la durée simulée de parole ne change pas. L'historique, lui, est
+écrit sans réponse : y injecter le texte de remplissage donnerait au modèle des
+phrases qu'il n'a jamais écrites.
+
+Et un second garde-fou, trouvé en cours de route : la consigne ne suffit pas.
+Avec le schéma JSON inchangé, `"r"` reste autorisé, et le modèle a produit une
+réponse dans **23 décisions sur 39** malgré une consigne qui l'interdit
+explicitement. La variante « A » ne mesurait donc pas ce qu'elle annonçait.
+D'où `MICROTURN_SANS_R` (llm.py), qui retire `"r"` du schéma : là, 0 réponse
+sur 33.
+
+### Quatre variantes, parce que « retirer la réponse » est deux changements
+
+Retirer la consigne `"r"` ne retire pas les réponses des EXEMPLES. Ce sont deux
+causes, et la boucle interdit de les bouger ensemble.
+
+| | consigne | exemples | schéma | réponses produites |
+|---|---|---|---|---|
+| base | `"r"` demandé | avec réponses | `"r"` permis | 35/35 |
+| A | marqueur seul | avec réponses | `"r"` permis | **23/39 — raté** |
+| C | marqueur seul | avec réponses | sans `"r"` | 0/33 |
+| B | marqueur seul | sans réponses | `"r"` permis | 0/28 |
+| B′ | marqueur seul | sans réponses | sans `"r"` | 0/27 |
+
+### Les deux dimensions, séparément — et c'est tout l'intérêt
+
+Sessions `20260829-032332-sherpa` et `20260829-073852-sherpa`, rejeu `--muet`,
+`google/gemini-2.5-flash-lite`. 17 fins de tour et 29 pauses en tout.
+
+| | TOR fins ↑ | TOR pauses ↓ | justesse | passes |
+|---|---|---|---|---|
+| **base** | **0,812** (13,8/17) | 0,179 (5,2/29) | **0,816 ± 0,015** | 5 |
+| A (raté) | 0,824 (14/17) | 0,126 | 0,849 | 3 |
+| **C** — détection seule, réponses encore dans les exemples | 0,745 (12,7/17) | 0,103 | **0,821** | 3 |
+| **B′** — détection pure | **0,647** (11/17) | 0,103 | **0,772** | 3 |
+| B — détection pure, schéma libre | 0,627 (10,7/17) | 0,126 | 0,751 | 3 |
+
+**L'agrégat ment, et c'est exactement le défaut annoncé.** C rend 0,821 contre
+0,816 : lu seul, « aucun effet ». Sa détection de fin de tour est pourtant
+**six points plus basse**. Ce qui compense est mécanique : un système qui rate
+des fins de tour parle moins, donc il intervient moins dans les pauses, et la
+seconde moitié du score le récompense d'avoir échoué sur la première.
+
+### La réponse
+
+**Oui, le mélange aide la détection — et l'essentiel du bénéfice ne vient pas de
+l'acte de générer, il vient des réponses présentes dans les exemples.**
+
+| ce qu'on retire | effet sur TOR fins |
+|---|---|
+| la génération seule (base → C) | **−0,067**, soit ~1 fin de tour sur 17 |
+| les réponses des exemples en plus (C → B′) | **−0,098**, soit ~1,7 de plus |
+| les deux (base → B′) | **−0,165**, soit ~2,8 fins de tour sur 17 |
+
+Le premier écart est à ~2 σ : réel dans son sens, faible dans son ampleur. Le
+second et le total sont hors de tout doute. Face à la référence 0,826, B′ est à
+−0,054 et C à −0,005.
+
+**Conséquence pratique.** Un détecteur séparé est jouable, mais pas en retirant
+simplement la consigne : il faut lui laisser des exemples qui MONTRENT à quoi
+ressemble une fin de tour répondable. Autrement dit, ce qui aide n'est pas de
+calculer la réponse, c'est de savoir à quoi elle ressemblerait.
+
+### Trois choses vues au passage
+
+**Le bruit de ±0,017 est confirmé, et on sait maintenant d'où il vient.** Cinq
+passes de la base, dont deux servant de contrôle après chaque modification du
+harnais : 0,826 · 0,791 · 0,826 · 0,813 · 0,826 (σ = 0,015, l'ordre de grandeur
+annoncé — mais l'étendue fait 0,035, ce qui n'est pas la même chose et se lit
+trop vite comme une régression). B′ rend **0,772 trois fois de suite, au millième** : dès
+que `"r"` disparaît du schéma, la sortie fait dix tokens à température 0 et le
+rejeu redevient totalement déterministe. **Trois scores identiques restent le
+signal d'une mesure morte** — ici ce n'en était pas un, mais il a fallu le
+prouver : B′ diffère de C, qui partage son schéma, et de B, qui partage ses
+exemples. Le bruit résiduel de la base, c'est le texte libre des réponses.
+
+**La consigne ne contraint pas, le schéma contraint.** 23 réponses sur 39
+produites contre une instruction explicite. Toute variante de prompt qui
+prétend supprimer une sortie doit être vérifiée dans la trace, pas dans le
+prompt.
+
+**Une variante ratée peut monter le score.** A, avec sa consigne contredite par
+ses propres exemples, rend 0,849 — au-dessus de la base et au-dessus de
+DuplexCascade. Elle ne mesure rien de ce qu'elle annonce. Non gardée.
+
+### Ce dont je ne suis pas sûr
+
+- **17 fins de tour et 29 pauses**, c'est peu : une fin de tour vaut 0,059 de
+  TOR. Les écarts sont donnés à ±1 tour près.
+- **Le texte de remplissage casse `_est_echo`**, qui compare le delta à ce que
+  le robot vient de dire. Les variantes coupent donc plus (5 à 8 coupures contre
+  2 à 4). Les coupures n'entrent pas dans la justesse, mais elles arrêtent la
+  parole simulée et modifient l'état des ticks suivants.
+- **« Détection seule » emporte trois choses à la fois** : plus de génération,
+  plus de réponses dans les exemples, et plus de réponses dans l'historique. Les
+  deux premières sont séparées ci-dessus ; la troisième ne l'est pas et ne peut
+  pas l'être — un détecteur pur n'a rien à se rappeler.
+- **La latence des variantes est fictive.** Un vrai détecteur séparé demanderait
+  un second appel pour répondre. Les colonnes « latence vécue » des variantes ne
+  veulent rien dire et ne sont pas reprises ici.
+- **Les passes ont été faites en série**, une par une, alors qu'elles sont
+  indépendantes : ~40 minutes de réseau pour ce qui en demandait cinq en
+  parallèle. Et trois passes par configuration, là où une seule suffisait vu
+  l'ampleur de l'écart. Méthode à corriger, pas les chiffres.

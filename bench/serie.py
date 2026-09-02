@@ -25,8 +25,12 @@ def mesure(note):
         [sys.executable, os.path.join(ICI, "bench", "sessions.py"),
          "--sessions", *SESSIONS, "--note", note],
         cwd=ICI, capture_output=True, text=True, env=env)
+    # Les DEUX dimensions, et le détail par session — pas seulement l'agrégat.
+    # Un système muet et un système bavard rendent tous les deux 0,500 : la
+    # justesse seule ne permet pas de les distinguer, et c'est exactement le
+    # risque d'une variante qui touche à la prise de parole.
     for l in r.stdout.splitlines():
-        if "JUSTESSE" in l:
+        if "JUSTESSE" in l or "TOR " in l or "  justesse " in l:
             yield l.strip()
 
 
@@ -87,10 +91,12 @@ def main():
                       flush=True)
         open(TOML, "w", encoding="utf-8").write(nouveau)
         t0 = time.time()
-        just = next(iter(mesure(nom)), "—")
-        print(f"● {nom}\n    {just}   [{time.time()-t0:.0f}s]", flush=True)
+        lignes = list(mesure(nom))
+        print(f"● {nom}   [{time.time()-t0:.0f}s]", flush=True)
+        for l in lignes:
+            print(f"    {l}", flush=True)
         apres_mesure(nom)
-        resultats.append((nom, just))
+        resultats.append((nom, next((l for l in lignes if "JUSTESSE" in l), "—")))
 
     print("\n=== récapitulatif ===")
     for nom, just in resultats:

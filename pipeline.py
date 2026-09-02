@@ -55,6 +55,16 @@ MICRO_TOURS = 20
 # 0 = pas de garde (défaut). Voir le candidat 59 : ça coûte 1,2 s de latence par
 # tick, sur une latence mesurée à 0,33 s — le remède peut être pire que le mal.
 TICKS_SILENCE = int(os.environ.get("MICROTURN_TICKS_SILENCE", "0"))
+# Banc « détection seule » : un prompt qui ne rend que {"m": ...} (sans "r")
+# tombe dans `parler_sans_texte`, ne prend JAMAIS la parole, et rend 0,500 —
+# exactement le score d'un système muet. Mesurer une variante de détection
+# ainsi ne mesure rien (c'est le piège du candidat 59, aggravé : là le score
+# est plausible). Quand cette variable porte un texte, le marqueur SEUL suffit
+# à prendre la parole, et ce texte tient lieu de réponse — sa LONGUEUR est ce
+# qui compte, puisqu'elle fixe la durée simulée de la parole ; on la cale sur
+# la médiane des réponses de la base (55 caractères, mesuré le 02/09/2026).
+# Le prompt, lui, n'est pas touché : c'est le harnais qui s'adapte.
+MARQUEUR_SEUL = os.environ.get("MICROTURN_MARQUEUR_SEUL") or ""
 # Il n'y a plus de GRACE_ECHO : ignorer le micro pendant 0,4 s ne servait à rien
 # face à une réponse de 3 à 5 s, et l'allonger aurait tué le barge-in. C'est
 # `audio.Porte` qui traite l'écho maintenant, en le mesurant au lieu de parier
@@ -492,6 +502,15 @@ class Session:
             self.log(f"⚠  réseau ({dt:.2f}s) {texte}")
             self.vu = ""            # l'énoncé n'est pas perdu : il repartira
             return
+        # Le marqueur seul vaut décision de parler — uniquement sur le banc
+        # « détection seule » (cf. MARQUEUR_SEUL). `detection_seule` sert
+        # ensuite à écrire l'historique SANS réponse : y injecter le texte de
+        # remplissage donnerait au modèle des phrases qu'il n'a jamais écrites,
+        # et la variante « exemples sans réponse » cesserait d'être pure.
+        detection_seule = False
+        if MARQUEUR_SEUL and action == "parler_sans_texte":
+            detection_seule = True
+            action, texte = "parler", MARQUEUR_SEUL
         # Une série de silences est REPLIÉE en un seul tour qui porte leur
         # nombre, au lieu d'occuper une ligne chacun. Mesuré : à 147 s, douze
         # `(silence)` consécutifs avaient chassé la question d'Alex hors d'un
@@ -519,7 +538,8 @@ class Session:
         # les exemples sont en JSON : le modèle lisait deux conventions pour la même
         # chose, et la mauvaise était la plus proche de sa réponse. Vu dans
         # PROMPTS-ENVOYES.txt, invisible depuis le prompt seul.
-        rep = ({"m": self.jetons["parler"], "r": texte} if action == "parler"
+        rep = ({"m": self.jetons["parler"]} if detection_seule
+               else {"m": self.jetons["parler"], "r": texte} if action == "parler"
                else {"m": self.jetons.get(action, self.jetons["parle"])})
         self.micro_tours += [{"role": "user", "content": delta},
                              {"role": "assistant",
