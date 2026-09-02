@@ -630,7 +630,10 @@ class Session:
                 # de distinguer ça d'un plantage.
                 self.log(f"⏳ ({dt:.2f}s) parle encore · {self._envoye(delta)}")
         elif action == "reflechit":
-            self.log(f"⋯  ({dt:.2f}s) réfléchit · {self._envoye(delta)}")
+            # Pas de ligne : c'est la décision la plus fréquente de toutes et
+            # elle noyait le reste. Elle reste dans la TRACE (`type=decision`),
+            # donc l'analyse d'après coup ne perd rien — seul l'écran s'allège.
+            pass
         elif action == "parler_sans_texte":
             # Une décision de parler dont la réponse manque. La confondre avec
             # l'attente rendait le système muet ET faussait le ratio, en silence.
@@ -676,6 +679,10 @@ class Session:
             m.time = horloge
         if self.trace is not None:
             self.trace.t0 = 0.0
+        # `t0` avait été posé avec l'horloge RÉELLE, dans `__init__`. Sous
+        # l'horloge virtuelle, `time.time() - t0` donnait un horodatage
+        # négatif de plusieurs milliards de secondes sur chaque ligne de log.
+        self.t0 = 0.0
         try:
             i, k = 0, 1
             while horloge.t < fin:
