@@ -263,6 +263,12 @@ question technique.
 **Ne pas le faire pendant une boucle de mesure** : changer de modèle de décision
 au milieu rendrait tous les écarts illisibles.
 
+**Mise à jour du 02/09** : la question se repose sur la **tâche réduite** (§ 11).
+Le verdict « inutilisable » de `RESULTATS.md` § 3 a été rendu sur 48 tokens de
+sortie ; une détection en demande dix. Mais la mesure du 02/09 impose de garder
+les exemples dans le prompt, donc l'entrée ne rétrécit pas — **c'est le coût de
+traitement du prompt qu'il faut mesurer sur le Pi**, et il ne l'a jamais été.
+
 ---
 
 ## 10. Un système de plugins pour les sources de contexte
@@ -342,7 +348,8 @@ la pire dimension mesurée — les pauses ratées.
 
 ## 11. Séparer la détection de fin de tour de la génération de réponse
 
-**Statut : en cours (première mesure lancée le 02/09).** Formulé par Alex le
+**Statut : la première question est tranchée le 02/09 — le mélange aide la
+détection. Les deux suivantes restent ouvertes.** Formulé par Alex le
 02/09/2026 : « on a mélangé deux concepts — détecter qu'une phrase est finie, et
 décider quoi répondre ». L'intuition dormait déjà en § 1 bis depuis le 29/08.
 
@@ -356,45 +363,88 @@ indissociables — mais nous ne fine-tunons pas, donc rien ne nous y oblige.
   jamais été mesurée**, donc n'importe lequel des sept changements gardés a pu
   la dégrader sans qu'on le voie.
 - Le tutoiement (variante 58) fait tomber le tic de formulation de 32 % à 0 %
-  pour 0,023 de justesse de détection : **les deux axes bougent
-  indépendamment.**
+  pour 0,023 de justesse de détection — un écart **sous le bruit** (σ = 0,015 la
+  passe) : **les deux axes bougent indépendamment.**
 - Sur la session réelle `20260829-134719` : 159 décisions, **13 prises de parole
   (8,2 %)**, 109 029 tokens d'entrée pour 1 756 de sortie, latence médiane
   0,465 s (p90 1,009 s) sur un budget de tick de 1,2 s. **91,8 % des tokens
   d'entrée sont dépensés par des ticks qui ne disent rien.**
 
-**Hypothèse à réfuter** : le mélange n'apporte rien à la détection. Si c'est
-vrai, un détecteur dédié — sortie limitée aux six valeurs de l'énumération,
-prompt débarrassé de tout ce qui sert à rédiger — obtient la même justesse pour
-une fraction du contexte.
+**Hypothèse à réfuter, telle qu'elle était posée le matin du 02/09** : le
+mélange n'apporte rien à la détection.
 
-**Hypothèse concurrente, à ne pas écarter d'avance** : un modèle qui sait ce
-qu'il s'apprêterait à répondre juge mieux si le tour est fini. Auquel cas la
-séparation coûte de la justesse, et l'arbitrage devient un compromis.
+### Réfutée le soir même. Le mélange aide, et voici de combien
 
-**Protocole**, dans cet ordre :
+Deux sessions, `gemini-2.5-flash-lite`, rejeu `--muet`, trois passes par
+variante. Détail complet dans `bench/JOURNAL.md`.
 
-1. Rejouer les deux sessions avec un prompt de **détection seule**. Écart sous
-   ±0,017 (le bruit) ⇒ le mélange n'apportait rien, la séparation est gratuite
-   du côté du score. Mesurer aussi la taille du prompt envoyé.
-2. Se donner une **mesure de la seconde tâche**, qui n'existe pas. Le seul
-   indicateur déjà compté est la part de réponses portant le tic de formulation.
-   Occasion de trancher la variante 55 (les relances vides), indécidable en
-   rejeu parce qu'elle ne se manifeste qu'en session réelle.
-3. Alors seulement, **refaire le verdict des LLM locaux** (§ 9) sur la tâche
-   réduite : `RESULTATS.md` § 3 les classe « inutilisables » (SmolLM2-135M,
-   7,64 s) **sur 48 tokens de sortie**. Une détection en demande une poignée. Le
-   verdict n'est acquis dans aucun sens : le débit de 6,3 tok/s ne dit rien du
-   coût de traitement du prompt, jamais mesuré séparément sur le Pi.
+| | TOR fins ↑ | TOR pauses ↓ | justesse |
+|---|---|---|---|
+| **base** — détection + réponse dans le même appel | **0,812** | 0,179 | 0,816 |
+| C — détection seule, réponses encore dans les exemples | 0,745 | 0,103 | 0,821 |
+| B′ — détection pure (consigne + exemples + schéma retirés) | **0,647** | 0,103 | 0,772 |
+
+**−0,165 de TOR sur les fins de tour**, soit ~2,8 fins ratées sur 17.
+
+**Le décomposé est le vrai résultat**, parce que « retirer la réponse » est deux
+changements et qu'ils ont été séparés :
+
+| ce qu'on retire | effet sur TOR fins |
+|---|---|
+| la génération seule (base → C) | −0,067 (~2 σ : réel, faible) |
+| les réponses des exemples en plus (C → B′) | **−0,098** |
+| les deux (base → B′) | **−0,165** |
+
+**Ce qui aide n'est pas de calculer la réponse, c'est de savoir à quoi elle
+ressemblerait.** Trois cinquièmes de l'effet viennent des exemples.
+
+**Conséquence pour la suite : un détecteur séparé reste jouable**, à condition de
+lui laisser des exemples montrant à quoi ressemble une fin de tour *répondable*.
+C'est gratuit à l'exécution — les exemples sont dans le préfixe.
+
+**Ce que la mesure a coûté en garde-fous** (dans le harnais, jamais dans le
+prompt) : un prompt qui ne rend que le marqueur ne prend jamais la parole et rend
+**0,500**, le score d'un système muet, plausible et vide de sens ; et la consigne
+ne contraint pas — avec le schéma inchangé, le modèle a produit une réponse dans
+**23 décisions sur 39** malgré une instruction explicite. Cette variante ratée
+rendait **0,849**, au-dessus de la base et de DuplexCascade.
+
+**Ce que la mesure a révélé sans le chercher** : la variante C rend 0,821 contre
+0,816 — « aucun effet » — alors que sa détection est six points plus basse. Un
+système qui rate des fins de tour parle moins, donc intervient moins dans les
+pauses, et l'agrégat le récompense d'avoir échoué. `serie.py` rend désormais les
+deux dimensions.
+
+### Ce qui reste ouvert
+
+1. ~~Mesurer ce que le mélange apporte à la détection.~~ **Fait le 02/09.**
+2. Se donner une **mesure de la seconde tâche**, qui n'existe toujours pas. Le
+   seul indicateur déjà compté est la part de réponses portant le tic de
+   formulation. Occasion de trancher la variante 55 (les relances vides),
+   indécidable en rejeu parce qu'elle ne se manifeste qu'en session réelle.
+3. **Refaire le verdict des LLM locaux** (§ 9) sur la tâche réduite :
+   `RESULTATS.md` § 3 les classe « inutilisables » (SmolLM2-135M, 7,64 s) **sur
+   48 tokens de sortie**, quand une détection en demande dix — mesuré. Mais le
+   résultat ci-dessus impose de **garder les exemples**, donc un prompt qui ne
+   rétrécit pas beaucoup : **c'est le coût de traitement de l'entrée qu'il faut
+   mesurer sur le Pi**, pas le débit de sortie. Jamais fait.
 
 **Le coût, à ne pas cacher** : en cascade, le tick où l'on répond paie les deux
 appels. Ordre de grandeur ~0,7 s contre 0,465 s aujourd'hui — **estimation, pas
-mesure**, qui suppose un détecteur plus court que l'appel actuel. Il ne concerne
-que 8,2 % des ticks : surcoût rare contre allègement permanent.
+mesure** : les latences des variantes mesurées sont fictives, aucune ne fait le
+second appel. Il ne concerne que 8,2 % des ticks : surcoût rare contre
+allègement permanent.
 
 **Ce que ça rend faux ailleurs** : la trace change de forme (deux appels par
 tick à instrumenter), et les comparaisons avec les sessions existantes cessent
 d'être directes.
+
+**Réserves de la mesure** : 17 fins de tour et 29 pauses, c'est peu — une fin
+vaut 0,059 de TOR, les écarts sont à ±1 tour près. Le texte de remplissage casse
+la détection d'écho, donc les variantes coupent plus (5 à 8 coupures contre 2 à
+4). Et « détection seule » emporte **trois** changements : plus de génération,
+plus de réponses dans les exemples, plus de réponses dans l'historique — les
+deux premiers sont séparés ci-dessus, le troisième ne peut pas l'être.
 
 ---
 

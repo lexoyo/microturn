@@ -81,12 +81,27 @@ haute à ASR parfait.
 ### 8. Notre métrique ne couvre qu'une des deux tâches du système
 
 Le système décide **quand parler** et **quoi dire** dans le même appel.
-Full-Duplex-Bench ne note que la première : le 0,826 et les sept changements
+Full-Duplex-Bench ne note que la première : le 0,816 et les sept changements
 gardés sont des résultats de **détection de fin de tour**, pas de qualité de
 réponse — laquelle n'a jamais été mesurée. Ce n'est pas une réserve de portée,
 c'est un angle mort, et il a une conséquence de coût : sur une session réelle
 comptée le 02/09, **92 % des appels ne produisent aucune parole** et paient
-pourtant le prompt complet. Développé en partie IV.
+pourtant le prompt complet.
+
+### 9. La justesse agrégée peut récompenser un système d'avoir échoué
+
+Mesuré le 02/09 sur la variante « détection seule » : justesse **0,821** contre
+0,816 pour la base — lu seul, « aucun effet » — alors que sa détection de fin de
+tour est **six points plus basse** (0,745 contre 0,812). Le mécanisme est
+mécanique et non anecdotique : **un système qui rate des fins de tour parle
+moins, donc il intervient moins dans les pauses, et la seconde moitié du score
+le récompense d'avoir échoué sur la première.**
+
+C'est la démonstration la plus nette qu'on ait du piège annoncé au § 7 de
+`RESULTATS.md` (« le mutisme ressemble à de la sagesse »), et elle est arrivée
+sur la mesure censée trancher le sujet même de l'article. **Ne jamais publier un
+agrégat sans ses deux TOR** cesse d'être une précaution de méthode : c'est un
+résultat. Développé en partie IV.
 
 ## Chiffres de référence
 
@@ -94,11 +109,16 @@ pourtant le prompt complet. Développé en partie IV.
 |---|---|---|---|---|
 | DuplexCascade | 0,858 | 0,955 | — | 1,2 s |
 | microturn, base du 29/08 au matin | 0,634 | 11/17 | 11/29 | 5–7 s |
-| **microturn, configuration retenue** | **0,826** | **14/17** | **5/29** | **3,55 / 3,75 s** |
+| **microturn, configuration retenue** | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | **3,55 / 3,75 s** |
 
 Les deux lignes microturn portent sur les **mêmes deux sessions** (`032332` et
 `073852`), rejouées en déterministe : elles sont comparables entre elles. La
 ligne DuplexCascade ne l'est pas — c'est leur banc, leur corpus, leur mesure.
+
+⚠️ **La ligne du bas est une moyenne de cinq passes, et les fractions ne sont
+donc plus entières.** C'est volontaire : voir « Le chiffre du projet est 0,816 »
+en partie IV. Toute valeur citée sans son nombre de passes est suspecte, la
+nôtre comprise.
 
 Un système qui se tairait toujours obtiendrait 0,5. Un système qui parlerait
 toujours aussi. L'agrégat seul ne veut rien dire — il faut lire les deux TOR.
@@ -240,8 +260,9 @@ pas de GPU.
 Trois décideurs, même session (`073852`), même ASR (sherpa, deux threads) :
 llama-3.3-70b 0,824, gemini-2.5-flash-lite 0,807, gemini-2.5-flash 0,716.
 
-`flash-lite` reste le défaut. L'écart de 0,017 avec llama vaut exactement le
-bruit de mesure. En face : un coût par session de 0,016 $ contre 0,085 $, une
+`flash-lite` reste le défaut. L'écart de 0,017 avec llama est **sous** le bruit
+de mesure — chacun de ces scores est une passe unique, et l'écart entre deux
+passes a pour écart-type ~0,021 (voir partie IV). En face : un coût par session de 0,016 $ contre 0,085 $, une
 latence vécue de 3,75 s contre 4,35 s, et un ordre de grandeur d'énergie de
 moins.
 
@@ -257,9 +278,10 @@ uniforme, c'est un modèle plus prudent, donc plus muet.
 **Le chiffre du projet est celui de la configuration retenue, et lui seul.**
 0,824 est le score d'un modèle qu'on écarte ; il n'entre jamais dans l'article
 comme « notre » résultat. Au moment de cette comparaison, la configuration
-retenue était à 0,807 sur `073852` ; elle est depuis à **0,826 de moyenne sur
-les deux sessions** (voir partie IV). Deux chiffres, deux bases : ne jamais les
-mettre dans la même phrase sans dire laquelle.
+retenue était à 0,807 sur `073852`, une passe ; elle est depuis à **0,816 ±
+0,015 de moyenne sur les deux sessions et cinq passes** (voir partie IV). Deux
+chiffres, deux bases : ne jamais les mettre dans la même phrase sans dire
+laquelle, ni sans dire sur combien de passes.
 
 ### Le seuil de cache : un prompt plus long qui coûte moins cher
 
@@ -343,8 +365,11 @@ entraîné par Google » (32 % de la base) :
 | 57 · lui donner une identité, sans dire ce qu'il est | 0,807 | 32 % | sans effet, ni sur l'un ni sur l'autre |
 | **58 · tutoiement imposé** | 0,784 | **0 %** | **gardé** |
 
-**Le tutoiement fait tomber le tic de 32 % à zéro, pour 0,023 de justesse** — à
-peine au-dessus du bruit de ±0,017. « Je suis un grand modèle linguistique »
+**Le tutoiement fait tomber le tic de 32 % à zéro, pour 0,023 de justesse** —
+soit, sous le modèle de bruit corrigé le 02/09 (σ = 0,015 la passe, donc σ√2 ≈
+0,021 pour l'écart entre deux passes), **un écart qui ne sort pas du bruit**. La
+lecture prudente est donc : le tic tombe, et la détection ne bouge pas de façon
+mesurable. « Je suis un grand modèle linguistique »
 est une formule apprise, au registre formel : imposer le tutoiement oblige à
 reformuler, et le modèle sort de sa phrase toute faite.
 
@@ -381,13 +406,38 @@ comme telle plutôt que reléguée en annexe.
   configuration actuelle et doit être refait (partie IV).
 - **Refroidir avant chaque passe** : 12,07 s à froid contre 16,4 s à chaud pour
   le même fichier. Toute mesure sans refroidissement est fausse.
-- **Trois scores identiques au millième ne sont jamais un résultat** : c'est le
-  signal que la mesure ne mesure rien. Il a fallu quatre tentatives pour évaluer
-  les variantes 55/57/58, les trois premières rendant 0,715 au millième — les
-  patchs ne touchaient que `systeme` quand la session utilise `systeme_sherpa` ;
-  le lanceur avait perdu la variable qui choisit les sessions ; et une assertion
-  échouait **sans rien écrire** dans une sortie qu'on ne lisait qu'à partir de la
-  ligne suivante. Le lanceur le dit maintenant tout seul.
+- **Trois scores identiques au millième sont un signal d'alarme** — mais pas
+  toujours une mesure morte, et la nuance a été payée deux fois. À l'aller : il
+  a fallu quatre tentatives pour évaluer les variantes 55/57/58, les trois
+  premières rendant 0,715 au millième — les patchs ne touchaient que `systeme`
+  quand la session utilise `systeme_sherpa` ; le lanceur avait perdu la variable
+  qui choisit les sessions ; et une assertion échouait **sans rien écrire** dans
+  une sortie qu'on ne lisait qu'à partir de la ligne suivante. Le lanceur le dit
+  maintenant tout seul. Au retour, le 02/09 : la variante « détection pure » rend
+  0,772 **trois fois au millième**, et c'est légitime — sans texte libre à
+  générer, la sortie fait dix tokens à température 0, donc le rejeu redevient
+  parfaitement déterministe. Il a fallu le **prouver** (elle diffère de la
+  variante qui partage son schéma, et de celle qui partage ses exemples) plutôt
+  que de l'affirmer. Corollaire précieux : **le bruit résiduel du banc vient du
+  texte des réponses, pas de la détection.**
+- **Une consigne en français ne contraint pas un modèle ; le schéma, si.** La
+  première variante « détection seule » demandait explicitement de ne rendre que
+  le marqueur : le modèle a quand même produit une réponse dans **23 décisions
+  sur 39**. Il a fallu retirer le champ du schéma JSON pour que la variante
+  mesure ce qu'elle annonçait — après quoi, 0 sur 33. **Toute variante qui
+  prétend supprimer une sortie se vérifie dans la trace, jamais dans le prompt.**
+- **Une variante ratée peut monter le score, et c'est le pire des cas.** Cette
+  même variante, consigne contredite par ses propres exemples, rendait **0,849**
+  — au-dessus de la base *et* au-dessus de DuplexCascade. Elle ne mesurait rien
+  de ce qu'elle annonçait. Un bon chiffre n'est pas une validation de la mesure ;
+  c'est même le moment où l'on vérifie le plus.
+- **Le score d'un système muet est plausible, pas absurde.** Un prompt qui ne
+  rend que le marqueur tombe dans le cas « parler sans texte » : le pipeline ne
+  prend jamais la parole et le banc rend **0,500**. C'est le piège du candidat 59
+  en pire — là, 0,500 pile sautait aux yeux ; ici il aurait pu passer pour un
+  résultat. Corrigé dans le **harnais** et non dans le prompt, avec un texte de
+  remplissage calé sur la médiane exacte des réponses de la base (55 caractères)
+  pour ne pas changer la durée de parole simulée.
 - **Sur une mesure qui décide d'une architecture, deux résultats concordants
   valent mieux qu'un seul rapide.** Le délai avant le premier son de piper a
   demandé quatre tentatives, dont trois fausses et mutuellement contradictoires :
@@ -471,31 +521,77 @@ donc chaque capteur retombe sous le budget de départ.*
 
 ## IV. Où on en est, et ce qui reste ouvert
 
-Chiffres honnêtes en regard : 0,858 pour DuplexCascade, **0,826 pour nous**.
+Chiffres honnêtes en regard : 0,858 pour DuplexCascade, **0,816 pour nous**.
 
-C'est la moyenne de la configuration retenue — sherpa-onnx à deux threads,
-`systeme_sherpa` avec tutoiement imposé, découpage TTS, horizon 20 micro-tours,
-`gemini-2.5-flash-lite` — sur **les deux sessions** :
+C'est la moyenne de **cinq passes** de la configuration retenue — sherpa-onnx à
+deux threads, `systeme_sherpa` avec tutoiement imposé, découpage TTS, horizon
+20 micro-tours, `gemini-2.5-flash-lite` — sur les deux sessions.
+
+### Le chiffre du projet est 0,816, et 0,826 était le haut de la distribution
+
+Corrigé le 02/09, et c'est la correction la plus importante de ce fichier.
+Cinq passes de la même configuration, à harnais identique, sur les mêmes deux
+sessions :
+
+    0,826 · 0,791 · 0,826 · 0,813 · 0,826
+    moyenne 0,816 · σ 0,015 · étendue 0,035
+
+**0,826 est la valeur la plus fréquente, et c'est le haut de la distribution.**
+Elle avait été retenue parce qu'elle revenait ; ça n'en fait pas une moyenne. Le
+chiffre à publier est **0,816 ± 0,015 sur cinq passes**, et le nombre de passes
+fait partie du chiffre.
+
+Ce n'est pas de la coquetterie statistique : c'est exactement le détail qui
+décrédibilise un article quand un lecteur refait la mesure et tombe sur 0,791.
+
+**Et le modèle de bruit change avec lui.** Le ±0,017 annoncé depuis le rejeu
+déterministe est confirmé — mais comme **écart-type d'une passe**, pas comme
+étendue. Conséquences arithmétiques, à tenir dans tout le texte :
+
+- une passe unique peut légitimement s'écarter de la moyenne de 0,035 ;
+- l'écart entre **deux** passes uniques a pour écart-type σ√2 ≈ **0,021** ;
+- donc un écart de 0,03 entre deux mesures d'une passe vaut ~1,4 σ : **il n'est
+  pas concluant**, contrairement à ce que la règle de lecture du journal
+  (« un gain de 0,03 est désormais interprétable ») laissait croire.
+
+**À revérifier avant publication, et c'est inconfortable** : les verdicts rendus
+sur une seule passe avec un écart inférieur à ~0,04 ne sont pas établis sous ce
+modèle. Dans le tableau des sept changements gardés, **deux sont dans ce cas** —
+`<\|no voice\|>` → `is thinking` (+0,025) et sherpa (+0,05, à ~2,4 σ, limite).
+Ça ne dit pas qu'ils sont faux ; ça dit qu'ils sont non conclusifs tant qu'ils
+n'ont pas été repassés. Les gros écarts — la phrase sur la casse (+0,063 /
+−0,103), l'historique en JSON (+0,07) — ne sont pas concernés.
+
+⚠️ **`PLAN.md` demande de « retomber sur 0,826 » comme preuve de non-régression
+après l'extraction de la bibliothèque.** Sous ce modèle de bruit, une passe
+unique à 0,791 est parfaitement compatible avec un code intact : le critère doit
+être une moyenne de passes contre 0,816 ± 0,015, sinon il déclenchera de fausses
+alertes. À signaler à qui tient ce fichier.
+
+### En face de DuplexCascade
 
 | session | justesse | fins | pauses ratées | coupures | latence vécue |
 |---|---|---|---|---|---|
 | `073852-sherpa` | 0,784 | 6/8 | 4/22 | 2 | 3,55 s |
 | `032332-sherpa` | **0,873** | 8/9 | 1/7 | 2 | 3,75 s |
-| **moyenne** | **0,826** | 14/17 | 5/29 | 4 | |
+| moyenne de cette passe | 0,826 | 14/17 | 5/29 | 4 | |
+| **moyenne des cinq passes** | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | | |
 | DuplexCascade | 0,858 | 0,955 | — | — | 1,2 s |
 
-**Trois points d'écart avec un Qwen2-7B fine-tuné cinq heures sur huit H100** —
-et 0,873 sur une session, au-dessus de leur moyenne. Le point de départ du même
-matin était 0,634.
+**Quatre points d'écart avec un Qwen2-7B fine-tuné cinq heures sur huit H100.**
+Le point de départ du même matin était 0,634.
 
-Trois précautions à tenir, et elles ne sont pas négociables dans le texte :
+Quatre précautions à tenir, et elles ne sont pas négociables dans le texte :
 
-- **On revendique la moyenne, pas 0,873.** Une session ne mesure rien : c'est le
-  résultat n° 6, et l'oublier ici invaliderait tout le reste de l'article. La
-  comparaison honnête est 0,826 contre 0,858.
+- **On revendique la moyenne des passes, pas la meilleure passe** — et surtout
+  pas 0,873, qui est la meilleure session de la meilleure passe. Une session ne
+  mesure rien (résultat n° 6) ; une passe non plus.
 - **0,824 n'est pas notre chiffre** : c'est celui de llama-3.3-70b, un modèle
   qu'on écarte. **0,807 non plus**, désormais : c'était la configuration retenue
-  d'avant le tutoiement, sur une seule session.
+  d'avant le tutoiement, sur une seule session et une seule passe.
+- **La justesse ne va jamais seule** : c'est le résultat établi n° 9, et il est
+  né sur cette même série de mesures. On publie 0,816 **avec** ses deux TOR —
+  fins 0,812, pauses 0,179.
 - **Aucune borne haute n'est citée**, pour la raison exposée plus bas.
 
 ### Le chemin, en sept changements gardés
@@ -512,6 +608,12 @@ l'ingénierie de mesure ramassent quand on ne peut pas entraîner.
 | sherpa-onnx à la place de whisper | +0,05 et latence ÷ 12 |
 | `systeme_sherpa` (la phrase sur la casse) | +0,063 |
 | tutoiement imposé | tic 32 % → 0 % |
+
+⚠️ **Deux lignes de ce tableau ne survivent pas au modèle de bruit corrigé** :
++0,025 et +0,05 ont été mesurés sur une passe unique, quand l'écart entre deux
+passes a pour écart-type ~0,021. Elles sont **non conclusives**, pas fausses. À
+repasser en trois passes avant publication — le tableau n'a de valeur que si
+chacune de ses lignes tient.
 
 **Le premier n'est pas une amélioration du système, c'est une amélioration de la
 mesure** — et sans lui, aucun des six autres n'aurait été décidable, puisque le
@@ -564,13 +666,19 @@ le cas échéant, le texte à dire. Ça n'a jamais été décidé — c'est hér
 DuplexCascade, où le fine-tuning rend les deux indissociables. Nous, nous ne
 fine-tunons pas : rien ne nous obligeait à les garder ensemble.
 
-Trois preuves que le mélange nous coûte, **toutes tirées de nos propres
-données** :
+**Attention à l'ordre du récit.** Trois faits établissent d'abord qu'on
+confondait deux tâches et qu'on n'en mesurait qu'une ; la mesure qui a suivi
+montre ensuite que le mélange **aide** la détection. L'article doit tenir les
+deux : le mélange n'était pas une erreur, mais il était **non examiné**, et son
+coût était payé au mauvais endroit.
+
+Trois faits pour poser le problème, **tous tirés de nos propres données** :
 
 **1. Notre métrique ne mesure qu'une des deux tâches.** Full-Duplex-Bench se lit
 en **TOR** — le taux de prise de parole (*take-over rate*), compté séparément
 sur les pauses, les fins de tour et les interruptions. Ce que ça note est
-**quand le système parle**, jamais ce qu'il dit. Le 0,826 et les sept changements gardés portent donc **sur la détection seule**.
+**quand le système parle**, jamais ce qu'il dit. Le 0,816 et les sept
+changements gardés portent donc **sur la détection seule**.
 La qualité des réponses, elle, n'a jamais été mesurée — pas une fois. La limite
 était écrite depuis le début (`RESULTATS.md`, « Limites » : *« nous avons mesuré
 le comportement de tour de parole, pas la qualité des réponses »*), mais elle y
@@ -584,10 +692,11 @@ moment de rédiger, et aucun n'a été jugé là-dessus.
 
 **2. Les deux axes sont empiriquement indépendants, et nous l'avions mesuré sans
 le voir.** Le tutoiement imposé fait tomber le tic de formulation de **32 % à
-0 %** en ne coûtant que 0,023 de justesse de détection — l'équivalent d'un bruit
-et demi. Une intervention qui déplace complètement une dimension sans presque
-toucher l'autre. Nous l'avons gardée pour cette raison, et nous n'en avons pas
-tiré la conclusion d'architecture sur le moment.
+0 %** pour 0,023 de justesse de détection — un écart qui, sous le modèle de bruit
+corrigé le 02/09, **ne sort pas du bruit**. Une intervention qui déplace
+complètement une dimension sans qu'on puisse mesurer d'effet sur l'autre. Nous
+l'avons gardée pour cette raison précise, et nous n'en avons pas tiré la
+conclusion d'architecture sur le moment.
 
 **3. Le coût est payé à 92 % par la mauvaise tâche.** Compté le 02/09 sur la
 trace de la session réelle `20260829-134719` (Pi 3B, sherpa, `flash-lite`,
@@ -636,56 +745,111 @@ Pour l'article, c'est mieux qu'une anecdote : **le parking d'idées a produit la
 bonne phrase et l'a enterrée**, parce qu'elle était rangée sous la mauvaise
 rubrique. Un fichier d'idées bien tenu n'est pas une garantie de relecture.
 
-#### Ce que la séparation débloquerait
+#### La réponse est tombée le 02/09 : oui, le mélange aide la détection
 
-Le verdict le plus lourd du projet est peut-être à refaire. `RESULTATS.md` § 3
-classe les LLM locaux du Pi « inutilisables » : SmolLM2-135M à **7,64 s**,
+La question ouverte a été mesurée le soir même, et **elle est tranchée dans le
+sens qui dérange**. Deux sessions, `gemini-2.5-flash-lite`, rejeu `--muet`,
+trois passes par variante :
+
+| | TOR fins ↑ | TOR pauses ↓ | justesse |
+|---|---|---|---|
+| **base** — détection et réponse dans le même appel | **0,812** (13,8/17) | 0,179 | 0,816 |
+| **C** — détection seule, réponses encore dans les exemples | 0,745 (12,7/17) | 0,103 | 0,821 |
+| **B′** — détection pure, consigne + exemples + schéma retirés | **0,647** (11/17) | 0,103 | 0,772 |
+
+**−0,165 de TOR sur les fins de tour, soit près de trois fins ratées sur
+dix-sept.** Préparer la réponse aide bel et bien à décider si le tour est fini.
+L'argument implicite de DuplexCascade était juste, et il vaut aussi sans
+fine-tuning.
+
+#### Mais le résultat qui fait l'histoire est le décomposé
+
+C'est ici que la mesure devient intéressante, parce que « retirer la réponse »
+est en réalité **deux changements distincts** : ne plus la calculer, et ne plus
+en montrer dans les exemples. La boucle interdit de bouger les deux ensemble,
+donc ils ont été séparés :
+
+| ce qu'on retire | effet sur TOR fins |
+|---|---|
+| la génération seule (base → C) | **−0,067**, ~1 fin de tour sur 17 |
+| les réponses des exemples **en plus** (C → B′) | **−0,098**, ~1,7 de plus |
+| les deux (base → B′) | **−0,165**, ~2,8 fins sur 17 |
+
+**Ce qui aide n'est pas de calculer la réponse : c'est de savoir à quoi elle
+ressemblerait.** Les trois cinquièmes de l'effet viennent des exemples, pas de
+l'acte de générer. Et c'est la bonne nouvelle pour l'architecture : **un
+détecteur séparé reste jouable**, à condition de lui laisser des exemples qui
+montrent à quoi ressemble une fin de tour *répondable*. Des exemples ne coûtent
+rien à l'exécution — ils sont dans le préfixe, donc dans le cache.
+
+Le premier écart (−0,067) est à ~2 σ : réel dans son sens, faible dans son
+ampleur. Le second et le total sont hors de tout doute.
+
+Pour l'article, c'est la formulation à garder, parce qu'elle survit au cas
+particulier : **le prompt n'a pas besoin que le modèle fasse la seconde tâche,
+il a besoin qu'il l'ait en tête.** Même famille que la phrase sur la casse — une
+affirmation sur ce que le modèle va rencontrer pèse plus lourd que le travail
+qu'on lui demande.
+
+#### Et l'agrégat n'a rien vu — sur la mesure censée trancher l'article
+
+La variante C rend **0,821 contre 0,816** pour la base. Lu sur la justesse
+seule : « aucun effet, la séparation est gratuite ». Sa détection de fin de tour
+est pourtant **six points plus basse**.
+
+Le mécanisme, et il est mécanique : un système qui rate des fins de tour parle
+moins ; parlant moins, il intervient moins dans les pauses ; et la seconde
+moitié du score **le récompense d'avoir échoué sur la première**.
+
+C'est l'établi n° 9, et il vaut d'être raconté à cet endroit précis de
+l'article : le piège annoncé au § 7 de `RESULTATS.md` — « le mutisme ressemble à
+de la sagesse » — nous a repris **sur la mesure qui devait trancher le sujet de
+l'article**. Rien ne protège d'un piège de mesure, sinon de compter les deux
+classes séparément à chaque fois, y compris le jour où on croit ne mesurer qu'un
+détail d'architecture.
+
+#### Ce que ça débloque quand même
+
+Le verdict le plus lourd du projet reste à refaire. `RESULTATS.md` § 3 classe
+les LLM locaux du Pi « inutilisables » : SmolLM2-135M à **7,64 s**,
 SmolLM2-360M à 15,16 s. **Mais ce verdict a été rendu sur 48 tokens de sortie.**
-La détection seule demande un choix parmi six valeurs — une sortie d'une poignée
-de tokens, avec un prompt qui peut se passer de tout ce qui sert à rédiger.
+La détection demande un choix parmi six valeurs — une sortie de dix tokens,
+mesurée.
 
-**Le verdict est donc à refaire sur la tâche séparée**, et il n'est pas acquis
-d'avance dans un sens ni dans l'autre : le débit mesuré (6,3 tok/s) ne dit rien
-du coût du *prompt processing*, qui domine sur une entrée de plusieurs centaines
-de tokens et qui n'a jamais été mesuré séparément sur le Pi. Si ça passe, le
-dernier étage distant redevient local — c'est la question ouverte de la partie I
-qui se referme.
+**Le verdict est donc à refaire sur la tâche séparée**, et il n'est acquis
+d'avance dans aucun sens : le débit mesuré (6,3 tok/s) ne dit rien du coût du
+*prompt processing*, qui domine sur une entrée de plusieurs centaines de tokens
+— et le résultat ci-dessus impose de **garder les exemples**, donc un prompt qui
+ne rétrécit pas beaucoup. C'est l'entrée, pas la sortie, qu'il faut mesurer sur
+le Pi, et ça n'a jamais été fait.
 
-**Son coût, à ne pas cacher.** En cascade, le tick où l'on répond paie les deux
-appels au lieu d'un. Ordre de grandeur : ~0,7 s contre 0,465 s aujourd'hui.
-⚠️ **Estimation, pas mesure** — elle suppose un détecteur plus court que l'appel
-actuel, ce qui reste à établir. Et 8,2 % des ticks seulement sont concernés :
-c'est un surcoût rare payé pour un allègement permanent.
+**Le coût de la séparation, à ne pas cacher.** En cascade, le tick où l'on
+répond paie les deux appels au lieu d'un. Ordre de grandeur : ~0,7 s contre
+0,465 s aujourd'hui. ⚠️ **Estimation, pas mesure** — les latences des variantes
+mesurées sont fictives, puisqu'aucune ne fait le second appel. Et 8,2 % des ticks
+seulement sont concernés : un surcoût rare contre un allègement permanent.
 
-#### Statut : question ouverte, avec son protocole
+#### Statut : ce qui est établi et ce qui reste ouvert
 
-**Rien n'est tranché.** Une mesure est en cours pour répondre à la seule question
-qui décide : **le mélange apporte-t-il quelque chose à la détection ?** On peut
-défendre que oui — un modèle qui sait ce qu'il s'apprêterait à répondre juge
-peut-être mieux si le tour est fini. Tant que le chiffre n'existe pas, la
-séparation reste une hypothèse, pas un résultat.
+**Établi** : la métrique ne couvre qu'une des deux tâches ; les deux axes
+bougent indépendamment ; 92 % du coût est payé par des ticks muets ; le mélange
+aide la détection de 0,165 de TOR fins, dont les trois cinquièmes viennent des
+exemples et non de la génération ; l'agrégat seul ne voit rien de tout ça.
 
-Protocole, dans l'ordre :
+**Ouvert** : qu'un modèle local tienne la tâche réduite sur le Pi (à mesurer sur
+le traitement du prompt, pas sur le débit de sortie) ; et la seconde dimension,
+qui n'a toujours aucune mesure — le seul indicateur de qualité de réponse jamais
+compté reste la part de réponses portant le tic de formulation (32 % → 0 %).
+C'est aussi ce qui laisse la variante 55 (les relances vides) indécidable.
 
-1. **Mesurer ce que le mélange apporte à la détection.** Rejouer les deux
-   sessions avec un prompt de détection seule — mêmes six jetons, sortie réduite
-   au marqueur, sans les consignes de rédaction. Si la justesse ne bouge pas
-   au-delà de ±0,017, le mélange n'apportait rien à la détection et la séparation
-   est gratuite du côté du score.
-2. **Se donner une mesure de la seconde tâche**, qui n'existe pas. Le seul
-   indicateur de qualité de réponse déjà compté est la part de réponses portant
-   le tic de formulation (32 % → 0 %). Il en faut d'autres, et l'occasion de
-   trancher enfin la variante 55 (les relances vides), qui reste indécidable
-   parce qu'elle ne se manifeste qu'en session réelle.
-3. **Alors seulement** refaire le verdict des LLM locaux sur la tâche de
-   détection isolée, sur le Pi, à froid.
+Réserves à reprendre telles quelles dans l'article : **17 fins de tour et 29
+pauses, c'est peu** — une fin de tour vaut 0,059 de TOR, donc les écarts sont
+donnés à ±1 tour près. Et « détection seule » emporte **trois** changements à la
+fois : plus de génération, plus de réponses dans les exemples, plus de réponses
+dans l'historique. Les deux premiers ont été séparés ; le troisième ne peut pas
+l'être, un détecteur pur n'ayant rien à se rappeler.
 
-**Ce qui est établi** : la métrique ne couvre qu'une des deux tâches ; les deux
-axes bougent indépendamment ; 92 % du coût est payé par des ticks muets.
-**Ce qui est ouvert** : que la séparation soit gratuite, et qu'un modèle local
-tienne la tâche réduite.
-
-Hypothèses, contre-hypothèse et protocole complet : `IDEES.md` § 11.
+Hypothèses, protocole et suite : `IDEES.md` § 11.
 
 ### Troisième chiffre à trancher : le délai avant le premier son
 
@@ -722,11 +886,12 @@ comparaison des décideurs donne **0,824** à llama-3.3-70b avec un ASR réel. U
 ASR réel ne peut pas dépasser un ASR parfait. Les deux mesures ne portent donc
 pas sur la même base.
 
-**Et la configuration retenue a depuis dépassé cette borne : 0,826, sur les
-mêmes deux sessions que le 0,820, avec un ASR réel.** L'objection n'est plus
-seulement qu'un modèle écarté fait mieux que la borne — c'est nous. La
-contradiction est donc tranchée dans un sens : **le 0,820 est mort comme borne
-haute**, et il ne reste plus qu'à en mesurer une vraie.
+**Et la configuration retenue a depuis atteint cette borne : 0,816 ± 0,015 sur
+les mêmes deux sessions que le 0,820, avec un ASR réel** — trois passes sur cinq
+la dépassent. L'objection n'est plus seulement qu'un modèle écarté fait mieux que
+la borne : c'est nous, et à ASR imparfait. La contradiction est donc tranchée
+dans un sens : **le 0,820 est mort comme borne haute**, et il ne reste plus qu'à
+en mesurer une vraie.
 
 Ce qui diffère est établi, et tient en trois points :
 
