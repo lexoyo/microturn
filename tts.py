@@ -69,6 +69,8 @@ class Speaker:
         self.jetes = 0                       # octets purgés (phrase coupée)
         self._gen = 0                        # phrase courante
         self._purger = False                 # jeter le PCM d'une phrase coupée
+        self._restants = 0                   # morceaux de la phrase en cours
+        self._sorti = threading.Event()      # un morceau vient de sortir
         # Le chargement du modèle coûte 8 s sur un Pi. Sans préchauffage il
         # tombe sur la PREMIÈRE réponse de la conversation, celle qui donne le
         # ton. On le paie au démarrage, pendant qu'il ne se passe rien.
@@ -88,21 +90,21 @@ class Speaker:
     def _prechauffer(self):
         """Démarre piper et lui fait produire du son qu'on jette.
 
-        Le « jette » n'était pas assuré : ce PCM reste dans le tube de piper, et
-        si une vraie phrase arrive avant qu'il soit drainé, il sort DEVANT elle.
-        Entendu en session le 03/09 — un « ah » au début. On arme donc la purge,
-        qui jette tout jusqu'au premier silence, exactement comme après une
-        phrase coupée."""
+        Le « jette » repose sur `_lire`, qui écarte le PCM tant qu'aucun `aplay`
+        n'est ouvert. C'est une course : si une vraie phrase arrive pendant que
+        piper prononce encore la syllabe de chauffe, celle-ci sort DEVANT elle —
+        un « ah » entendu en session le 03/09. On arme donc la purge, qui jette
+        jusqu'au premier silence, et on chauffe sur une syllabe MUETTE plutôt
+        que sur une voyelle."""
         try:
             with self.lock:
                 self._purger = True
             synth = self._piper()
-            synth.stdin.write(b"a\n")       # une syllabe, juste pour charger
+            synth.stdin.write(b".\n")       # ponctuation seule : rien à dire
             synth.stdin.flush()
         except Exception:
             with self.lock:
                 self._purger = False         # ne pas laisser la purge armée
-            pass                             # le préchauffage ne doit rien casser
 
     def _piper(self):
         """Le processus résident, démarré à la première phrase."""
@@ -151,6 +153,16 @@ class Speaker:
                 # symétrique du défaut qu'on corrige.
                 with self.lock:
                     self._purger = False     # le silence clôt la purge
+                    reste = self._restants
+                self._sorti.set()                # un morceau vient de finir
+                if reste > 0:
+                    # Silence ENTRE deux morceaux de la même phrase : piper
+                    # n'a pas fini. Fermer ici couperait la phrase en deux —
+                    # c'est le « bonjour ceci … est un test » entendu en
+                    # session, et le risque n° 1 de la QC du candidat 60.
+                    with self.lock:
+                        self._restants -= 1
+                    continue
                 if ecrit:
                     with self.lock:
                         if self._sortie is not None:
@@ -198,8 +210,7 @@ class Speaker:
         # PAS de `-q` et PAS de stderr jeté : `aplay` signale ses
         # sous-alimentations (« underrun!!! ») sur stderr, et c'est le seul
         # endroit où un son haché se voit autrement qu'à l'oreille. Le projet a
-        # déjà payé ce silence une fois — `aplay` sans `-D` échouait sans un
-        # mot, et il a fallu qu'Alex dise « je ne l'entends pas ».
+        # déjà payé ce silence une fois — `aplay` sans `-D` échouait sans un mot.
         cmd = ["aplay", "-r", str(self.rate), "-f", "S16_LE", "-c", "1"]
         if APLAY:
             cmd += ["-D", APLAY]
@@ -216,19 +227,44 @@ class Speaker:
         return [play]                        # piper N'EST PAS dans la liste : on ne
                                              # le tue jamais, c'est tout l'intérêt
 
-    # Le découpage en morceaux a été RETIRÉ le 03/09. Il divisait la latence
-    # avant le premier son par 2,5 (2890 → 1135 ms), mais il a produit les trois
-    # bugs les plus coûteux du projet : la phrase sortie en tranches (« bonjour
-    # ceci … est un test un peu plus long »), le silence de fin de phrase qui se
-    # déclenchait entre deux morceaux, et la comptabilité des morceaux restants
-    # à tenir sous interruption. On envoie désormais la phrase d'un bloc.
+    # Premier morceau court, suivants plus longs. Mesuré sur le Pi : piper ne
+    # diffuse RIEN au fil de la synthèse — il fabrique la phrase entière puis la
+    # sort d'un bloc, donc la latence avant le premier son EST la durée de
+    # synthèse complète (2966 ms pour 41 caractères en voix `medium`).
+    #
+    # Découper la rend proportionnelle au seul premier morceau. Ça ne marche que
+    # parce que le ratio synthèse/audio est sous 1 (0,58 en `low`, 0,93 en
+    # `medium`) : les morceaux suivants sont prêts avant que le précédent ait
+    # fini de se jouer. Au-dessus de 1, on entendrait des trous.
+    PREMIER_CAR = 16
+    SUITE_CAR = 60
+
+    @classmethod
+    def _morceaux(cls, texte):
+        """Découpe sur la ponctuation forte, sinon au mot le plus proche."""
+        reste, out = texte.strip(), []
+        cible = cls.PREMIER_CAR
+        while reste:
+            if len(reste) <= cible:
+                out.append(reste)
+                break
+            # une ponctuation dans la zone ? c'est la meilleure coupure
+            coupe = max((reste.rfind(c, 0, cible + 12) for c in ".,;:!?"), default=-1)
+            if coupe < cible // 2:
+                coupe = reste.rfind(" ", 0, cible)
+            if coupe <= 0:
+                coupe = cible
+            out.append(reste[:coupe + 1].strip())
+            reste = reste[coupe + 1:].strip()
+            cible = cls.SUITE_CAR
+        return [m for m in out if m]
+
     def _plaintes(self, play):
         """Remonte ce qu'`aplay` écrit sur stderr, au lieu de le jeter.
 
         Une sous-alimentation (« underrun!!! ») rend le son haché : des mots
-        détachés du reste de la phrase. C'est indiscernable à l'oreille d'un
-        défaut de synthèse, et invisible dans nos traces — mais `aplay` le dit,
-        si on l'écoute."""
+        détachés du reste de la phrase. Indiscernable à l'oreille d'un défaut de
+        synthèse, et invisible dans nos traces — mais `aplay` le dit."""
         try:
             for ligne in iter(play.stderr.readline, b""):
                 msg = ligne.decode(errors="replace").strip()
@@ -239,19 +275,36 @@ class Speaker:
             pass                             # tube fermé par stop()
 
     def _feed(self, proc, text):
-        """Envoie la phrase à piper, d'un seul bloc.
+        """Sert les morceaux UN PAR UN, en s'arrêtant si on est coupé.
 
-        `flush()` et NON `close()` : le processus est résident et resservira."""
+        Écrire toute la phrase d'un coup laisse piper la synthétiser jusqu'au
+        bout même après un `stop()` : il ne sait pas qu'on l'a interrompu. Sur le
+        Pi, une phrase de 60 caractères prend 4 s à fabriquer, et la réponse
+        suivante attend derrière — donc couper le robot le rend muet plusieurs
+        secondes, ce qui est le contraire du but.
+
+        En n'envoyant le morceau suivant qu'une fois le précédent sorti, une
+        interruption n'a plus qu'un seul morceau à purger."""
+        morceaux = self._morceaux(text)
         with self.lock:
             gen = self._gen
+            # Un silence par frontière : le lecteur doit les laisser passer sans
+            # fermer `aplay`, sinon la phrase sort en tranches.
+            self._restants = len(morceaux) - 1
         try:
-            with self.lock:
-                if self._gen != gen:
-                    return               # déjà coupé : ne rien envoyer
-            proc.stdin.write((text.strip() + "\n").encode())
-            proc.stdin.flush()
+            for i, m in enumerate(morceaux):
+                with self.lock:
+                    if self._gen != gen:
+                        break                # coupé : ne pas nourrir la suite
+                    self._restants = len(morceaux) - 1 - i
+                proc.stdin.write((m + "\n").encode())
+                proc.stdin.flush()           # et NON close() : le processus resservira
+                if i + 1 < len(morceaux):
+                    # laisser piper sortir celui-ci avant de donner le suivant
+                    self._sorti.clear()
+                    self._sorti.wait(timeout=8.0)
         except (BrokenPipeError, ValueError):
-            pass                         # coupé par stop() entre-temps
+            pass                             # coupé par stop() entre-temps
 
     def say(self, text):
         """Parle sans bloquer. Coupe ce qui était en cours. Atomique."""
@@ -270,6 +323,8 @@ class Speaker:
         # jusqu'au prochain silence appartient au passé et doit être jeté.
         if self.procs:
             self._purger = True
+        self._restants = 0
+        self._sorti.set()                    # débloquer `_feed` s'il attendait
         for p in self.procs:
             if p.poll() is None:
                 try:
