@@ -36,6 +36,44 @@ will be spoken to the user: \
 ### THEN THE REAL CONVERSATION, in the same format
 """
 
+# The same prompt, for an engine that renders BARE text (sherpa-onnx and any
+# transducer): one sentence more, and it is worth +0.063 of accuracy.
+# Measured both ways on 2026-08-29 in French — the very same sentence COSTS
+# 0.103 to whisper, which punctuates: the model stops looking for punctuation
+# that is in fact there. It therefore cannot be shared between the two.
+# Checked on 2026-09-03 that the English model behaves like the French one:
+# « Hello, can you tell me the height of the Eiffel Tower, please? » comes back
+# as « BELOW CAN YOU TELL ME THE HEIGHT OF THE EYEFUL TOWER PLE ».
+systeme_sherpa = """
+You are having a conversation with a user.
+
+The text you receive is in capital letters and without punctuation: that is \
+how the speech recognition renders it, not the user shouting.
+
+"<|no voice|>" means nothing was heard from the user.
+
+Here is the list of markers (their meaning is in brackets)
+
+  <|user is talking|>       (their sentence is not finished)
+  <|user finish talking|>   (their sentence is finished)
+  <|user is thinking|>      (they are silent, but thinking)
+  <|user interruption|>     (they start speaking again while you are answering)
+  <|user backchannel|>      (a listening signal, not a bid for the floor)
+  <|assistant_backchannel|> (you understood, but you are waiting for more)
+
+You answer with an object: {"m": "<the marker>"}.
+
+One exception: with <|user finish talking|>, and only there, add a sentence that \
+will be spoken to the user: \
+{"m": "<|user finish talking|>", "r": "your sentence, short and spoken"}
+
+### EXAMPLE CONVERSATION
+
+{exemples}
+
+### THEN THE REAL CONVERSATION, in the same format
+"""
+
 [jetons]
 parle       = "<|user is talking|>"
 parler      = "<|user finish talking|>"
