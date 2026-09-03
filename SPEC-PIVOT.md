@@ -401,3 +401,83 @@ intervient moins dans les pauses, et la seconde dimension le récompense d'avoir
 pourquoi ce n'est pas le bon nom pour ce périmètre ; ce n'est pas bloquant, et le
 renommage peut attendre que le périmètre soit stabilisé. Candidats libres si on
 renomme : `turnstream`, `floorstate`, `turnfsm`.
+
+---
+
+## 12. Réflexions d'Alex, 03/09 — à reprendre, pas encore tranchées
+
+Notées telles quelles en fin de journée. **Certaines contredisent ce qui est
+écrit plus haut** ; les contradictions sont signalées, pas résolues.
+
+### Le positionnement se déplace
+
+> *« Le projet devient en fait : transformer un LLM en full duplex. En entrée :
+> texte horodaté, en sortie : texte ou interruption. »*
+
+C'est plus fort que le § 1, qui décrit « un détecteur de fin de tour fondé sur
+le sens ». Ce n'est plus un composant qui observe, c'est une **transformation
+appliquée à un modèle** : on prend n'importe quel LLM et on le rend capable de
+tenir une conversation en duplex.
+
+Conséquence sur la sortie : elle n'est plus seulement une machine à états, elle
+porte **le texte de la réponse**. On revient à l'objet unique `texte ou
+interruption`.
+
+### La détection et la réponse restent dans le MÊME appel
+
+> *« Il faut commencer par avoir un agrégateur derrière le STT et ensuite
+> laisser la détection + réponse en un seul modèle / appel. »*
+
+⚠️ **Ceci renverse le § 9**, qui faisait des trois modes une option et
+présentait le mode séparé comme la voie de la modularité. Mais c'est cohérent
+avec la mesure du 02/09 : séparer coûte **−0,165 de TOR fins**, et l'essentiel
+du bénéfice vient des réponses présentes dans les exemples, pas de l'acte de
+générer. Le fusionné n'était pas un compromis, c'était le bon choix.
+
+Ce qui est neuf, c'est **l'agrégateur derrière le STT** : une couche qui
+recolle, stabilise et horodate avant que quoi que ce soit n'atteigne le modèle.
+C'est là que vivraient `_delta`, le recollage des segments, la révision — tout
+ce qui nous a coûté la journée du 03/09.
+
+### Les backchannels, dans les deux sens, par le prompt
+
+> *« Dans le prompt il faut explicitement dire qu'il faut ignorer les
+> backchannels + en générer. »*
+
+⚠️ **Ceci renverse aussi le § 2**, où l'`assistant_backchannel` avait été confié
+au second modèle au motif qu'émettre un « mhm » suppose de connaître l'aval.
+Si détection et réponse sont dans le même appel, l'objection tombe : le modèle
+qui répond est celui qui observe.
+
+À noter que les deux jetons existent déjà dans l'enum du schéma, et qu'ils
+étaient **jetés** par le code jusqu'au 03/09 (`b5a6652`). Le prompt, lui, n'en
+dit toujours rien.
+
+### La structure du prompt, explicitée
+
+> ```
+> Instructions
+> Exemples de discussions
+> Historique de la discussion
+> Phrase en cours de dictée
+> ```
+
+La nouveauté est la **quatrième section** : la phrase en cours, séparée de
+l'historique. Aujourd'hui le delta est noyé dans l'historique comme un
+micro-tour de plus ; là, il aurait sa place à lui.
+
+C'est proche du rappel `tour_en_cours` retiré ce soir — mais pas identique : le
+rappel était *concaténé au delta*, ce qui dupliquait le texte et cassait le
+repliage. Une section dédiée n'a pas ce défaut. **À mesurer avant d'y revenir**,
+puisque le retrait du rappel vaut +1 fin de tour sur 17.
+
+### Le cas d'usage du Raspberry
+
+> *« Écouter les discussions, les comprendre et les illustrer sur l'écran de la
+> télé (recherche ou génération). »*
+
+Un système qui **ne parle jamais**. Il valide par l'exemple que le TTS est un
+accessoire, et c'est le meilleur argument pour la modularité — mieux que
+l'exemple `chat` du `PLAN.md`, parce qu'il produit quelque chose au lieu de se
+contenter de transmettre. Rejoint le § 10 d'`IDEES.md` (plugins, MQTT, un
+capteur coûteux sur une autre machine).
