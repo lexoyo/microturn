@@ -190,6 +190,13 @@ toujours aussi. L'agrégat seul ne veut rien dire — il faut lire les deux TOR.
 
 ### ⚠️ 0,816 ne décrit plus le code — la référence a bougé quatre fois le 03/09
 
+**Mise à jour du 04/09 : c'est pire, et c'est réglé autrement.** Le commit
+`d721c84` (fenêtre 20 → 270 entrées, jetons renommés) rend caduque **toute** la
+colonne de droite du tableau ci-dessous, **0,837 compris** — voir « Toutes les
+mesures sont périmées, et c'est assumé » en fin de partie IV. Le tableau est
+gardé comme trace du 03/09 ; **aucune de ses lignes ne décrit le code
+d'aujourd'hui.**
+
 **C'est la chose la plus importante à savoir avant d'écrire une ligne de
 l'article ce soir.** La ligne « configuration retenue » ci-dessus a été mesurée
 le 02/09 sur une configuration qui comportait le **découpage TTS** (supprimé), la
@@ -1960,6 +1967,255 @@ tours), soit **un corpus plus grand**. Les deux sortent du périmètre du
 prototype ; le premier ramène le sujet à la thèse du projet, puisque c'est encore
 du contexte injecté dans le prompt.
 
+### Copier le papier sans son entraînement — nuit du 03 au 04/09
+
+**C'est le passage qui porte l'article, et il se raconte en trois temps.** À
+placer en ouverture de la partie II : c'est l'illustration la plus concrète de
+« le prompt EST notre fine-tuning », parce que pour une fois on voit *ce que le
+prompt devait racheter* et *pourquoi personne ne s'en était aperçu*.
+
+#### Le fait : une absence copiée sans ce qui la rendait possible
+
+La section `[etats]` du catalogue (`parle`, `vient`, `muet` — les marqueurs qui
+diraient au modèle « tu es en train de parler ») est **vide, et délibérément**.
+Le commentaire du fichier disait, en substance : *DuplexCascade ne porte aucun
+marqueur décrivant l'état du système, sa structure entrelacée le rend
+implicite*. C'est exact — **chez eux**. Chez eux, le fine-tuning a appris la
+temporalité. Nous avons copié l'absence de marqueur sans pouvoir copier ce qui
+la rendait possible.
+
+**La formule à garder : un prompt ne peut pas être un papier moins les poids.**
+Ce que l'entraînement rendait implicite ne disparaît pas quand on retire
+l'entraînement — il devient une dette à écrire quelque part.
+
+#### La conséquence, mesurée
+
+`<|user interruption|>` n'est **jamais sorti** : **0 fois sur 897 décisions**
+avec `gemini-2.5-flash-lite`, la configuration retenue (`bench/JOURNAL.md`,
+trois passes, deux sessions sherpa, rejeu déterministe). Même distribution pour
+le backchannel utilisateur : **0 sur 897**.
+
+Trois jetons sur six étaient donc inertes, pour deux causes distinctes :
+l'interruption et le backchannel utilisateur **parce qu'ils sont définis
+« pendant que tu parles »** et que le modèle ignore qu'il parle ; le backchannel
+système **parce que le code le jetait** (`lire_controle` ne testait que quatre
+marqueurs sur six — corrigé au commit `b5a6652`).
+
+⚠️ **Deux précautions de citation, et elles ne sont pas cosmétiques :**
+
+1. **Le nom du jeton dans ce relevé est l'ancien.** Le 0/897 a été mesuré avant
+   `d721c84` : il porte sur `<|user interruption|>`, pas sur
+   `<user is interrupting>`. Écrire le nom d'aujourd'hui sur une mesure d'hier,
+   c'est laisser croire qu'elle a été refaite.
+2. **Le « 0 fois sur 153 » qui circule dans `PLAN.md` n'a aucune session en
+   face** — ne pas le citer (recoupement du commit `30ce1e3`). Et le 27 de Qwen
+   est le score du modèle **écarté** : ce n'est pas un résultat du projet.
+
+#### Ce que `d721c84` a déjà changé dans cette histoire
+
+Attention à ne pas publier une version périmée du constat. Depuis le 04/09, le
+prompt **parle** des backchannels : il les glose, ligne à ligne. Ce qui reste
+vrai, et qui est plus intéressant que « le prompt n'en dit rien », c'est que
+**toutes ces gloses sont accrochées à un état que le modèle n'a pas** :
+
+    <user is interrupting> (il reprend la parole alors que tu parles — arrête-toi)
+    <user backchannel>     (un signal d'écoute pendant que tu parles — ignore-le, continue)
+    <system backchannel>   (TOI, tu émets un bref signal d'écoute pendant qu'il parle)
+
+Trois définitions, trois renvois à qui parle en ce moment — deux « pendant que
+tu parles », un « pendant qu'il parle ». Le modèle lit une condition qu'il ne
+peut pas évaluer. **Ce n'est pas un trou dans le prompt, c'est un
+renvoi vers une information qui n'entre nulle part.**
+
+---
+
+### La sortie ne demande aucun état — et elle était déjà écrite dans la spec
+
+**C'est la réflexion à retenir de la nuit, et elle contredit l'entrée
+ci-dessus** (trouvée par Alex).
+
+Il n'y a **pas besoin** de dire au modèle qu'il parle.
+
+- **L'interruption se déduit dans l'hôte.** Un `<user is speaking>` reçu pendant
+  qu'on lit une réponse *est* une interruption. L'hôte est le seul à savoir
+  qu'il parle, et il le sait **exactement** — pas par inférence, par état
+  interne. Le jeton disparaît, remplacé par un ET logique déterministe et
+  gratuit. On remplace un marqueur qui ne sortait jamais par une condition qui
+  ne peut pas se tromper.
+- **Le backchannel se reconnaît au CONTENU, pas à l'état.** « okay », « yes »,
+  « mhm » sont des signaux d'écoute quel que soit le moment. Le modèle a le
+  texte, ça lui suffit — encore faut-il le lui expliquer, et c'est précisément
+  ce que le prompt actuel **ne fait pas** : il les définit par le moment
+  (« pendant que tu parles ») au lieu de les définir par ce qu'ils sont.
+
+**Le pas de côté, et c'est lui qui se raconte :** on croyait devoir enrichir
+l'entrée pour rattraper le fine-tuning, alors qu'il suffisait de **déplacer la
+décision là où l'information se trouve déjà** — l'état chez l'hôte, le contenu
+chez le modèle. Le fine-tuning n'avait pas appris un état : il avait appris
+**où poser la question**.
+
+À noter sans l'arrondir : **on a failli renoncer à deux des trois démos pour une
+contrainte qui n'existait pas.**
+
+#### Cohérence : la sortie était tranchée depuis le 02/09, et un document du 04/09 dit l'inverse
+
+Vérification faite dans le dépôt avant d'écrire cette entrée, et le résultat
+vaut mieux que l'anecdote. `SPEC-PIVOT.md` § 2 — *la règle qui commande tout :
+l'observateur ignore l'aval*, **tranché le 02/09** — écrit déjà, mot pour mot :
+
+> **Conséquence n° 1 — l'interruption n'est pas un état.** Une interruption,
+> c'est un `speaking` reçu pendant que l'agent parle. La première moitié est une
+> observation, la seconde n'est connue que de l'appelant : c'est donc à
+> l'appelant de faire l'interprétation. Rien à ajouter dans la bibliothèque.
+
+Et `DEMOS.md` § 4, écrit **le 04/09**, dit : *« rien du volet interruption n'est
+testable tant que la section `[etats]` est vide »*. **Les deux ne peuvent pas
+être vrais.** Le périmé est `DEMOS.md` : la grille démo par démo a raisonné
+comme si le décideur devait tout porter, en oubliant la règle posée deux jours
+plus tôt. **À corriger avant que la grille serve de cahier des charges au banc
+neuf** — c'est elle qui condamne les démos 2 et 3, et elle les condamne à tort.
+
+*Rien à changer dans la règle elle-même* : c'est bien l'hôte, et non
+l'observateur, qui fait la déduction — l'aval reste ignoré.
+
+**Pour l'article, c'est une scène complète et honnête :** une décision juste,
+écrite, versionnée, et redécouverte quarante-huit heures plus tard parce que
+personne n'est allé la relire. Le coût d'un projet qui documente n'est pas
+d'écrire, c'est de relire ce qu'on a écrit.
+
+---
+
+### L'agrégateur a rendu ses chiffres : une partie de nos erreurs vient de mots que le modèle n'aurait jamais dû voir
+
+**Prototype hors dépôt** (workspace `idea-lab`), pour que ses mesures ne
+contaminent pas celles du banc. Ce qui suit **est mesuré**, sur un jeu de
+validation ouvert une seule fois, à la fin.
+
+**Le corpus, et pourquoi il est propre.** 35 sessions réelles, 62 min d'audio
+distinct, séparées **par session** en 25 de réglage (1 162 mots) et 10 de
+validation (471 mots). Corpus re-dérivé de l'audio réel par **deux décodages
+sherpa du même son** : d'un côté le flux d'entrée en conditions de production,
+de l'autre une référence décodée d'un seul tenant, endpointing désactivé. Les
+fautes de l'ASR (`DIPLEARNING`, `SYMPAIN`) sont dans les deux et **s'annulent** :
+on mesure **les dégâts du découpage**, pas la qualité de l'ASR. Un WER contre
+whisper aurait mesuré l'écart entre deux moteurs.
+
+**Les chiffres de validation, fidélité du recollage :**
+
+| | val `fid` | mots de frontière |
+|---|---|---|
+| `stt.py` seul — le recollage actuel | 0,9639 | 13 |
+| `stt.py` + `pipeline._delta` — **ce que le modèle reçoit vraiment** | **0,8068** | 10 |
+| l'agrégateur, au coude (`tolerance = 0,0625`) | **0,9788** | 6 |
+
+Le chemin réel d'aujourd'hui laisse passer **68 mots parasites sur 471**.
+L'agrégateur rend sa fidélité pour **0,50 s de latence médiane, 1,25 s au p90**.
+
+**Le renversement, et c'est le point d'article :** en face, le recollage de
+`stt.py` seul fait **0,9639** — donc **le recollage n'était pas le problème, le
+calcul du delta l'était**. La cause est localisée : `_delta` s'ancre sur la
+**queue du tour** (`difflib`, sur un texte de tour réécrit) là où il fallait
+s'ancrer sur le **préfixe du segment**. En segmentant l'entrée, le problème
+**disparaît** au lieu d'être traité.
+
+**Ce qu'il faut en tirer pour la thèse : une partie de nos erreurs de détection
+vient peut-être de mots que le modèle n'aurait jamais dû voir.** On accusait le
+prompt d'une faute d'entrée. C'est le pendant exact du résultat n° 4 — *le
+prompt qu'on lit n'est pas celui qu'on envoie* — d'un cran plus bas dans la
+pile : cette fois ce n'est pas la mise en forme qui divergeait, c'est le texte
+lui-même.
+
+**Pas de sur-ajustement** : l'écart au code existant est **plus grand en
+validation qu'en dev** (+0,0149 contre +0,0068 sur `stt.py`, +0,172 contre
++0,128 sur `stt.py + _delta`), et les mots de frontière tombent de 13 à 6. Une
+seule constante a été balayée, sur un effet de seuil, pas sur un optimum.
+
+#### Trois réserves à porter avec le chiffre
+
+1. **Le 0,979 n'est pas le chiffre de notre aval.** Il se lit `fid`, révocations
+   appliquées — *l'aval sait défaire*. Au même point de fonctionnement, la
+   lecture `fid+`, celle d'un aval qui **ne défait pas**, donne **0,9639**. Or
+   notre aval est un prompt de LLM : **il ne défait rien.** Le chiffre honnête
+   pour l'article est donc **0,964**, et il se trouve qu'il est numériquement
+   égal au `fid` de `stt.py` — deux grandeurs différentes qui s'écrivent pareil.
+   **À demander à la session de tests avant publication : le `fid+` de `stt.py`
+   seul, qui n'est pas mesuré.** Sans lui, la paire « 0,979 contre 0,964 » n'a
+   pas de comparaison propre derrière elle.
+2. **Le corpus s'est arrêté à 44 sessions décodées sur 89**, faute de temps de
+   calcul — pas au vu d'un score — puis **35 après correction d'une fuite** :
+   neuf sessions partageaient leur `entree.wav` (des rejeux de la même
+   conversation), dont **deux à cheval sur dev et validation**. La fuite a été
+   trouvée et corrigée avant l'ouverture du jeu de validation ; c'est la
+   deuxième de la semaine, après celle du prototype de détection.
+3. **La validation ne pèse que 471 mots** : un mot y vaut 0,2 point de
+   fidélité, donc un écart de moins d'un point n'y est pas lisible. Une voix,
+   une pièce, un micro. Et **la latence est celle de la publication, pas de bout
+   en bout** : ni décodage, ni réseau, ni TTS. Ne pas l'additionner aux autres
+   postes pour en faire une latence de système.
+
+#### Ce qui n'a pas marché est aussi instructif
+
+**Rien ne distingue un mot coupé par une fermeture de segment d'une vraie
+frontière de mot.** Ni le temps — coller est juste à **2,25 s** d'écart comme à
+**27 s**, et faux à 0 s ; ni la longueur au-delà d'un caractère — **43 faux
+positifs pour 5 justes** ; ni l'auto-cohérence du vocabulaire — 1 déclenchement
+sur 186 frontières. Trois signaux plausibles, trois échecs mesurés.
+
+C'est un bon paragraphe d'article parce qu'il dit ce que la solution retenue
+doit à sa **structure** et non à son **réglage** : puisque aucun signal ne
+permet de rattraper une coupure après coup, la seule issue était de **ne pas
+laisser couper** — l'agrégateur ferme lui-même et met la règle 3 de sherpa hors
+circuit.
+
+⚠️ **Collision de chiffres à ne pas commettre en rédigeant.** Le **0,807** de
+fidélité du chemin actuel n'a **aucun rapport** avec le **0,807** de « la base
+sherpa était 0,807, pas 0,761 » (partie IV) : le premier est une **fidélité de
+recollage**, le second une **justesse de décision**. Même écriture, deux
+grandeurs sans rapport — exactement le piège déjà signalé pour le 0,934 de
+dGSLM.
+
+---
+
+### Toutes les mesures sont périmées, et c'est assumé — 04/09
+
+Le 04/09, deux changements imposés **sans mesure** (décision d'Alex, commit
+`d721c84`) :
+
+- **la fenêtre d'historique passe de 20 entrées à 270.** C'était un compte
+  d'**entrées**, pas de tours : un tick en ajoute deux, donc 20 valait dix
+  échanges, **douze secondes d'horizon**. Le papier entraîne sur 4 096 tokens
+  (§ 4.1) ; à ~30 tokens la paire chez nous, l'horizon passe à **~2 min 40**, le
+  leur. *(Le « ~136 échanges » du message de commit est une conversion, pas une
+  mesure de contexte réel.)*
+- **les jetons prennent les noms exacts du papier** (§ 3.2), forme `<...>` sans
+  barres verticales. On avait dérivé sur quatre d'entre eux.
+
+**Conséquence directe, à écrire noir sur blanc : il n'y a plus de référence
+valide. 0,837 compris.** La ligne « configuration retenue » du tableau de tête
+(0,816) était déjà périmée depuis le 03/09 ; le meilleur état mesuré du projet
+(0,837) l'est depuis cette nuit. **Et le 0/897 de l'entrée sur les jetons inertes
+tombe dans le même sac** : jetons renommés, fenêtre × 13,5 — le constat
+« l'interruption ne sort jamais » doit être **remesuré** avant d'être publié
+comme un résultat, même si tout laisse penser qu'il tiendra.
+
+**Décision qui suit : on ne rafistole pas l'ancien banc, on en monte un neuf
+dont les cas de test sont les trois démos des chercheurs** (`DEMOS.md`). On
+mesure ce qu'on veut reproduire, plus ce qu'un banc hérité mesurait.
+
+**L'angle, et c'est un des meilleurs moments de projet à raconter :** jeter ses
+chiffres est le prix d'un changement de cible. Le refuser aurait voulu dire
+**optimiser pour un banc qui ne représentait plus l'objectif** — ce qui est la
+définition même du chiffre qu'on garde parce qu'il est flatteur. C'est le
+contrepoint de tout le fil « mesurer sa mesure » de la partie II : après *avoir
+vérifié que sa référence est encore la bonne*, voici **savoir la déclarer morte**.
+
+*Ordre des opérations, tel qu'il découle des trois entrées ci-dessus, et il a
+changé cette nuit :* la file d'attente de `DEMOS.md` commençait par « remplir
+`[etats]` ». **Cette étape n'existe plus.** L'interruption se déduit chez l'hôte,
+le backchannel se décrit par son contenu — donc les démos 2 et 3 sont
+attaquables tout de suite, et le banc neuf peut être écrit avant toute
+modification du catalogue.
+
 ## Angle d'article en réserve : « fine-tuning vs prompting »
 
 **Proposé par Alex le 03/09 au soir.** Consigné **ici et pas dans `IDEES.md`** :
@@ -1994,6 +2250,13 @@ par personne d'autre**, et nous avons les deux bouts : le nôtre et le leur, sur
 le même banc.
 
 ### Le trou, et il conditionne le titre : le backchannel n'est pas mesuré
+
+⚠️ **Partiellement périmé au 04/09** — la mesure manque toujours, mais la cause
+a changé deux fois. Depuis `d721c84`, le prompt **décrit** les deux backchannels
+(ce paragraphe dit encore le contraire) ; et depuis la nuit du 03 au 04/09, on
+sait que **la description à écrire n'est pas celle-là** : un backchannel se
+reconnaît à son contenu, pas au moment où il tombe. Lire les deux entrées de fin
+de partie IV avant de se servir de cette section.
 
 À dire franchement plutôt qu'à contourner. **Côté backchannel, il n'y a rien.**
 Les deux jetons existaient dans l'énumération du schéma mais étaient **jetés par
