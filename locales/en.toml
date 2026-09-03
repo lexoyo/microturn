@@ -41,7 +41,7 @@ You answer with an object: {"m": "<the marker>"}.
 
 One exception: with <user finish speaking>, and only there, add a sentence that \
 will be spoken to the user: \
-{"m": "<user finish speaking>", "r": "your sentence, short and spoken"}
+{"m": "<user finish speaking>", "r": "your sentence, spoken"}
 
 ### EXAMPLE CONVERSATION
 
@@ -97,7 +97,7 @@ You answer with an object: {"m": "<the marker>"}.
 
 One exception: with <user finish speaking>, and only there, add a sentence that \
 will be spoken to the user: \
-{"m": "<user finish speaking>", "r": "your sentence, short and spoken"}
+{"m": "<user finish speaking>", "r": "your sentence, spoken"}
 
 ### EXAMPLE CONVERSATION
 
