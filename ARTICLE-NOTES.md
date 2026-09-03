@@ -1955,3 +1955,82 @@ manque** (le tour précédent — exactement ce que LiveKit lui donne, jusqu'à 
 tours), soit **un corpus plus grand**. Les deux sortent du périmètre du
 prototype ; le premier ramène le sujet à la thèse du projet, puisque c'est encore
 du contexte injecté dans le prompt.
+
+## Angle d'article en réserve : « fine-tuning vs prompting »
+
+**Proposé par Alex le 03/09 au soir.** Consigné **ici et pas dans `IDEES.md`** :
+`IDEES.md` est un parking d'**hypothèses falsifiables sur le système**, chacune
+avec son protocole de mesure. Ceci est un **angle éditorial**, il n'a rien à
+falsifier — sa place est dans le fichier qui porte le plan de l'article.
+
+**L'angle** : *fine-tuning vs prompting pour la détection de phrase complète et
+de backchannel*. **Deux usages laissés ouverts par Alex** : soit l'axe de
+l'article principal, soit un **second article** bâti sur exactement les mêmes
+mesures. Rien à trancher tant que le trou ci-dessous n'est pas comblé.
+
+### Pourquoi il est solide : il est déjà mesuré à 80 %
+
+La matière existe, elle est chiffrée, et elle est éparpillée dans quatre endroits
+du dépôt :
+
+| l'élément | où il est |
+|---|---|
+| le **dégradé en trois marches** — jetons ajoutés + tête fine-tunée (8×H100, 5 h) → jeton préexistant lu sur un 0,5B fine-tuné → logprob/échantillonnage sur un modèle générique, zéro entraînement | mise au point LiveKit/DuplexCascade, plus haut |
+| **le fine-tuning vaut 0,209 à modèle constant**, dont **0,159 rattrapés rien qu'en changeant de modèle** — le seul écart qui ne mélange rien | `PLAN.md` |
+| **0,816 contre 0,858** sur le banc du projet | `RESULTATS.md`, `README.md` |
+| **AUC 0,935** sur du texte brut seul, sans entraînement, fuite écartée | entrée précédente |
+
+### L'avantage de fond : la contrainte devient un argument
+
+C'est la **seule** comparaison du projet où « pas de fine-tuning » cesse d'être
+une limite subie. Les **trois** systèmes de l'état de l'art — DuplexCascade,
+LiveKit, TurnSense, et même Smart Turn côté audio — passent **tous** par de
+l'entraînement. **Chiffrer ce que coûte exactement de s'en passer n'a été fait
+par personne d'autre**, et nous avons les deux bouts : le nôtre et le leur, sur
+le même banc.
+
+### Le trou, et il conditionne le titre : le backchannel n'est pas mesuré
+
+À dire franchement plutôt qu'à contourner. **Côté backchannel, il n'y a rien.**
+Les deux jetons existaient dans l'énumération du schéma mais étaient **jetés par
+le code** — « hors format » — jusqu'au 03/09 (commit `b5a6652`), et **le prompt
+n'en dit toujours rien**. Un article qui promet « phrase complète **et**
+backchannel » a donc **une moitié vide**.
+
+Deux issues, **ouvertes, non tranchées** :
+
+1. **mesurer le backchannel avant d'écrire** — ce qui suppose d'abord de le
+   décrire dans le prompt, donc une itération complète ;
+2. **un titre qui ne promet que la complétude** — honnête, et suffisant au vu de
+   ce qui est mesuré.
+
+À noter au passage : TurnSense a sa classe `invalid` et nous avons nos deux
+jetons ; le précédent existe, mais chez eux il est **entraîné**, ce qui reste
+dans l'axe.
+
+### ⚠️ Alerte à intégrer avant d'écrire une ligne de cet angle
+
+Le commit `d4762e5` de la session de tests établit, **par lecture directe du
+PDF** (Tableau 1 p. 3, § 4.4 p. 4), que **leur 0,858 est mesuré à Δt = 0,6 s**, et
+qu'à notre Δt de 1,2 s leur courbe culmine vers **~0,93** — donc **une douzaine
+de points d'écart, pas quatre**.
+
+**État de la question, vérifié dans le dépôt** : ce n'est plus une hypothèse à
+confirmer, la correction est **déjà propagée** dans `README.md` (§ intro et
+§ comparaison), `PAPIER.md` et deux passages de ce fichier. Ce qui reste
+explicitement fragile est signalé par le commit lui-même : le **~0,93 est lu sur
+un graphique** (±0,005, pas une valeur de tableau), et une **quatrième occurrence
+du 0,955** subsiste dans `bench/JOURNAL.md`, hors du périmètre de ce commit.
+
+**Conséquence sur l'angle, à trancher par Alex, pas ici** : le 0,858 sert de
+borne haute au calcul du « fine-tuning vaut 0,209 » de `PLAN.md`. Si l'écart
+comparable est d'une douzaine de points, **ce 0,209 est à relire avec le Δt de
+chacun**, et l'angle devient nettement moins flatteur — le prompting ne rattrape
+plus presque tout, il rattrape moins qu'annoncé. **Ne pas réécrire les passages
+existants sur la foi de cette note** : c'est une alerte de cohérence, la
+correction relève de la session qui a les mesures.
+
+*Piège de lecture noté dans le même commit, et il vaut ici :* **0,934 figure deux
+fois au Tableau 1 du papier, sur dGSLM** — soit exactement le chiffre de l'AUC du
+prototype sur le régime temps réel. Deux grandeurs sans aucun rapport. Ne pas les
+rapprocher par inadvertance en rédigeant.
