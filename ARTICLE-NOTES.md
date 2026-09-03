@@ -10,6 +10,10 @@ quatre points en attente sont tranchés, et **deux chiffres de ce fichier étaie
 faux** (le 0,955 et la latence « 1,2 s » des deux tableaux ci-dessous, corrigés).
 La définition de `<user is thinking>` reste ouverte.
 
+**Cahier des charges de reproduction : `DEMOS.md`** — leurs trois vidéos de démo
+transcrites verbatim, ce que chacune exige de nous, et l'état d'aujourd'hui en
+face (les vidéos elles-mêmes restent hors du dépôt).
+
 ## Le sujet
 
 DuplexCascade (arXiv 2603.09180) fait tenir une conversation vocale sans

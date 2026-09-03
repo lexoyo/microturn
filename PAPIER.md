@@ -13,11 +13,13 @@ ligne à ligne à ceux-ci (cf. § 7).
 et le § 4.4 (p. 4) sont relevés ligne à ligne ; ce qui en vient est marqué et
 n'a plus de réserve. Le reste garde la sienne (§ 0).
 
-Deux fiches voisines, à ne pas confondre :
+Trois fiches voisines, à ne pas confondre :
 - **celle-ci** — ce que dit le papier : thèse, jetons, réglages, résultats ;
 - **`FORMAT-CHERCHEURS.md`** — le *format* exact, papier **et** code lu dans
   `server.py` le 29/08 (chaînes littérales, structure ChatML, absence de prompt
   système). C'est là qu'il faut aller pour écrire un prompt, pas ici.
+- **`DEMOS.md`** — les trois vidéos de démo transcrites verbatim, et ce que
+  chacune exige de nous : c'est le cahier des charges de reproduction.
 
 ---
 
