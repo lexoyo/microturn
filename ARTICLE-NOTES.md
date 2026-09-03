@@ -103,6 +103,41 @@ sur la mesure censée trancher le sujet même de l'article. **Ne jamais publier 
 agrégat sans ses deux TOR** cesse d'être une précaution de méthode : c'est un
 résultat. Développé en partie IV.
 
+### 10. Le fine-tuning vaut environ 0,21 — et changer de modèle en rend les trois quarts
+
+Mesuré le 03/09 (`b2127ec`) : **notre prompt, tel quel, sur
+`qwen/qwen-2.5-7b-instruct`** — la même famille et la même taille que le Qwen2-7B
+que DuplexCascade fine-tune. Trois passes par modèle, deux sessions, rejeu
+déterministe.
+
+| | TOR fins ↑ | TOR pauses ↓ | justesse |
+|---|---|---|---|
+| `gemini-2.5-flash-lite` (nous) | **0,824** | 0,207 | **0,808** |
+| `qwen-2.5-7b-instruct`, prompté | **0,471** | 0,172 | **0,649** |
+| Qwen2-7B **fine-tuné** (le papier) | | | 0,858 |
+
+**Le chiffre qui manquait à l'article n'est pas 0,042. C'est 0,209 pour le
+fine-tuning, dont 0,159 rattrapés en changeant simplement de modèle.** Le
+prompting sur un bon petit modèle récupère les trois quarts de ce que coûtent
+8×H100 pendant cinq heures — mais **seulement sur un bon modèle**. Sur le leur,
+sans fine-tuning, notre prompt s'effondre. Développé en partie II, réserves
+comprises.
+
+### 11. Les deux mécanismes qu'on avait ajoutés au design du papier étaient les deux qui coûtaient
+
+Le 03/09, deux inventions maison ont été mesurées puis retirées : le **rappel du
+tour en cours** concaténé après le delta (retiré : +1 fin de tour sur 17 et 14 %
+de tokens en moins) et le **découpage TTS** (retiré : trois bugs, dont un qui
+rendait une phrase sur trois entièrement muette). Une troisième, le **repliage
+élargi**, a été mesurée puis rejetée avant d'entrer.
+
+Ce n'est pas une coïncidence dont on tire une morale : c'est un constat à trois
+occurrences, et il faut l'écrire comme tel — **chacun de ces trois mécanismes
+nous éloignait du design des chercheurs, et chacun coûtait.** Le corollaire n'est
+pas « ne rien inventer », il est plus utile : *un écart au design de référence
+est une hypothèse, donc il se mesure comme telle, et il ne se mesure jamais en
+même temps qu'un autre.*
+
 ## Chiffres de référence
 
 | | justesse | fins de tour | pauses ratées | latence |
@@ -122,6 +157,44 @@ nôtre comprise.
 
 Un système qui se tairait toujours obtiendrait 0,5. Un système qui parlerait
 toujours aussi. L'agrégat seul ne veut rien dire — il faut lire les deux TOR.
+
+### ⚠️ 0,816 ne décrit plus le code — la référence a bougé quatre fois le 03/09
+
+**C'est la chose la plus importante à savoir avant d'écrire une ligne de
+l'article ce soir.** La ligne « configuration retenue » ci-dessus a été mesurée
+le 02/09 sur une configuration qui comportait le **découpage TTS** (supprimé), la
+consigne **« courte »** (retirée) et le **tutoiement imposé** (retiré). Trois des
+éléments de sa définition n'existent plus. Le chiffre n'est pas faux : il a cessé
+de décrire quoi que ce soit.
+
+Ce que le 03/09 a effectivement mesuré, toujours sur les deux mêmes sessions
+sherpa, `gemini-2.5-flash-lite`, rejeu déterministe :
+
+| état du dépôt | passes | TOR fins ↑ | TOR pauses ↓ | justesse |
+|---|---|---|---|---|
+| config du 02/09 (avec découpage, « courte », tutoiement) | 5 | 0,812 | 0,179 | **0,816 ± 0,015** |
+| `b511c42` — sans « courte » | 3 | 0,824 (14/17) | 0,207 (6/29) | 0,808 |
+| `b5a6652` — sans tutoiement, + 3 commits | 3 | 0,765 (13/17) | 0,172 (5/29) | **0,796** |
+| `752f20d` — contrôle, reproduit | 3 | 0,765 ± 0,000 | 0,161 ± 0,020 | 0,802 ± 0,010 |
+| `752f20d` **+ rappel du tour retiré** | 3 | **0,824 ± 0,000** | **0,149 ± 0,020** | **0,837 ± 0,010** |
+
+Trois choses à en tirer, et aucune n'est confortable :
+
+1. **La fourchette 0,808–0,816 est périmée.** Une fin de tour a été perdue entre
+   `b511c42` et `b5a6652` — quatre commits et le retrait du tutoiement — et
+   **personne n'a isolé lequel**. Le contrôle est tombé à 0,796 sans qu'on
+   l'attende, et il a fallu s'en apercevoir en lisant un chiffre de contrôle.
+   C'est le résultat n° 5 bis en action : *une base doit être remesurée quand le
+   code bouge entre deux séries*, et cette fois nous ne l'avions pas fait.
+2. **La dernière ligne est le meilleur état mesuré du projet — et elle n'est pas
+   encore la configuration retenue.** Le retrait du rappel du tour vit dans
+   l'arbre de travail d'Alex, non commité au soir du 03/09. Tant qu'il n'est pas
+   commité et remesuré comme base, **le chiffre du projet reste à trancher**, et
+   l'article ne cite ni 0,816 ni 0,837 sans dire sur quel état du code.
+3. **La justesse agrégée a caché le mouvement, encore une fois.** Entre
+   `b511c42` et `b5a6652` elle ne perd que 0,012 — sous le bruit — quand la
+   dimension qui compte perd 0,059, soit ~4 σ de ce qu'une fin de tour vaut. Lire
+   l'agrégat seul aurait conclu « rien n'a bougé ».
 
 ## Décisions de conception, et pourquoi
 
@@ -187,20 +260,47 @@ pas de GPU.
   main : il ne diffuse rien au fil de l'eau, donc **le délai avant le premier
   son EST la durée de synthèse complète**. Ne pas confondre les deux dans le
   texte (voir la décomposition ci-dessous, et la réserve en partie IV).
-- **Découper la réponse avant de la synthétiser** (candidat 60, gardé). Puisque
-  le coût est linéaire — mesuré à **≈ 330 ms fixes + 60 ms par caractère** — ne
-  donner d'abord que les premiers mots divise d'autant le délai avant le son :
-  **2 890 → 1 135 ms en `medium` (−61 %)**, 1 721 → 844 ms en `low`. Le gain
-  vient de la longueur du premier morceau, pas du moteur.
-- **Ce qui décide que la parole ne se troue pas : le ratio synthèse / audio.**
-  `medium` synthétise **2,97 s pour 3,20 s d'audio, soit 0,93 — 7 % de marge** ;
-  `low` est à 0,58. Sous 1, les morceaux suivants arrivent avant que le
-  précédent ne finisse. **Décision d'architecture du 02/09 : le TTS est le
-  goulot du Pi pour une raison structurelle, pas par lenteur.** Le Pi passe la
-  chaîne complète à demi-fréquence (600 MHz, `RESULTATS-PI.md` §5) ; quand le
-  CPU descend, le ratio de `medium` passe au-dessus de 1 et les morceaux
-  n'arrivent plus à temps. ⚠️ **C'est une inférence, pas une mesure** : le lien
-  throttling → ratio > 1 → trous audibles n'a jamais été mesuré directement. Le
+- **Le découpage de la réponse a été supprimé le 03/09, et il ne fait plus
+  partie de la configuration retenue.** ⚠️ *Cette ligne remplace une description
+  périmée : les notes ont décrit pendant deux jours un système qui n'existait
+  plus.* Le mécanisme (candidat 60) divisait bien le délai avant le premier son
+  par 2,5 — **2 890 → 1 135 ms en `medium` sur le Pi**, 1 721 → 844 ms en `low`,
+  le coût de synthèse étant linéaire, ≈ 330 ms fixes + 60 ms par caractère. Mais
+  il a produit **les trois bugs les plus coûteux du projet** : la phrase sortie
+  en tranches, le détecteur de fin de phrase qui se déclenchait entre deux
+  morceaux, et la comptabilité des morceaux restants sous interruption. Retiré
+  au commit `763b91c`. **Ce qui reste de la mesure est le modèle de coût, pas le
+  mécanisme** — et le chiffre de 1 135 ms ne décrit plus rien d'existant.
+  L'arbitrage assumé à sa place : la phrase part d'un bloc, et le premier son
+  attend la fin de la synthèse (~0,2 s sur `shiao`, ~2,9 s sur un Pi 3B pour une
+  longue phrase).
+- **Le tube brut était une invention maison, et personne d'autre ne fait ça.**
+  Vérification d'état de l'art le 03/09 : aucun projet sérieux n'utilise
+  `piper --output-raw` — ni wyoming-piper (Home Assistant), ni rhasspy3, ni
+  pipecat, ni le serveur HTTP de piper. Tous gardent piper **résident**, et
+  exactement pour notre raison (le rechargement coûte 8 s sur le Pi), mais tous
+  écrivent **un WAV par phrase**. *Résident* et *tube* sont deux décisions
+  distinctes, et nous les avions prises comme une seule : c'est le tube qui
+  posait problème. Sans marqueur de fin dans le flux, on déduisait la fin de
+  phrase d'un silence de 0,35 s dans le tube — faux dès que piper partage le CPU
+  avec l'ASR, et le reste de la phrase sortait alors **avec la suivante**.
+  Mesure avant / après sur trois phrases enchaînées, en **durée d'audio
+  réellement servie au haut-parleur** (et non en délai) : 1,58 → 1,12 s,
+  **0,00 → 1,29 s — une phrase entièrement muette avant**, 2,41 → 1,43 s ; et une
+  phrase coupée puis reprise passe de muette à 2,97 s complète.
+  **Leçon d'article : là où l'on a inventé un protocole que tout l'écosystème
+  évite, ce n'est pas de l'audace, c'est une dette non identifiée.**
+- **Le ratio synthèse / audio reste le chiffre qui décide, mais il ne décide plus
+  la même chose.** `medium` synthétise **2,97 s pour 3,20 s d'audio, soit 0,93 —
+  7 % de marge** ; `low` est à 0,58. Tant qu'il y avait des morceaux, ce ratio
+  décidait si la parole se trouait en son milieu. Depuis que la phrase part d'un
+  bloc, **il ne décide plus d'un trou mais d'un délai** : au-dessus de 1, le
+  temps d'attente avant le premier son dépasse la durée de ce qu'on va entendre.
+  **Décision d'architecture du 02/09, toujours valable : le TTS est le goulot du
+  Pi pour une raison structurelle, pas par lenteur.** Le Pi passe la chaîne
+  complète à demi-fréquence (600 MHz, `RESULTATS-PI.md` §5), et le ratio de
+  `medium` passe alors au-dessus de 1. ⚠️ **C'est une inférence, pas une
+  mesure** : le lien throttling → ratio > 1 n'a jamais été mesuré directement. Le
   repli existe (`low`, ratio 0,58) mais échantillonne à 16 kHz au lieu de 22 —
   arbitrage de qualité à trancher à l'oreille. Protocole en `IDEES.md` § 12.
 - **Les deux secondes avant le son n'étaient pas le tampon ALSA.** Symptôme
@@ -254,6 +354,110 @@ pas de GPU.
   cascade de repli (strict → souple → `json_object` → rien) et un garde-fou qui
   vérifie chaque réponse contre l'énumération des sept marqueurs. Le prompt se
   transporte ; l'API sous laquelle il s'exécute, non.
+
+### Combien vaut le fine-tuning, exactement ? La mesure du 03/09
+
+C'est le chiffre qui manquait à l'article depuis le premier jour, et il change la
+thèse. Jusqu'ici nous écrivions « quatre points d'écart avec un modèle
+fine-tuné » — 0,858 contre 0,816 — en mélangeant sans le dire **deux** choses :
+leur entraînement, et le fait qu'ils tournent sur un Qwen2-7B quand nous tournons
+sur `gemini-2.5-flash-lite`. Une seule mesure les sépare : **notre prompt, tel
+quel, sur un Qwen de la même famille et de la même taille.**
+
+Qwen2-7B n'est plus servi sur OpenRouter ; `qwen/qwen-2.5-7b-instruct` est la
+génération suivante. Trois passes par modèle, lancées en parallèle, catalogue et
+code gelés dans une copie parce que le dépôt bougeait pendant la mesure.
+
+| | TOR fins ↑ | TOR pauses ↓ | justesse |
+|---|---|---|---|
+| `gemini-2.5-flash-lite` (nous) | **0,824** | 0,207 | **0,808** |
+| `qwen-2.5-7b-instruct`, **prompté** | **0,471** | 0,172 | **0,649** |
+| Qwen2-7B, **fine-tuné** (le papier) | | | 0,858 |
+
+**Le chiffre du fine-tuning est 0,209. Le changement de modèle en rattrape
+0,159.** Autrement dit : le prompting sur un bon petit modèle récupère les trois
+quarts de ce que coûtent 8×H100 pendant cinq heures — **mais seulement sur un bon
+modèle**. Sur le leur, sans entraînement, notre prompt s'effondre.
+
+C'est la formulation la plus honnête de la thèse, et elle est plus intéressante
+que l'ancienne : le prompting ne remplace pas le fine-tuning, **il déplace le
+budget de l'entraînement vers le choix du modèle**.
+
+**Le mécanisme, et il est net.** Distribution des marqueurs sur 897 décisions par
+modèle :
+
+| ce que le modèle répond | qwen | gemini |
+|---|---|---|
+| « sa phrase n'est pas finie » (`user is talking`) | **73 %** | 16 % |
+| « il se tait, mais il réfléchit » (`user is thinking`) | 11 % | **68 %** |
+| « il a fini » (`user finish talking`) | 109 fois | 132 fois |
+
+Une **inversion complète sur le silence**. Qwen prend la parole presque autant que
+gemini — 109 fois contre 132 — mais **au mauvais moment**. Et ce n'est pas un
+défaut de format : les deux modèles ont tenu le schéma strict sur 897 décisions
+sur 897, zéro repli, zéro erreur réseau. Le petit modèle n'est même pas celui qui
+perd le plus de décisions : c'est gemini, avec onze réponses tronquées.
+
+**Deux réserves, et elles ne sont pas décoratives** — elles jouent en sens
+inverse l'une de l'autre, et on ne sait pas laquelle domine :
+
+- **Notre prompt a été réglé sur gemini**, à travers cinquante-huit variantes. Le
+  faire tourner sur Qwen n'est pas « tout le reste identique » du point de vue de
+  Qwen : c'est un prompt étranger. **Une part inconnue des 0,209 est du réglage
+  que Qwen n'a jamais reçu, pas du fine-tuning.**
+- **Ils ont fine-tuné Qwen2 quand nous mesurons Qwen2.5.** Si 2.5 est meilleur en
+  base, l'écart vrai sur Qwen2 est *plus grand* que 0,209.
+
+**Le seul écart qui ne mélange rien est gemini ↔ Qwen à prompt identique :
+0,159**, mesuré sur le même banc, les mêmes sessions, le même jour. C'est celui
+sur lequel l'article doit s'appuyer. Toute soustraction avec 0,858 reste
+indicative : leur banc est Full-Duplex-Bench, en anglais, avec des pauses
+annotées par des humains ; le nôtre est deux sessions françaises d'Alex avec des
+pauses dérivées de ffmpeg.
+
+Détail qui vaut d'être gardé : le tic « je suis un grand modèle linguistique »
+est à **0 % chez Qwen** sur les deux sessions. C'est un trait de gemini, pas un
+effet de notre prompt.
+
+### Deux mécanismes de notre invention, retirés après mesure
+
+C'est le fil de la journée du 03/09, et il porte mieux la thèse que n'importe
+quel gain : **les deux ajouts qui nous éloignaient du design du papier étaient
+les deux qui coûtaient.**
+
+**Le rappel du tour en cours — retiré, et ça rapporte.** Le mécanisme
+concaténait tout le tour *après* le delta, pour que le modèle n'oublie pas la
+question quand le delta n'est qu'un marqueur de silence. Il coûtait deux choses :
+il **dupliquait** le texte (`… BUILD A DEEP LEARNING MODEL SO COULD YOU EX` après
+`MODEL SO COULD YOU EX`), et il **cassait le repliage des silences**, qui teste si
+le delta *se termine* par le marqueur — avec le rappel collé derrière, ce test est
+toujours faux. Mesuré (`8c02dcd`), trois passes : **13/17 → 14/17 fins de tour,
+écart-type nul des deux côtés**, sans rien payer en pauses (4,7 → 4,3 intrusions,
+donc dans l'autre sens), et **14 % de tokens d'entrée en moins** (871 → 745). *Le
+seul des quatre bras qui améliore les deux dimensions à la fois.*
+
+**Le repliage élargi — essayé, mesuré, rejeté.** Alex avait proposé un meilleur
+critère : replier dès que le modèle **répond deux fois la même chose**, au lieu
+d'exiger « il parle encore » — car le modèle répond « il réfléchit » sur 84 % des
+silences, et *c'est nous qui le lui avons appris*, par l'exemple ajouté pour
++0,025. Le critère élargi fait passer les replis de **2 % à 55 % des ticks**. **Et
+c'est pire** : 0,804 contre 0,824 en fins de tour, 0,241 contre 0,149 en pauses.
+
+Le mécanisme est le plus intéressant du lot et il mérite d'être expliqué dans
+l'article : **le repliage ne raccourcit pas le prompt** — 745 tokens sans lui, 858
+avec — il **libère des places dans l'historique**, que des micro-tours de *parole*
+viennent aussitôt occuper. Le modèle voit donc plus de parole, détecte une fin de
+tour de plus, et paie trois intrusions. *Un mécanisme d'économie qui, en
+économisant, change ce que le modèle voit.* C'est l'arbitrage bavard/prudent
+connu, obtenu par un chemin qu'on n'avait pas prévu.
+
+**Et la question de départ reste sans réponse.** Dire au modèle depuis combien de
+temps il attend — le suffixe `<\|no voice\|> ×{n}` sur les silences repliés —
+donne +0,3 fin de tour et +1,3 intrusion par passe, distributions recouvrantes :
+**non concluant à n = 3**. La question « est-ce que dire que ça dure aide à
+conclure ? » n'est pas tranchée ; elle est seulement devenue testable, et le
+mécanisme qui la rend testable coûte plus qu'il ne rapporte. Idée n° 1,
+variante a) d'`IDEES.md`.
 
 ### Le meilleur score n'est pas le nôtre
 
@@ -448,6 +652,44 @@ comme telle plutôt que reléguée en annexe.
   d'architecture différente**, et l'une d'elles avait fait écrire que le TTS
   n'était pas le goulot — ce qui était faux.
 
+#### Quatre pièges de plus, tous du 03/09
+
+- **Une mesure peut être vide sans qu'on le voie.** La première tentative sur le
+  suffixe `×{n}` a rendu un écart **nul** — six passes, le même chiffre au
+  millième sur les deux dimensions et sur chaque session prise à part. Pas
+  « petit » : nul. La cause a été trouvée dans la trace : **le repliage ne se
+  déclenchait que 13 fois sur 1 362 ticks de silence.** Deux verrous se cachaient
+  l'un l'autre — le critère exigeait « il parle encore » quand 84 % des silences
+  sont étiquetés « il réfléchit », et le rappel du tour tuait 92 % du reste.
+  **Les deux avaient été ajoutés séparément, chacun mesuré, leur interaction
+  jamais.** C'est un défaut de méthode en soi, pas une subtilité de la variante :
+  *deux mécanismes qui touchent au même champ doivent être mesurés ensemble au
+  moins une fois.*
+- **La fourchette de référence était périmée, et personne ne l'avait vu.** Le
+  contrôle est retombé à 0,796 au lieu des 0,808–0,816 attendus, sans qu'on sache
+  lequel des quatre commits récents coûte la fin de tour manquante. Voir
+  l'avertissement en tête de fichier. *Le contrôle n'est pas une formalité : ce
+  jour-là, c'est lui seul qui a signalé la régression.*
+- **`finish_reason` valait la peine d'être tracé.** Ajouté le matin (`cd5aac8`)
+  parce qu'un schéma contraint garantit la grammaire de chaque jeton mais pas que
+  la génération aille au bout. Le soir même, il expliquait une décision perdue en
+  session : `finish_reason = length`, `max_tokens = 60`, JSON coupé en plein mot
+  à `{"m": "<|user`. **La troncature ne coûte pas la fin de la phrase : elle
+  coûte la décision entière**, puisque le JSON devient illisible. Onze fois sur
+  897 chez gemini. `max_tokens` a été retiré ; le garde-fou est désormais le
+  `TIMEOUT`, qui limite le **temps** — la bonne grandeur dans une boucle à 1,2 s,
+  et qui rend une erreur franche au lieu d'un JSON tronqué.
+- **`maxLength` dans un schéma JSON n'est pas respecté à la lettre, mais il
+  influence fortement.** Mesuré le 03/09 : à limite de 200, la réponse fait
+  4 231 caractères — et pourtant aucune limite → 7 995 caractères, 200 → 4 231,
+  80 → 1 515, **sans jamais casser le JSON**. C'est donc un levier réel bien que
+  non contraignant, ce qui est un objet curieux et vaut d'être dit : *le schéma
+  contraint la forme, mais une borne numérique y agit comme une suggestion
+  statistique.* Essayé puis retiré sur décision d'Alex — on ne limite plus rien
+  du tout, comme les chercheurs, chez qui la longueur est apprise des données.
+  Le levier qui reste est le **prompt** : la consigne « courte » tenait les
+  réponses à 57 caractères contre 77 sans elle.
+
 ### Les trois bugs que ni la mesure ni la relecture n'ont vus
 
 À écrire sans l'adoucir, parce que c'est le contrepoint de tout ce qui précède.
@@ -485,6 +727,51 @@ mesure une décision ; il ne peut pas entendre. Un test qui exerce `Speaker` pou
 de vrai a été ajouté à la fumée, et il a attrapé le bug n° 2 dès sa première
 exécution.
 
+### Et trois de plus le 03/09 — le motif se confirme, et il a un nom
+
+Trois bugs, tous invisibles en rejeu, **tous trouvés parce qu'Alex écoutait**.
+Le motif n'est plus une anecdote de journée : c'est une propriété de notre
+dispositif de mesure, et l'article doit la nommer.
+
+1. **`_delta` devenait sourd, et c'est le pire des trois.** Un ASR en flux
+   *complète* son dernier mot au fil de la reconnaissance — `M'ENTEND` devient
+   `M'ENTENDS` — et en français les élisions rendent le phénomène permanent. Le
+   dernier mot vu ne peut donc pas servir d'ancre : les trois ancrages rataient,
+   et le repli comptait le même nombre de mots des deux côtés, donc rendait
+   **zéro**. Résultat en session : **quarante secondes de conversation morte**,
+   pendant lesquelles le modèle n'a jamais rien reçu d'autre que `SALUT TU M'`.
+   Et il répondait « il parle encore » à chaque tick — **ce qui était la bonne
+   réponse à ce qu'il voyait**. Correctif en deux temps : ancrage complet puis
+   sur les mots stables (`2c3de52`), puis alignement gauche-droite par
+   `difflib.get_matching_blocks` au lieu d'une recherche depuis la fin, qui
+   s'accrochait à la mauvaise occurrence dès qu'un mot se répétait (`160affb`).
+   Le filet compte désormais des **caractères** et non des mots — `m'` →
+   `m'entends` ne gagne aucun mot mais sept caractères. **Rejeu de la session
+   cassée : 1 prise de parole → 18.** `tests/delta.py` est passé de 7 à 20 cas.
+2. **Le TTS passait par un tube brut**, protocole que personne d'autre n'utilise.
+   Détaillé en partie I.
+3. **Les deux backchannel étaient dans l'`enum` du schéma mais pas dans le code
+   qui lit la réponse.** `lire_controle` ne testait que quatre marqueurs sur six :
+   le modèle avait donc parfaitement le droit de les choisir — et il les
+   choisissait — mais la décision tombait en « hors format » et **était jetée**,
+   alors que le catalogue promet qu'ils sont « ramenés à *ne prends pas la
+   parole* ». Un signal d'écoute n'est pas une prise de parole : c'est
+   `reflechit`. *Un `enum` qui offre plus de valeurs que le code n'en traite est
+   un piège silencieux, et il ne se voit que sur la trace d'une session réelle.*
+
+**Ce que ça dit, et c'est bon pour l'article** : notre meilleur outil — le rejeu
+déterministe — achète sa reproductibilité en figeant l'entrée. Or les trois bugs
+du 29/08 venaient de la **sortie physique** (`Speaker`, débranché en `--muet`) et
+celui du 03/09 vient de l'**entrée en flux** (`_delta`, dont le rejeu ne rejoue
+que des transcriptions déjà stabilisées). **Le banc mesure ce qui se passe entre
+les deux, et il est structurellement aveugle aux deux bouts.** C'est la
+formulation générale, et elle vaut mieux que « il faut plus de tests ».
+
+Corollaire opérationnel, déjà appliqué deux fois avec succès : **quand un bug de
+bout est trouvé en session, on en fait un cas de test unitaire et on rejoue la
+session cassée en comptant les prises de parole.** 1 → 18 sur `_delta`, 13/13 à la
+fumée sur le TTS. C'est la seule boucle qui rattrape ce que le banc ne voit pas.
+
 ## III. Tout capteur devient du texte
 
 - **La preuve d'existence est déjà là** : `SILENCE` est un VAD textualisé, occupant
@@ -521,11 +808,20 @@ donc chaque capteur retombe sous le budget de départ.*
 
 ## IV. Où on en est, et ce qui reste ouvert
 
-Chiffres honnêtes en regard : 0,858 pour DuplexCascade, **0,816 pour nous**.
+Chiffres honnêtes en regard : 0,858 pour DuplexCascade, **0,816 pour nous** au
+02/09 — et ce dernier chiffre est **en cours de remplacement**, voir
+l'avertissement en tête de fichier.
 
-C'est la moyenne de **cinq passes** de la configuration retenue — sherpa-onnx à
-deux threads, `systeme_sherpa` avec tutoiement imposé, découpage TTS, horizon
-20 micro-tours, `gemini-2.5-flash-lite` — sur les deux sessions.
+0,816 est la moyenne de **cinq passes**, sur les deux sessions, de la
+configuration telle qu'elle était le 02/09 : sherpa-onnx à deux threads,
+`systeme_sherpa` avec la consigne « courte » et le tutoiement imposé, découpage
+TTS, horizon 20 micro-tours, `gemini-2.5-flash-lite`.
+
+⚠️ **Trois de ces cinq éléments ont été retirés le 03/09** — le découpage TTS, la
+consigne « courte », le tutoiement. Le dernier état mesuré, trois passes, donne
+**0,824 en TOR fins, 0,149 en TOR pauses, 0,837 en justesse**, et il n'est pas
+encore commité. Tout ce qui suit dans cette partie a été écrit contre 0,816 : les
+raisonnements de méthode tiennent, **les chiffres sont à repasser**.
 
 ### Le chiffre du projet est 0,816, et 0,826 était le haut de la distribution
 
@@ -609,6 +905,15 @@ l'ingénierie de mesure ramassent quand on ne peut pas entraîner.
 | `systeme_sherpa` (la phrase sur la casse) | +0,063 |
 | tutoiement imposé | tic 32 % → 0 % |
 
+⚠️ **Le tableau a vieilli en un jour, et il faut le dire dans l'article.** Le
+03/09, le tutoiement a été **retiré du prompt à la demande d'Alex**, sans mesure
+préalable — comme la consigne « courte » la veille. Deux des sept changements
+gardés ne sont donc plus dans le code, dont un dont l'effet était chiffré (tic de
+formulation 32 % → 0 %, réponses de 68 à 43 caractères). *Un changement retiré
+n'est pas un changement neutre : son retrait est lui-même à passer au banc.*
+Et une huitième ligne attend d'y entrer : **le rappel du tour en cours retiré**,
++1 fin de tour sur 17, reproduit trois fois sur trois, 14 % de tokens en moins.
+
 ⚠️ **Deux lignes de ce tableau ne survivent pas au modèle de bruit corrigé** :
 +0,025 et +0,05 ont été mesurés sur une passe unique, quand l'écart entre deux
 passes a pour écart-type ~0,021. Elles sont **non conclusives**, pas fausses. À
@@ -632,7 +937,9 @@ contre 2 pour whisper. La configuration retenue en compte **2 par session**,
 soit le niveau de whisper, à latence inchangée. Aucun des changements gardés
 depuis ne visait les coupures. **À ne pas revendiquer comme un correctif** :
 c'est un effet de bord non expliqué, entre le tutoiement, le découpage TTS et le
-passage aux deux sessions. À isoler avant d'en écrire quoi que ce soit.
+passage aux deux sessions. À isoler avant d'en écrire quoi que ce soit — **et
+deux des trois suspects ont depuis été retirés du code**, donc la mesure qui
+l'isolerait est à refaire de zéro.
 
 Et la question ouverte, posée à la communauté : le décideur est le dernier étage
 qui n'est pas local.
@@ -842,6 +1149,14 @@ qui n'a toujours aucune mesure — le seul indicateur de qualité de réponse ja
 compté reste la part de réponses portant le tic de formulation (32 % → 0 %).
 C'est aussi ce qui laisse la variante 55 (les relances vides) indécidable.
 
+**Mise à jour du 03/09** : la mesure Qwen apporte un élément à la seconde
+dimension sans l'avoir cherché — le tic de formulation est à **0 % chez Qwen**
+contre 32 % chez gemini avec la même consigne, donc *c'est un trait du modèle et
+non du prompt*. Et le retrait de « courte » le ramène de 4 % à 30 % chez gemini
+**sans déplacer d'un iota la justesse de détection** (0,824 en TOR fins des deux
+côtés). Deuxième démonstration, indépendante de celle du tutoiement, que **les
+deux axes sont mesurablement disjoints**.
+
 Réserves à reprendre telles quelles dans l'article : **17 fins de tour et 29
 pauses, c'est peu** — une fin de tour vaut 0,059 de TOR, donc les écarts sont
 donnés à ±1 tour près. Et « détection seule » emporte **trois** changements à la
@@ -862,7 +1177,8 @@ déjà résident :
 - **2 805 ms** pour une phrase de 41 caractères (mesure de 14 h 08, celle qui a
   décidé du découpage) ;
 - **2 890 ms** pour la phrase entière en `medium`, ramenée à 1 135 ms découpée
-  (même mesure de 14 h 08).
+  (même mesure de 14 h 08). ⚠️ *La branche « découpée » n'existe plus depuis le
+  03/09 ; seule la valeur pleine phrase reste dans le périmètre.*
 
 Un facteur 3,5 sépare les deux premières, à dix minutes d'intervalle et à
 longueur de phrase identique. Deux explications possibles, et **le journal ne
@@ -878,6 +1194,14 @@ le tampon ALSA — tient quand même, parce qu'elle vient de la comparaison des
 quatre tailles de tampon et pas du poste piper. Mais la répartition des postes
 ne peut pas être publiée telle quelle. À refaire en une passe, sur une machine
 nommée.
+
+**Et la question s'est simplifiée le 03/09 sans être résolue.** Depuis le retrait
+du découpage, il n'y a plus qu'une grandeur à mesurer et elle a un nom exact :
+**le délai entre la fin de l'appel au modèle et le premier échantillon envoyé au
+haut-parleur, pour la phrase entière, piper résident.** Une seule mesure, sur une
+machine nommée, la remplacerait toutes. Le commit `5d9e0e4` avance ~0,2 s sur
+`shiao` et ~2,9 s sur un Pi 3B pour une longue phrase — **ce sont des ordres de
+grandeur annoncés dans un message de commit, pas la mesure attendue ici.**
 
 ### À trancher avant publication : la borne haute à ASR parfait est périmée
 
