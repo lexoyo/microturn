@@ -21,9 +21,16 @@ dessein. Tout ce qui a été mesuré avant est périmé, **0,837 compris**. C'es
 prix assumé d'un changement de cible.
 
 **Trois jetons sur six ne sortaient jamais** parce qu'ils sont définis « pendant
-que tu parles » et que le modèle ne le sait pas : 0 `<user is interrupting>` sur
-897 décisions. La sortie ne passe pas par l'enrichissement de l'entrée mais par
-un déplacement de la décision — voir l'étape 3.
+que tu parles » et que le modèle ne le sait pas : **0 sur 897 décisions**
+(`bench/JOURNAL.md`, `gemini-2.5-flash-lite`, la configuration retenue). La
+sortie ne passe pas par l'enrichissement de l'entrée mais par un déplacement de
+la décision — voir l'étape 3.
+
+⚠️ **Ce 0/897 porte sur `<|user interruption|>`, l'ancien nom** : il a été
+mesuré avant `d721c84`, qui a renommé les jetons **et** multiplié la fenêtre par
+13,5. L'écrire `<user is interrupting>` laisserait croire que la mesure a été
+refaite depuis — elle ne l'a pas été. C'est l'étape 2 qui la refera. *(Et le
+« 0 sur 153 » de `PLAN.md` n'a aucune session en face : ne pas le citer.)*
 
 **Aucun son n'est généré.** Rien du banc de démos n'existe aujourd'hui.
 
@@ -136,7 +143,24 @@ sur 471** — fidélité 0,807 contre 0,979 possible. La cause tient en une phra
 **préfixe du segment**. Le recollage de `stt.py`, lui, faisait déjà bien son
 travail (0,964).
 
-**Ce qui n'est PAS démontré : que ces 68 mots changent une décision.** La
+⚠️ **Le gain de l'agrégateur pour NOTRE aval n'est pas établi, et ce 0,979 ne
+peut pas servir tel quel de justification.** Il se lit `fid`, révocations
+appliquées — c'est le chiffre d'un aval qui **sait défaire**. Au même point de
+fonctionnement, la lecture `fid+` (un aval qui ne défait rien, ce qu'est un
+prompt de LLM) donne **0,9639**. Et le `fid+` de `stt.py` seul **n'est pas
+mesuré** : la paire « 0,979 contre 0,964 » n'a donc **aucune comparaison propre
+derrière elle** — les deux nombres ne se lisent pas dans la même colonne, et
+0,964 s'écrit numériquement pareil que le `fid` de `stt.py`, ce qui achève de
+brouiller la lecture. **À demander à la session de tests avant de s'appuyer sur
+cette étape** : le `fid+` de `stt.py` seul, au même point de fonctionnement.
+Tant qu'il manque, on sait que `_delta` abîme le texte (0,807 est mesuré des
+deux côtés), pas de combien l'agrégateur fait mieux que `stt.py` seul chez nous.
+
+⚠️ **Collision d'écriture** : ce **0,807** est une *fidélité de recollage*. Le
+0,807 de « la base sherpa était 0,807 » (`ARTICLE-NOTES.md`, partie IV) est une
+*justesse de décision*. Même nombre, deux grandeurs sans rapport.
+
+**Ce qui n'est PAS démontré non plus : que ces 68 mots changent une décision.** La
 fidélité du texte n'est pas la justesse de la détection. Le test est simple —
 corriger, relancer le banc de l'étape 2, regarder si la justesse bouge.
 

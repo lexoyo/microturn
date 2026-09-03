@@ -2075,6 +2075,13 @@ comme si le décideur devait tout porter, en oubliant la règle posée deux jour
 plus tôt. **À corriger avant que la grille serve de cahier des charges au banc
 neuf** — c'est elle qui condamne les démos 2 et 3, et elle les condamne à tort.
 
+*Fait le 04/09 au soir* : `DEMOS.md` § 4 est réécrit. La grille ne dit plus
+« hors d'atteinte » mais **ce qui manque réellement, démo par démo** — une ligne
+de prompt et un bout de code d'hôte, jamais un état à donner au modèle. La
+version fausse n'est pas effacée : le § 4 s'ouvre sur un encadré qui dit ce que
+concluait la version du matin et pourquoi elle se trompait. Une grille fausse
+aurait envoyé tout le banc neuf de travers.
+
 *Rien à changer dans la règle elle-même* : c'est bien l'hôte, et non
 l'observateur, qui fait la déduction — l'aval reste ignoré.
 
@@ -2141,6 +2148,15 @@ seule constante a été balayée, sur un effet de seuil, pas sur un optimum.
    **À demander à la session de tests avant publication : le `fid+` de `stt.py`
    seul, qui n'est pas mesuré.** Sans lui, la paire « 0,979 contre 0,964 » n'a
    pas de comparaison propre derrière elle.
+
+   **Conclusion à écrire telle quelle, faute de mieux : le gain de l'agrégateur
+   *pour notre aval réel* n'est pas établi.** Ce qui est établi, et des deux
+   côtés dans la même lecture, c'est que `_delta` abîme le texte (0,807). De
+   combien l'agrégateur fait mieux que `stt.py` seul une fois la révocation
+   retirée, personne ne le sait — et on ne comblera pas le trou en soustrayant
+   deux nombres qui ne se lisent pas dans la même colonne. La même réserve est
+   portée dans `PLAN-REPRO.md`, étape 4, qui utilisait ce 0,979 comme
+   justification.
 2. **Le corpus s'est arrêté à 44 sessions décodées sur 89**, faute de temps de
    calcul — pas au vu d'un score — puis **35 après correction d'une fuite** :
    neuf sessions partageaient leur `entree.wav` (des rejeux de la même

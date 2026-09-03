@@ -156,11 +156,16 @@ n'est pas une interruption. C'est une séquence de trois :
 **La démo teste les deux comportements coup sur coup, et c'est ce qui la rend
 difficile : le même mot, « Okay », joue les deux rôles selon le moment.** Un
 système qui déciderait sur le vocabulaire échoue forcément ici ; il faut décider
-sur autre chose — position dans le flux, longueur, contenu propositionnel, état
-courant de l'assistant.
+sur autre chose — longueur, position dans le flux, et surtout **contenu
+propositionnel** de la ligne entière.
 
 *Précision d'Alex, 03/09, à la lecture de la vidéo. Elle ne se déduit pas du
 texte du transcript, qui aplatit les trois en une ligne.*
+
+⚠️ *Une version antérieure de ce paragraphe listait aussi « l'état courant de
+l'assistant » parmi les signaux nécessaires. Retiré le 04/09 : c'est de là
+qu'est partie la grille fausse du § 4. L'état existe, mais il est chez l'hôte —
+il ne sert pas à reconnaître un backchannel, seulement à déduire l'interruption.*
 
 ## 2. Les backchannels de l'assistant arrivent **en tête** de réponse
 
@@ -215,59 +220,128 @@ cascade, partagée, pas une faiblesse de leur travail.
 
 ## 4. La grille — ce que chaque démo exige de nous
 
-| démo | ce qu'elle exige | on sait faire ? |
+### ⚠️ Cette grille dit l'inverse de sa version du 04/09 au matin
+
+**La version précédente (commit `30ce1e3`) donnait les démos 2 et 3 pour hors
+d'atteinte**, au motif que `<user is interrupting>` ne sort jamais et que le
+modèle ne sait pas qu'il est en train de parler — donc qu'il fallait d'abord
+remplir la section `[etats]` du catalogue. **C'est faux, et ça l'était déjà
+quand ça a été écrit.**
+
+`SPEC-PIVOT.md` § 2, tranché le 02/09, disait déjà : *« Une interruption, c'est
+un `speaking` reçu pendant que l'agent parle. La première moitié est une
+observation, la seconde n'est connue que de l'appelant : c'est donc à l'appelant
+de faire l'interprétation. »* La grille du matin a raisonné comme si le décideur
+devait tout porter, en oubliant une règle posée deux jours plus tôt et
+versionnée.
+
+**Position arrêtée par Alex le 04/09, et c'est celle de la grille ci-dessous :
+l'état de l'assistant n'a pas à entrer dans le modèle.** On a failli renoncer à
+deux démos sur trois pour une contrainte qui n'existe pas. La trace est gardée
+exprès : le raisonnement faux fait partie du projet.
+
+### La grille
+
+| démo | ce qu'elle exige | ce qui manque, précisément |
 |---|---|---|
-| **1. Multi-turn QA** | mémoire longue de l'historique, six tours, résumé fidèle en fin | **non mesuré.** Le banc porte sur la décision de prendre la parole, pas sur la fidélité du contenu sur six tours. Rien à citer aujourd'hui |
-| **2. User backchannel + interruption** | ignorer deux backchannels utilisateur **pendant** qu'on parle, puis s'arrêter à la vraie interruption — dans la même séquence | **non.** Sur les deux volets, voir ci-dessous |
-| **3. Assistant backchannel** | émettre `[Mhmm.]` en tête de réponse, plus une interruption en fin | **non.** Le jeton existe, le prompt l'ignore |
+| **1. Multi-turn QA** | mémoire longue de l'historique, six tours, résumé fidèle en fin | **rien d'identifié comme bloquant — et rien de mesuré.** Le banc porte sur la décision de prendre la parole, pas sur la fidélité du contenu sur six tours. Rien à citer aujourd'hui |
+| **2. User backchannel + interruption** | ignorer deux backchannels utilisateur **pendant** qu'on parle, puis s'arrêter à la vraie interruption — dans la même séquence | **une ligne de prompt et un ET logique dans l'hôte.** Pas un état à donner au modèle |
+| **3. Assistant backchannel** | émettre `[Mhmm.]` en tête de réponse, plus une interruption en fin | **une ligne de prompt et un lecteur de clips dans l'hôte.** Le jeton existe, le code le ramène à « ne prends pas la parole » |
 
 ### L'état côté microturn, sans arrondir
 
-**L'interruption ne sort jamais.** `<|user interruption|>` n'a **jamais** été
-émis — *0 fois sur 153 décisions* (`PLAN.md` § 6, étape 0). La cause est
-identifiée et n'est pas dans le modèle : **la section `[etats]` du catalogue est
-vide dans les deux catalogues**, donc le modèle ne sait pas que l'assistant est
-en train de parler. Sans cet état, « interrompre » n'a littéralement pas de
-sens à lui présenter. Corollaire visible dans les traces : toutes les lignes de
-log affichent `[muet]` quel que soit l'état réel.
+**L'interruption se déduit dans l'hôte, et le jeton disparaît.** Un
+`<user is speaking>` reçu pendant que l'hôte lit une réponse **est** une
+interruption : l'hôte est le seul à savoir qu'il parle, et il le sait
+exactement — par état interne, pas par inférence. On remplace un marqueur qui
+ne sortait jamais par un ET logique déterministe. `<user is interrupting>` est
+donc voué à être **retiré du catalogue** (`PLAN-REPRO.md`, étape 3.1). Rien à
+ajouter dans l'entrée du modèle, et la règle de `SPEC-PIVOT.md` § 2 tient : ce
+n'est pas l'observateur qui déduit, c'est l'appelant.
 
-**Les backchannels sont dans l'`enum`, et dans aucune instruction.**
-`<|user backchannel|>` et le backchannel assistant existent comme valeurs
-acceptées du schéma, mais **aucune ligne du prompt n'en parle** — ni pour dire
-de les produire, ni pour dire de les ignorer. Ils étaient même **jetés par le
-code** : `lire_controle` ne testait que quatre marqueurs sur six, et toute
-décision qui en choisissait un tombait en « hors format ». Corrigé au commit
-`b5a6652` (03/09). Le prompt, lui, n'en dit toujours rien.
+*Dépendance à ne pas perdre de vue* : cette déduction suppose que l'hôte sache
+**jusqu'à quand** il parle. `ATTAQUE_S` et `DEBIT_CAR_S` sont faux d'un facteur
+3 — l'état « je parle » s'y termine trop tôt. À corriger avant de mesurer quoi
+que ce soit sur la démo 2 (`PLAN-REPRO.md`, étape 3.4).
+
+**Le backchannel utilisateur se reconnaît au CONTENU, pas à l'état.** « okay »,
+« yes », « mhm » sont des signaux d'écoute quel que soit le moment ; le modèle a
+le texte, ça lui suffit. Ce qui manque n'est donc pas une information d'état
+mais **une instruction**. Aujourd'hui les deux backchannels sont bien listés
+parmi les marqueurs et glosés ligne à ligne, mais **glosés par le moment**
+(`locales/en.toml:25` — *« a listening signal while you speak — ignore it, go
+on »*), c'est-à-dire par une condition que le modèle ne peut pas évaluer. Aucune
+ligne ne dit **quand en émettre**, et **aucun des sept exemples n'en montre un**
+en sortie. Les définir par ce qu'ils sont, et non par le moment où ils tombent,
+est le travail de l'étape 3.2.
+
+*Ce que ça n'efface pas* : le § 1 ci-dessus reste vrai — un système qui
+trancherait sur le **vocabulaire** échoue à la démo 2, puisque le même « Okay »
+y joue les deux rôles. Décider sur le contenu veut dire sur le contenu
+**propositionnel** de la ligne entière (« Okay » seul contre « Okay, please
+summarize in one sentence »), pas sur la présence du mot.
+
+**`<system backchannel>` n'est pas traité par le code, et là c'est un vrai
+manque.** Il est ramené à `reflechit`, soit « ne prends pas la parole »
+(`llm.py`, `lire_controle`) : même émis, il ne se passe rien. Eux jouent un
+**clip audio pré-synthétisé tiré au hasard**. C'est du code d'hôte, pas du
+prompt — étape 3.3.
+
+Rappel de l'historique du code, pour ne pas republier une version périmée du
+constat : les deux backchannels étaient **jetés** jusqu'au 03/09 —
+`lire_controle` ne testait que quatre marqueurs sur six et toute décision qui en
+choisissait un tombait en « hors format ». Corrigé au commit `b5a6652`.
 
 ### ⚠️ Un chiffre à recouper avant de le sortir du dépôt
 
-Le « 0 fois sur 153 » ci-dessus **n'existe que dans `PLAN.md`**, sans session
-nommée en face. Le chiffre tracé le plus proche est dans `bench/JOURNAL.md` :
-sur **897 décisions** (trois passes, deux sessions sherpa, rejeu déterministe),
-`<|user interruption|>` sort **0 fois avec `gemini-2.5-flash-lite`** — la
-configuration retenue — et **27 fois avec Qwen**, qui est le modèle écarté. Même
-distribution, `<|user backchannel|>` : **0 pour gemini**, 3 pour Qwen.
+Le relevé tracé est dans `bench/JOURNAL.md` : sur **897 décisions** (trois
+passes, deux sessions sherpa, rejeu déterministe), le marqueur d'interruption
+sort **0 fois avec `gemini-2.5-flash-lite`** — la configuration retenue — et
+**27 fois avec Qwen**, qui est le modèle écarté. Même distribution pour le
+backchannel utilisateur : **0 pour gemini**, 3 pour Qwen. Le 27 de Qwen n'est
+pas un résultat du projet.
 
-Les deux relevés vont dans le même sens, mais ce n'est pas la même mesure :
-**citer le 0/897 de la configuration retenue**, qui a une session derrière lui.
-Le 27 de Qwen n'est pas un résultat du projet, et le 153 est à rattacher à sa
-session ou à retirer.
+Trois précautions avant d'en citer une ligne :
+
+1. **Ce 0/897 porte sur `<|user interruption|>`, l'ancien nom.** Il a été mesuré
+   **avant** `d721c84`, qui a renommé les jetons. Le republier sous le nom
+   d'aujourd'hui laisserait croire que la mesure a été refaite depuis. Elle ne
+   l'a pas été.
+2. **Le même commit a fait passer la fenêtre d'historique de 20 à 270 entrées**,
+   sans mesure. Le constat « l'interruption ne sort jamais » est donc à
+   **remesurer** avant d'être publié comme un résultat — même si tout laisse
+   penser qu'il tiendra.
+3. **Le « 0 fois sur 153 » qui circule dans `PLAN.md` n'a aucune session en
+   face** : à rattacher à sa session ou à retirer, pas à citer.
+
+Et de toute façon, avec la grille ci-dessus, **ce chiffre ne condamne plus
+rien** : il décrit un jeton qu'on retire, pas une démo qu'on ne peut pas faire.
 
 ---
 
 ## Ce que ça donne comme file d'attente
 
-Dans l'ordre, parce que chaque étape est la condition de la suivante :
+Dans l'ordre, parce que chaque étape est la condition de la suivante. Le plan
+détaillé est dans `PLAN-REPRO.md` ; ce qui suit n'en est que la lecture par
+démo.
 
-1. **Remplir `[etats]`.** Rien du volet interruption n'est testable tant que le
-   modèle ignore que l'assistant parle. C'est déjà l'étape 0 de `PLAN.md`, et
-   les démos 2 et 3 en dépendent toutes les deux.
-2. **Reproduire la démo 2 comme cas de test**, avec sa structure à trois actes —
-   deux backchannels pendant la parole, une interruption après. C'est le test le
-   plus discriminant des trois : il échoue si la décision s'appuie sur les mots.
-3. **Ne toucher au backchannel assistant qu'après**, et **mesuré isolément, avec
-   et sans, sur les deux TOR séparés** (`PAPIER.md` § 6). Chez eux, il coûte
-   0,110 de justesse et multiplie le TOR de pauses par 5,9 — et *leur
-   configuration phare n'en a pas*. Reproduire la démo 3, c'est donc reproduire
-   la variante β, pas celle qu'ils mettent en avant. *(Inférence : la page de
-   démo ne dit pas quelle configuration tourne dans quelle vidéo — à confirmer.)*
+1. **Monter le banc des trois scénarios, et mesurer l'existant dessus**
+   (`PLAN-REPRO.md`, étapes 1 et 2). Sans avant, aucune correction ne se juge.
+   La démo 1 est la seule qui puisse tourner telle quelle aujourd'hui : c'est
+   elle qui donne la première référence.
+2. **Corriger la durée de parole** (`ATTAQUE_S`, `DEBIT_CAR_S`), puis **déduire
+   l'interruption dans l'hôte** et retirer le jeton. C'est la démo 2, volet
+   interruption, et elle ne demande rien au modèle.
+3. **Réécrire les deux backchannels dans le prompt** — par le contenu, avec une
+   consigne d'émission. C'est la démo 2, volet backchannel, et la moitié de la
+   démo 3.
+4. **Traiter `<system backchannel>` dans le code** — quelques WAV courts,
+   générés une fois. C'est l'autre moitié de la démo 3.
+
+Chaque correction se mesure **séparément**, sinon on ne saura pas laquelle a
+payé. Et le backchannel assistant se mesure **avec et sans, sur les deux TOR
+séparés** (`PAPIER.md` § 6) : chez eux il coûte 0,110 de justesse et multiplie
+le TOR de pauses par 5,9 — *leur configuration phare n'en a pas*. Reproduire la
+démo 3, c'est donc reproduire la variante β, pas celle qu'ils mettent en avant.
+*(Inférence : la page de démo ne dit pas quelle configuration tourne dans quelle
+vidéo — à confirmer.)*

@@ -276,10 +276,16 @@ Ordre contraint : chaque étape est le filet de la suivante.
 
 Sinon on extrait du mensonge.
 
-- Trancher `[etats]` (QC C1/G4) : la section est **vide** dans les deux
-  catalogues, donc le modèle ne sait pas que l'assistant parle, `<|user
-  interruption|>` n'est jamais sorti (0 fois sur 153), et **toutes les lignes de
-  log affichent `[muet]`** quel que soit l'état réel.
+- ~~Trancher `[etats]`~~ **tranché le 04/09, et dans l'autre sens** : la section
+  reste **vide**, l'état de l'assistant n'entre pas dans le modèle. L'hôte est
+  le seul à savoir qu'il parle et il le sait exactement ; l'interruption s'y
+  déduit par un ET logique, et `<user is interrupting>` sort du catalogue
+  (`DEMOS.md` § 4, `PLAN-REPRO.md` étape 3.1, règle de `SPEC-PIVOT.md` § 2).
+  Reste vrai et reste à corriger : **toutes les lignes de log affichent
+  `[muet]`** quel que soit l'état réel.
+  ⚠️ Le « 0 fois sur 153 » que portait cette ligne **n'a aucune session en
+  face** : le relevé traçable est 0 sur 897 (`bench/JOURNAL.md`), et il porte
+  sur l'ancien nom de jeton, avant `d721c84`. Ne pas citer le 153.
 - Supprimer le code mort du candidat 59 (`TICKS_SILENCE`) et `Vosk`.
 - Corriger G3 : `robot_parle` n'est jamais rafraîchi en rejeu déterministe. Mine
   amorcée pour le jour où les marqueurs d'état reviennent.
