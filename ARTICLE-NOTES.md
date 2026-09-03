@@ -1444,3 +1444,202 @@ prix de plusieurs appels.
 **Laquelle des deux voies marche effectivement sur `gemini-2.5-flash-lite` via
 OpenRouter n'est pas encore connue — la mesure tourne.** Point ouvert, à
 compléter ; ne rien en déduire d'ici là.
+
+### L'agrégateur derrière le STT : l'étage neuf prend forme — 03/09 au soir
+
+Séance de conception sur la couche identifiée le matin même (`SPEC-PIVOT.md`
+§ 12) : ce qui vit **entre l'ASR et le modèle**. Rien de ce qui suit n'est
+mesuré — c'est de la conception adossée à une relecture de code et à une
+recherche bibliographique. Aucun chiffre nouveau n'entre ici.
+
+#### La frontière stable/instable n'est pas à deviner : sherpa la donne déjà
+
+Le réflexe était de reconstruire la stabilité avec un timer — « un mot qui n'a
+pas bougé depuis N millisecondes est acquis ». En relisant `stt.py`, il s'avère
+que l'information existe déjà et qu'elle est de meilleure qualité que ce qu'un
+chrono pourrait produire : sherpa maintient d'un côté `fige` — les segments
+fermés, que le décodeur ne reverra **jamais** — et de l'autre `get_result()`, le
+segment courant, révisable à chaque bloc de 300 ms.
+
+Le hic est ailleurs, et il est structurel : **`fige` ne se remplit qu'à
+l'endpoint**, donc après 1,2 s (règle 2) à 2,4 s (règle 1) de silence. Un
+décideur qui tourne à 1,2 s n'a, à l'instant où il décide, encore **rien** de
+garanti. La certitude arrive après la décision qu'elle devait servir.
+
+D'où une sortie à **trois tiers** et non deux :
+
+| tier | source | garantie |
+|---|---|---|
+| `figé` | `fige` de sherpa | ne bougera plus, garanti par l'ASR |
+| `probable` | segment courant, mots que le décodeur a dépassés et qui n'ont pas bougé depuis K blocs | heuristique de l'agrégateur |
+| `provisoire` | la queue en cours d'écriture | change au bloc suivant |
+
+**L'angle d'article** : le tier intermédiaire n'est pas une invention de
+microturn. Trois moteurs l'ont fabriqué séparément, chacun sous un nom
+différent — la `stability` de Google, le `stop_history_eou` de NVIDIA Riva, le
+`PREFLIGHT_TRANSCRIPT` de LiveKit (déjà noté dans `PLAN.md`, section contrat
+d'entrée). Quand quatre équipes qui ne se parlent pas ajoutent le même étage,
+ce n'est plus une coquetterie d'implémentation, c'est que le contrat à deux
+états est faux.
+
+#### « Figé » ne veut pas dire « correct » — et c'est un piège de vocabulaire
+
+Le tier `figé` a la meilleure garantie du lot, et cette garantie ne porte **pas**
+sur la justesse : elle porte sur l'immuabilité. La règle 3 de sherpa coupe sur
+une **durée d'énoncé continu, sans égard au contenu**, donc tôt ou tard en plein
+milieu d'un mot — et ce qui est figé échappe définitivement à la révision. C'est
+le cas déjà consigné le 03/09 : `SUMMARISE`, coupé pendant qu'il s'écrivait, a
+laissé `SUM` dans le figé puis `ARISE` au segment suivant, et le transcript
+portait « PLEASE SUM ARISE OUR DIALOGUE ». Reproduit hors de notre code : sherpa
+seul, en flux, révise correctement `SUM` → `SUMMARI` → `SUMMARISE`.
+
+Conséquence de conception : un agrégateur propre **met la règle 3 hors circuit**
+et ferme lui-même. Le raisonnement est le même que celui qui a fait tomber
+plusieurs mécanismes du projet — notre tour se ferme sur **la prise de parole**,
+pas sur un chronomètre. Laisser à l'ASR un pouvoir de fermeture qu'il exerce sur
+un critère qui n'est pas le nôtre, c'est accepter des dégâts irréversibles pour
+un service qu'on ne lui demande pas.
+
+Pour l'article, c'est une bonne phrase courte : **immuable et exact sont deux
+propriétés différentes, et l'ASR ne garantit que la première.**
+
+#### Le signal le plus important du projet est celui que l'ASR ne produit jamais
+
+Troisième trouvaille de la relecture, et la plus contre-intuitive. Sherpa
+n'émet un `partial` que **si le texte a changé** (`if txt and txt != vu`). Entre
+le dernier mot prononcé et l'endpoint, il ne se passe donc **rien** : pas
+d'événement, pas de battement, deux secondes de flux vide.
+
+Or c'est exactement l'intervalle où se joue toute la thèse du projet. Le
+décideur doit distinguer « il réfléchit » de « il a fini » — et le flux d'entrée
+ne lui donne, dans les deux cas, rien du tout. **C'est donc l'agrégateur qui doit
+fabriquer le battement**, depuis l'horloge audio : à intervalle fixe, émettre
+l'état courant même quand le texte n'a pas bougé, et compter le silence.
+
+Le paradoxe est joli et il est vrai : **la grandeur qui décide de la fin du tour
+est la seule que le moteur de reconnaissance ne rapporte pas.** Il rapporte des
+mots ; le silence n'est pas un mot. On retrouve, un étage plus bas, ce que le
+projet a déjà écrit ailleurs : le vide informationnel doit être matérialisé pour
+atteindre le modèle (c'est le rôle qu'occupe déjà `SILENCE` côté micro-tours).
+
+#### Le cadre publié : notre débat n'était pas un débat, c'était un placement
+
+Recherche du soir. Le modèle des **Incremental Units** (Schlangen & Skantze,
+*A General, Abstract Model of Incremental Dialogue Processing*, EACL 2009 —
+https://aclanthology.org/E09-1081/) définit trois opérations sur un flux
+incrémental : **ADD**, **REVOKE** et **COMMIT**. Implémentations de référence :
+Inprotk (Java, Baumann & Schlangen 2012) et ReTiCo (Python, Michael & Möller
+2019).
+
+Le cadre était déjà cité dans `SPEC-PIVOT.md` § 8 pour `revoke`. Ce que la
+séance ajoute, et qui vaut pour l'article : **les deux options de design qu'on
+opposait ne sont pas deux philosophies, ce sont deux placements du COMMIT du
+même papier.**
+
+- Retenir le texte jusqu'à ce qu'il soit sûr = **commit en amont**, chez nous.
+- Tout émettre avec des révocations = **commit en aval**, chez le consommateur.
+
+Ce n'est donc pas « le papier contre notre bricolage ». **L'agrégateur *est* le
+point de commit** — le nommer ainsi transforme une question d'implémentation en
+une décision d'architecture qui a un nom depuis 2009.
+
+#### Ce qui tranche : notre consommateur ne sait pas défaire
+
+Un REVOKE n'a de sens que si quelqu'un, en face, sait annuler ce qu'il a déjà
+consommé. Notre aval est un LLM dont l'historique **est un prompt**. Il ne défait
+pas : il se réécrit. Et un préfixe réécrit n'est plus le même préfixe — donc
+plus cachable.
+
+C'est l'argument concret pour le commit en amont, et il tient sans chiffre. **Ne
+pas chiffrer le gain de cache** : ce serait une projection, pas une facture, et
+le projet a déjà payé cher les sommes poste par poste présentées comme des
+mesures de bout en bout.
+
+À relier au point déjà noté dans `PLAN.md` (questions ouvertes, § recollage) :
+**DuplexCascade n'a pas ce problème du tout**, parce que les chercheurs n'ont
+pas de transcript du tour, seulement l'historique. La révision n'existe pas dans
+leur monde. C'est une différence de plus entre « reproduire un papier » et
+« brancher la même idée sur un ASR réel » — le motif de la partie I.
+
+#### Ce que les moteurs exposent, et où ils s'arrêtent
+
+- **Deepgram** est le seul à séparer proprement `is_final` (ce segment est figé)
+  de `speech_final` (le tour est fini) — interim autour de 150 ms
+  (https://developers.deepgram.com/docs/understand-endpointing-interim-results).
+  C'est le précédent que notre contrat d'entrée reprend, à ceci près que le
+  second signal, chez nous, c'est **nous** qui le produisons.
+- **Google** ne sépare pas les deux, mais expose un signal `stability`.
+- **Speechmatics** et **Soniox** ne font ni l'un ni l'autre.
+- Deepgram a depuis sorti **Flux**, un STT vendu comme « conversationnel »,
+  centré sur les interruptions
+  (https://deepgram.com/learn/introducing-flux-conversational-speech-recognition).
+  À surveiller pour le positionnement : le marché bouge vers l'endroit exact où
+  le projet se place.
+
+#### Deux écoles sur « que fait l'ASR pendant que l'agent parle » — et la seconde nous contredit
+
+Point de recherche à présenter comme un débat ouvert, pas comme une évidence.
+
+**École 1 — l'orchestrateur décide, le modèle ASR ignore tout.** Pipecat et
+LiveKit traitent l'interruption et la suppression du backchannel **au niveau de
+l'orchestrateur, pas du modèle**
+(https://livekit.com/blog/turn-detection-and-interruption-handling). Chez
+Pipecat, le processeur STT bufferise mais ignore l'audio jusqu'au frame
+« started speaking », et finalise au « stopped speaking ». C'est notre règle du
+§ 2 de `SPEC-PIVOT.md` : l'observateur ignore l'aval.
+
+**École 2 — l'ASR sait ce que l'agent vient de dire.** Contre-exemple net :
+Pipecat diffuse un `LLMContextAssistantTurnFrame` à la fin de chaque tour du
+bot, qu'AssemblyAI consomme comme `agent_context`
+(https://www.assemblyai.com/docs/voice-agents/pipecat-universal-3-5-pro). Là,
+le moteur de reconnaissance **connaît l'aval**, et cela contredit frontalement
+la règle qui commande tout notre § 2.
+
+**Ce que l'article doit en faire** : ne pas défendre notre règle comme une
+évidence de conception, mais comme un **choix** — pris sous la contrainte du
+troisième axe (tout capteur devient du texte : un observateur qui ne connaît pas
+l'aval se branche sur n'importe quoi), et payé par ce qu'on perd à ne pas savoir
+ce que l'agent vient de dire. Le fait que le même framework, Pipecat, héberge
+les deux écoles est l'argument qu'il n'y a pas de réponse tranchée dans l'état
+de l'art.
+
+#### Dette de sourçage : le § 7 renvoie ici, et ici il n'y avait rien
+
+`SPEC-PIVOT.md` § 7 annonce « Recherche du 02/09, **sources dans
+`ARTICLE-NOTES.md`** ». Vérifié ce soir : ni Deepgram, ni Soniox, ni
+Speechmatics, ni Smart Turn, ni MaAI, ni eot-bench n'apparaissaient dans ce
+fichier. Les conclusions de cette recherche circulent depuis dans `PLAN.md` et
+`SPEC-PIVOT.md` **sans leurs liens** — c'est-à-dire sous une forme non
+vérifiable. Un renvoi qui pointe vers rien est pire qu'une absence de renvoi : il
+donne l'illusion que le travail de sourçage a été fait.
+
+Liens reconstitués ce soir, à traiter comme **reconstitution et non comme la
+source consultée le 02/09** (rien ne garantit que c'est la page qui avait été
+lue) :
+
+- Smart Turn (Pipecat/Daily) — https://github.com/pipecat-ai/smart-turn ;
+  poids v3 : https://huggingface.co/pipecat-ai/smart-turn-v3
+- MaAI (Kyoto) — https://github.com/MaAI-Kyoto/MaAI
+- LiveKit Turn Detector — https://huggingface.co/livekit/turn-detector
+  (modèle sous **LiveKit Model License**, plugin sous Apache-2.0 : c'est bien le
+  modèle, pas le code, qui est enfermé)
+- eot-bench — https://github.com/livekit/eot-bench (le seul lien qui existait
+  déjà, dans `SPEC-PIVOT.md` § 7)
+- Deepgram, `is_final` / `speech_final` —
+  https://developers.deepgram.com/docs/understand-endpointing-interim-results
+
+**Manquent toujours, et je n'invente pas d'URL** : les pages de documentation
+Speechmatics et Soniox sur lesquelles reposait l'affirmation « ni l'un ni
+l'autre ne séparent les deux signaux », ainsi que les trois projets cités dans
+`PLAN.md` pour disqualifier l'append-only (`wyoming_streaming_asr`,
+`RealtimeSTT`, le connecteur Pipecat/Soniox). Ces affirmations restent dans les
+notes **sans source vérifiable** : à re-sourcer avant publication, ou à retirer.
+
+**Et la leçon de méthode, qui a sa place dans l'interlude « mesurer, et d'abord
+mesurer sa mesure »** : le projet a une règle stricte sur les chiffres — rien
+n'entre sans mesure — et n'en avait aucune sur les **affirmations sur le monde
+extérieur**. Résultat : « Deepgram est le seul moteur qui… » a circulé six jours
+dans trois fichiers avec exactement le même statut épistémique qu'un chiffre
+mesuré, sans jamais avoir été rattaché à quoi que ce soit. Une affirmation sur la
+concurrence est une donnée comme une autre ; elle mérite le même régime que les
+scores.
