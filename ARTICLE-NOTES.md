@@ -1814,16 +1814,19 @@ différentes, et ils ne font pas le même travail.**
 | périmètre | système complet : détection **et** génération de la réponse | **la moitié amont seulement**, aucune réponse générée |
 | chez nous | c'est **la ligne 0,858 du README**, et le mécanisme dont le projet est parti | référence de marché, § 7 de `SPEC-PIVOT.md` |
 
-Ce que DuplexCascade fine-tune, précisément : **LoRA sur les projections query et
-value**, plus la matrice d'embeddings, les embeddings des **jetons spéciaux
-nouvellement introduits** et la **tête de prédiction**, entièrement. Ce sont ses
-propres **jetons de contrôle conversationnels**, créés pour piloter la prise de
-parole sous contrainte de streaming — c'est de là que viennent nos
-`<|user is talking|>` et les autres. Code et poids : `github.com/sbintuitions/DuplexCascade`.
+Ce que DuplexCascade fine-tune, précisément : **LoRA r=16, α=32 sur les
+projections query et value**, plus la matrice d'embeddings, les embeddings des
+**jetons spéciaux nouvellement introduits** et la **tête de prédiction**,
+entièrement. Ce sont ses propres **jetons de contrôle conversationnels**, créés
+pour piloter la prise de parole sous contrainte de streaming — c'est de là que
+viennent nos `<|user is talking|>` et les autres. Code et poids :
+`github.com/sbintuitions/DuplexCascade`.
 
-⚠️ **Un chiffre à vérifier avant publication** : la note du 03/09 dit « LoRA rank
-32 », `PAPIER.md` § « Le fine-tuning » dit **r=16, α=32**. Possible confusion
-entre le rang et l'α. Trancher sur le papier avant d'écrire l'un ou l'autre.
+*Vérifié le 03/09 sur le papier lui-même* (`arxiv.org/html/2603.09180v1`, § 4.1
+*Implementation Details*) : **r=16, α=32**, ce que `PAPIER.md` écrivait déjà. Un
+résumé de recherche web disait « rank 32 » en confondant le rang et l'α ; la
+question est tranchée, l'avertissement est levé. Petit rappel au passage : **la
+source secondaire perd les indices, le papier les garde.**
 
 ##### Ce que la confusion a de juste — et c'est le vrai contenu de l'entrée
 
@@ -1844,3 +1847,111 @@ paragraphe pour l'article :
 formulation la plus économique qu'on ait trouvée pour l'axe 2 de la vision, et
 elle a l'avantage de ne rien devoir à nos propres mesures : les deux premières
 marches sont le travail des autres.
+
+### Les résultats du prototype : la thèse tient, et la boucle s'est fait avoir — 03/09, nuit
+
+La boucle a fini. La thèse réduite à son os — *décider sur le texte seul si une
+phrase est complète* — **tient**. Mais le meilleur morceau d'article est négatif,
+et c'est lui qui porte l'entrée.
+
+#### Le chiffre, et ce qu'il élimine
+
+**AUC 0,935 sur les 156 exemples.** Sur les **125 du seul régime temps réel**
+(les troncatures d'ASR avec leurs fautes), **0,934**.
+
+**L'écart est nul, et c'est ce qui compte.** La construction du jeu portait un
+biais de source connu : les exemples de « français propre » sont presque tous
+étiquetés complets, donc un détecteur pouvait décrocher un bon score en
+apprenant à reconnaître une transcription propre au lieu d'une phrase finie.
+Les deux AUC identiques disent que **ce raccourci n'a pas été pris** : le
+détecteur mesure bien **la complétude, pas la propreté de la transcription**.
+
+Le reste du cadrage :
+
+| | |
+|---|---|
+| AUC, jeu complet (156) | **0,935** |
+| AUC, régime temps réel seul (125) | **0,934** |
+| justesse au seuil 0,5 | **0,912** |
+| baseline triviale | 0,526 |
+| AUC du **prompt minimal** | **0,932** |
+
+**Le prompt minimal est à 0,932.** Le texte brut, sans consigne travaillée,
+suffit très largement. À retenir pour la partie II : là où le prompting a payé
+sur le système complet, il ne paie **presque rien** sur la brique isolée — ce qui
+localise enfin où son effet vivait.
+
+#### Le morceau qui vaut l'article : une fuite déguisée en découverte
+
+La boucle avait annoncé un gain **confirmé** : **+0,016 d'AUC**, mesuré sur
+**trois passes**, à **≈ 5 σ**, **distributions disjointes**. Tout ce qu'il faut
+pour être cru — et c'est exactement le protocole que ce fichier passe son temps à
+réclamer ailleurs.
+
+Sauf que la variante gagnante **citait dans ses illustrations « et toi » et « tu
+me dis »** : **deux exemples étiquetés du jeu de test**. Rescorée sur les **154
+exemples qu'elle ne cite pas**, l'avance disparaît. Et la même consigne, avec des
+illustrations propres, **perd 0,022**.
+
+**La formule à garder telle quelle : trois passes concordantes disent la
+répétabilité, pas la validité.** L'écart-type protège du **hasard**, il ne
+protège **pas de la contamination** — il mesure la stabilité d'un résultat, pas
+son origine. Un chiffre peut être parfaitement reproductible et parfaitement
+faux.
+
+C'est le piège propre à **toute boucle d'optimisation de prompt**, y compris
+celles du projet : l'optimiseur a accès au jeu qui le juge, donc recopier une
+réponse est un mouvement disponible en permanence, et rien dans la statistique de
+répétition ne le signale. Le garde-fou n'est pas statistique, il est
+**structurel** — le gel du jeu et du scorer décidé le matin même (entrée
+précédente) était nécessaire, et il n'a pas suffi.
+
+#### Ce qui en découle : le plafond n'est pas le prompt
+
+**Aucune formulation n'améliore la discrimination.** Cinq variantes, toutes entre
+**0,943 et 0,948** hors fuite. La plus retenue n'apporte qu'un **meilleur point
+de fonctionnement au seuil 0,5** (**+0,034 de justesse**), pas un meilleur
+**classement** — soit précisément la distinction que la décision de rendre une
+probabilité avait rendue visible : bouger le seuil n'est pas bouger le détecteur.
+
+⚠️ **À réconcilier avant publication** : le chiffre de tête est **0,935** (la
+configuration retenue, jeu complet) et la bande de comparaison entre variantes
+est **0,943-0,948** (rescorage hors fuite). Les deux ne sont **pas sur la même
+base** — vérifier laquelle avant de les mettre côte à côte dans l'article, et ne
+jamais publier 0,948 comme « le chiffre du prototype » : ce serait la répétition
+exacte de l'erreur du § « Le meilleur score n'est pas le nôtre ».
+
+Le plafond, lui, a un nom : les **16 exemples sur 156** dont l'étiquette est
+**défendable des deux côtés** — la zone grise identifiée le matin, chiffrée le
+soir. **Le jeu n'est pas faux, il est saturé pour cette question.** Un dixième du
+corpus est de l'arbitrage, pas de la vérité : on ne peut pas monter au-dessus en
+reformulant une consigne.
+
+#### Le coût de faire ça sans entraînement : les logprobs nous sont fermés
+
+Réponse à la question laissée ouverte le matin, et elle est du côté du repli.
+**Les logprobs ne sont pas exposés sur `gemini-2.5-flash-lite` via OpenRouter** :
+`logprobs: true` rend `null`. La probabilité est donc reconstituée par
+**16 tirages à température 1,0** — **2 496 appels par passe** (156 × 16, le
+compte tombe juste), **~70 s**, **~0,005 $**.
+
+**À mettre en regard de la section « État de l'art », c'est un très bon
+contraste.** LiveKit lit le logprob de `<|im_end|>` **parce que le modèle est à
+eux** ; nous, sur un **modèle distant fermé**, la voie propre nous est
+**fermée**, et il faut la reconstituer par échantillonnage — seize appels là où
+il en faudrait un. **C'est un coût réel de l'approche « pas d'entraînement,
+modèle générique », et il faut l'énoncer plutôt que le taire :** l'axe 2 de la
+vision achète la portabilité, il la paie en appels. La troisième marche du
+dégradé (entrée précédente) coûte zéro à l'entraînement, pas zéro à l'exécution.
+
+#### Ce que ça ne dit pas
+
+**156 exemples, un seul locuteur, un seul modèle, une seule langue.** Rien ici ne
+généralise, et surtout pas au régime multi-locuteurs.
+
+Et le levier suivant **n'est pas un prompt de plus** — c'est établi par les cinq
+variantes à écart nul. C'est soit **rendre au détecteur l'information qui lui
+manque** (le tour précédent — exactement ce que LiveKit lui donne, jusqu'à six
+tours), soit **un corpus plus grand**. Les deux sortent du périmètre du
+prototype ; le premier ramène le sujet à la thèse du projet, puisque c'est encore
+du contexte injecté dans le prompt.
