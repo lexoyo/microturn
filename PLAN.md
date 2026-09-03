@@ -342,3 +342,57 @@ derrière, autant l'apprendre en deux jours qu'en six mois.
 2. **La pause intra-tour** mérite-t-elle son propre état ? C'est la distinction
    qu'un VAD ne sait pas faire, donc l'argument de vente, et elle n'a aucun
    marqueur aujourd'hui.
+
+---
+
+# Reprendre demain — état au 03/09, 03 h
+
+Une page à relire en deux minutes. Le détail des mesures est dans
+`bench/JOURNAL.md`, le récit dans `ARTICLE-NOTES.md`.
+
+## Acquis, mesuré, ne pas y revenir
+
+| | |
+|---|---|
+| **Le fine-tuning vaut 0,209** à modèle constant | Qwen2.5-7B prompté : 0,649 · gemini : 0,808 · leur Qwen2-7B fine-tuné : 0,858 |
+| dont **0,159 rattrapés** en changeant de modèle | c'est le seul écart qui ne mélange rien |
+| **Le rappel du tour retiré rapporte** | 13/17 → 14/17 fins de tour, 3/3, −14 % de tokens |
+| **Le repliage élargi coûte** | 0,804 contre 0,824 : il libère des places que la parole vient occuper |
+| **Dire la durée du silence** ne change rien de mesurable | +0,3 fin de tour, distributions recouvrantes |
+| **Le TTS passe par un WAV par phrase** | comme wyoming-piper, rhasspy3, pipecat. Aucun n'utilise `--output-raw` |
+
+## Ouvert, par ordre d'importance
+
+1. **La référence est périmée.** Le contrôle est tombé à 0,796 au lieu de
+   0,808–0,816, et personne n'a isolé lequel des commits récents coûte une fin
+   de tour. **Tout écart mesuré demain se compare à un chiffre faux tant que ce
+   n'est pas fait.** C'est la première chose.
+2. **Le tutoiement retiré a ramené le tic** — 4 % → 30 %, réponses de 57 à
+   77 caractères, justesse inchangée. Arbitrage d'Alex, jamais tranché.
+3. **Plus rien ne tient la longueur des réponses** : ni le prompt (« courte »
+   retiré), ni le schéma (`maxLength` retiré), ni `max_tokens` (supprimé).
+   Assumé ce soir ; à revoir si l'écoute devient pénible.
+4. **La cascade `NIVEAUX` de `llm.py` est morte** : `decide()` construit son
+   `response_format` en dur et n'appelle jamais `contrainte()`. Sans effet tant
+   que le modèle accepte le schéma — 100 % des décisions perdues sinon.
+5. **Le recollage après une prise de parole** (question d'Alex, non tranchée) :
+   le `reset()` emporte le début du tour, qui sort ensuite de la fenêtre des
+   20 micro-tours. À noter que les chercheurs n'ont pas ce problème : ils n'ont
+   pas de « transcript du tour », seulement l'historique.
+
+## Petites choses qui traînent
+
+- Trois commentaires de `tts.py` décrivent des mécanismes retirés.
+- Le verrou de synthèse est un attribut **de classe**, partagé entre instances.
+- `pret()` existe mais n'est pas branché : le pipeline paie toujours le
+  chargement de piper sur la première réponse.
+- `session.jsonl` n'enregistre pas `silence_replie` — le comptage des repliages
+  passe par le log, donc une mesure doit patcher `bench/sessions.py`.
+
+## Et le pivot, qui n'a pas avancé aujourd'hui
+
+`SPEC-PIVOT.md` est complet et tranché. `PLAN.md` (ci-dessus) donne l'ordre
+des étapes. **Rien n'a commencé** : la journée est partie en correctifs de
+session. L'étape 0 (nettoyer avant d'extraire) et l'étape 1 (les tests du
+noyau) restent à faire — sauf `tests/delta.py`, écrit aujourd'hui, qui est
+la moitié de l'étape 1.
