@@ -23,9 +23,21 @@ import tts  # noqa: E402
 
 # Le Pi synthétise trois fois plus lentement que ce PC : un test calibré ici
 # échoue là-bas sans qu'il y ait de bug. `MICROTURN_TEST_LENT` allonge les
-# attentes. C'est le même travers que `ATTAQUE_S`, calibré sur la mauvaise
-# machine et faux d'un facteur trois sur la cible.
+# attentes. C'était le même travers que l'ancien `ATTAQUE_S`, calibré sur la
+# mauvaise machine ; le rapport de puissance y est désormais un réglage nommé
+# (`MICROTURN_TTS_RTF`), pas une constante muette.
 LENT = float(os.environ.get("MICROTURN_TEST_LENT", "1"))
+
+# Phrases de longueurs étagées, pour confronter l'estimation par caractères aux
+# WAV réellement produits. Tolérance : la synthèse de piper est bruitée
+# (noise_scale 0,667), la même phrase varie de ±0,16 s d'une fois sur l'autre.
+ETALON = [
+    "Oui, je t'écoute.",
+    "D'accord, je m'en occupe tout de suite.",
+    "La lumière du salon est maintenant allumée, comme tu me l'as demandé.",
+    "Alors, si j'ai bien compris ta question, tu voudrais savoir combien de "
+    "temps il reste avant que le train parte de la gare.",
+]
 
 
 def profil(sp, phrase, duree=7.0 * LENT, pas=0.4):
@@ -45,8 +57,9 @@ def test_speaking_suit_la_parole():
     sp = tts.Speaker()
     try:
         time.sleep(2.0 * LENT)                # laisser le préchauffage finir
-        attendu = tts.Silencieux.ATTAQUE_S + 42 / tts.Silencieux.DEBIT_CAR_S
-        vus = profil(sp, "Bonjour, ceci est un test un peu plus long.")
+        phrase = "Bonjour, ceci est un test un peu plus long."
+        attendu = tts.Silencieux(voice=sp.voice).duree(phrase)
+        vus = profil(sp, phrase)
         parle = 0.4 * sum(vus)
         assert any(vus), "speaking() n'a JAMAIS été vrai — le son ne part pas"
         assert not vus[-1], (
@@ -89,10 +102,47 @@ def test_deux_phrases_ne_se_chevauchent_pas():
         sp.stop()
 
 
+def test_duree_parole_colle_au_wav():
+    """L'estimation par caractères doit rester proche du WAV réellement produit.
+
+    C'est le garde-fou de `PAROLE_PAR_VOIX` : une constante de temps sans sa
+    mesure redevient fausse à la première voix, au premier `length_scale` ou au
+    premier changement de moteur. Ici la mesure est rejouable en une seconde.
+
+    On compare des durées de PAROLE (l'en-tête du WAV), jamais des durées de
+    SYNTHÈSE — celles-là dépendent de la machine et n'ont rien à faire dans un
+    seuil de test.
+    """
+    import wave
+    sp = tts.Speaker()
+    try:
+        time.sleep(2.0 * LENT)
+        pires = []
+        for phrase in ETALON:
+            chemin = sp._synthetiser(phrase)
+            assert chemin, f"piper n'a rien produit pour : {phrase[:30]}"
+            with wave.open(chemin) as w:
+                reel = w.getnframes() / w.getframerate()
+            os.unlink(chemin)
+            estime = tts.duree_parole(phrase, sp.voice)
+            ecart = estime - reel
+            pires.append((abs(ecart), phrase, reel, estime))
+            # 0,6 s ou 15 % : au-delà, la table de débits ne décrit plus la voix.
+            assert abs(ecart) <= max(0.6, 0.15 * reel), (
+                f"estimation à {ecart:+.2f}s du WAV ({estime:.2f} vs "
+                f"{reel:.2f}) pour {len(phrase)} caractères — "
+                f"`tts.PAROLE_PAR_VOIX` est à remesurer")
+        pire = max(pires)
+        print(f"  durée estimée ≈ durée du WAV (pire écart {pire[0]:.2f}s)  OK")
+    finally:
+        sp.close()
+
+
 if __name__ == "__main__":
     if not os.path.exists(tts.PIPER):
         print("  piper absent — test ignoré")
         sys.exit(0)
+    test_duree_parole_colle_au_wav()
     test_speaking_suit_la_parole()
     test_stop_libere_vraiment()
     test_deux_phrases_ne_se_chevauchent_pas()
