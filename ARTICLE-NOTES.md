@@ -2232,6 +2232,61 @@ le backchannel se décrit par son contenu — donc les démos 2 et 3 sont
 attaquables tout de suite, et le banc neuf peut être écrit avant toute
 modification du catalogue.
 
+### La voix des démos est synthétique par nécessité, pas par confort — 04/09
+
+Alex pouvait enregistrer les trois démos lui-même, à sa voix. **Il ne le fait
+pas parce qu'il a un accent français, et qu'en anglais ça ne marche pas bien.**
+Ce n'est pas un détail d'intendance, et l'article gagne à le dire tel quel :
+c'est une **contrainte de méthode**.
+
+Le banc doit isoler ce qu'il teste. Un locuteur français en anglais dégraderait
+la reconnaissance au point qu'on mesurerait **l'accent** au lieu de mesurer la
+**détection de fin de tour**. Et la dégradation ne s'arrêterait pas au texte :
+une transcription fautive produit une décision fautive, et cette décision serait
+portée au débit du prompt. On aurait itéré des heures sur des phrases du prompt
+pour réparer un problème de micro et de phonétique.
+
+*Le détail concret qui appuie le point, et il est dans le dépôt* : le commentaire
+de `locales/en.toml` (vérifié le 03/09, commit `e5da894`) note que « Hello, can
+you tell me the height of the Eiffel Tower, please? » ressort de sherpa en
+**« BELOW CAN YOU TELL ME THE HEIGHT OF THE EYEFUL TOWER PLE »**. Trois dégâts
+dans une phrase de douze mots : un mot substitué en tête, un nom propre
+défiguré, un mot tronqué en fin.
+
+⚠️ **Ce que cet exemple ne dit pas** : ni le commentaire ni le message de commit
+n'indiquent **qui** a prononcé la phrase. Les deux lectures vont dans le même
+sens mais ne se valent pas — si c'est Alex, l'échantillon *mesure déjà le coût
+de l'accent* ; si c'est une voix propre, alors c'est le plancher et l'accent ne
+peut que l'aggraver. À trancher avant de s'en servir en illustration dans
+l'article, parce que la phrase qu'on écrira n'est pas la même. *(Et les +0,063 /
+−0,103 cités autour de ce commentaire sont des chiffres **français** : le commit
+dit lui-même que l'effet n'est pas mesuré en anglais, faute de sessions de
+référence.)*
+
+**La tension à raconter, et c'est elle qui vaut le paragraphe.** On écarte un
+biais en en introduisant un autre. `PLAN-REPRO.md` (« Ce qui peut faire échouer
+ce plan ») porte déjà la réserve : une voix de synthèse ne produit ni hésitation,
+ni bruit de fond, ni débit irrégulier — c'est-à-dire précisément ce qui rend la
+détection difficile. **Le banc des démos sera donc plus facile que la vie.** Les
+deux choses sont vraies en même temps :
+
+- avec la voix d'Alex, on mesurerait l'accent et pas la détection ;
+- avec une voix de synthèse, on mesure la détection dans des conditions
+  acoustiques que personne ne rencontre.
+
+Le second biais a un correctif, le premier n'en a pas : **les sessions réelles
+restent au banc comme test de non-régression**, même si ce sont les démos qui
+arbitrent désormais. C'est ce qui empêche le banc neuf de dériver vers un
+laboratoire propre où tout marche.
+
+**Formulation honnête à tenir en publiant** : ce que le banc des démos mesure,
+c'est la décision **à transcription saine**. Il ne dit pas ce que le système fait
+d'une vraie voix dans une vraie pièce — et il ne faut pas laisser croire le
+contraire en montrant trois démos qui marchent.
+
+*Suite technique dans `PLAN-REPRO.md` § 1.1* : le TTS retenu, ses contraintes
+d'API, et le rééchantillonnage à ne pas oublier.
+
 ## Angle d'article en réserve : « fine-tuning vs prompting »
 
 **Proposé par Alex le 03/09 au soir.** Consigné **ici et pas dans `IDEES.md`** :

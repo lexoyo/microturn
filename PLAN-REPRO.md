@@ -32,7 +32,10 @@ mesuré avant `d721c84`, qui a renommé les jetons **et** multiplié la fenêtre
 refaite depuis — elle ne l'a pas été. C'est l'étape 2 qui la refera. *(Et le
 « 0 sur 153 » de `PLAN.md` n'a aucune session en face : ne pas le citer.)*
 
-**Aucun son n'est généré.** Rien du banc de démos n'existe aujourd'hui.
+**Le banc de démos n'existe pas encore.** La chaîne de synthèse, elle, a été mise
+en marche dans la nuit du 03 au 04/09 — c'est de là que sortent les trois
+contraintes d'API du § 1.1. Mais **aucun fichier du banc n'est au dépôt** au
+04/09 : tant qu'il n'y en a pas, l'étape 1 est à faire, pas à vérifier.
 
 ---
 
@@ -47,16 +50,49 @@ Un fichier audio **par scénario**, pas par question. La démo 1 est du
 multi-tour et la décision dépend de tout l'historique ; découper détruirait ce
 qu'on teste. Pour l'interruption, il faut de toute façon un flux continu.
 
-Chaque scénario est un **montage** : segments synthétisés par piper, séparés par
-des silences de durée **choisie et notée**. Un TTS ne produit pas de pause de
+Chaque scénario est un **montage** : segments synthétisés, séparés par des
+silences de durée **choisie et notée**. Un TTS ne produit pas de pause de
 réflexion — or le silence est la donnée qu'on mesure, il doit être piloté au
 dixième de seconde.
 
 En anglais, comme eux (`locales/en.toml` existe, le mode anglais est vérifié).
 
-**Les réponses de l'assistant sont fixées**, de durée connue. Si on laisse le
-modèle générer une longueur libre, l'instant de l'interruption tombe ailleurs à
-chaque passe et le test n'est plus reproductible.
+**Ce n'est plus piper.** Le TTS du banc est **`openai/gpt-audio-mini`, appelé via
+OpenRouter** — donc avec la clé que le projet a déjà : aucune clé nouvelle,
+aucun service à ouvrir. Voix **masculine américaine**, `ash` ou `onyx`, Alex
+tranche à l'écoute. piper a été écarté sur écoute, il ne fait pas le poids.
+
+*Portée du changement* : ce TTS **fabrique les fixtures du banc et n'entre jamais
+dans la chaîne mesurée**. `piper` reste la voix de l'assistant sur le Pi : la
+chaîne temps réel ne gagne aucune dépendance.
+
+Trois contraintes trouvées en le faisant marcher, écrites ici pour qu'elles ne
+coûtent pas une demi-heure à la prochaine personne :
+
+- la sortie audio **exige `stream: true`** — sinon HTTP 400, « Audio output
+  requires stream: true » ;
+- en streaming, **le seul format accepté est `pcm16`** : ni `wav`, ni `mp3`, ni
+  `opus`. Le PCM brut est à emballer dans un conteneur WAV **soi-même** ;
+- le flux sort en **24 kHz mono**, quand la chaîne du projet consomme du 16 kHz
+  (`audio.py`, `RATE = 16000`). **Le rééchantillonnage est obligatoire, et c'est
+  celui qu'on oublie** : du 24 kHz consommé comme du 16 kHz dure une fois et
+  demie plus longtemps — les silences fabriqués au dixième de seconde ne veulent
+  alors plus rien dire, et c'est eux qu'on mesure.
+
+*Pourquoi une voix de synthèse plutôt que celle d'Alex* : `ARTICLE-NOTES.md`,
+« La voix des démos est synthétique par nécessité, pas par confort ». En deux
+mots — un locuteur français en anglais ferait mesurer l'accent au lieu de la
+détection de fin de tour.
+
+**Les réponses de l'assistant sont fixées**, de durée connue, et **l'interruption
+est placée à un délai fixe après la fin de la question** (décision d'Alex : on
+fait comme si nos réponses avaient la durée des leurs). Si on laisse le modèle
+générer une longueur libre, l'instant de l'interruption tombe ailleurs à chaque
+passe et le test n'est plus reproductible.
+
+**La piste injectée ne contient QUE la voix de l'utilisateur.** Pas la réponse de
+l'assistant : ce que le micro en réentend est un problème d'écho, il se teste au
+haut-parleur en 1.3, pas dans la mesure déterministe.
 
 ### 1.2 Ce que chaque scénario doit produire
 
@@ -208,7 +244,13 @@ quelle variante tourne dans quelle vidéo ; si c'est bien DuplexCascade-β,
 reproduire la démo 3 c'est reproduire leur système à 0,748. Inférence à
 confirmer, pas un fait.
 
-**Les voix synthétiques ne sont pas des voix réelles.** piper ne produit ni
-hésitation, ni bruit de fond, ni débit irrégulier — c'est-à-dire précisément ce
-qui rend la détection difficile. Le banc des démos sera plus facile que la vie.
-Les sessions réelles restent nécessaires pour cette raison.
+**Les voix synthétiques ne sont pas des voix réelles.** Un TTS — piper hier,
+`gpt-audio-mini` aujourd'hui — ne produit ni hésitation, ni bruit de fond, ni
+débit irrégulier, c'est-à-dire précisément ce qui rend la détection difficile. Le
+banc des démos sera plus facile que la vie. Les sessions réelles restent
+nécessaires pour cette raison.
+
+*Et c'est un biais assumé contre un autre* : la voix d'Alex, française en
+anglais, ferait mesurer l'accent au lieu de la détection (§ 1.1). On échange donc
+un biais sans correctif contre un biais qui en a un — les sessions réelles au
+banc, en non-régression. Le raisonnement complet est dans `ARTICLE-NOTES.md`.
