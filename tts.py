@@ -5,9 +5,15 @@
 processus fils. `stop()` les tue net — c'est le geste du barge-in.
 
 Deux moteurs, choisis par MICROTURN_TTS :
-  piper   : voix naturelle. Le modèle est rechargé à chaque phrase, donc coûteux
-            (~0,7 s ici, plusieurs secondes sur un Pi) : ne pas découper en phrases.
+  piper   : voix naturelle. **Résident depuis le 03/09** — le modèle n'est plus
+            rechargé à chaque phrase, ce qui économisait ~8 s par réponse sur un
+            Pi 3B. Il écrit un WAV par phrase, qu'`aplay` joue d'un bloc.
   espeak  : 5 Mo, ~70 ms. Le mode dégradé assumé pour petite machine.
+
+Prix de ce choix, assumé et partagé par wyoming-piper, rhasspy3 et pipecat : le
+premier son attend la fin de la synthèse. L'attaque n'est donc plus une
+constante, elle croît avec la longueur du texte — voir `duree_parole()` et
+`Silencieux.attaque()`.
 
 Aucun shell n'est utilisé : les processus sont chaînés directement, ce qui évite
 le quoting, un /bin/sh par phrase, et les surprises de `echo` sous dash (Pi OS).

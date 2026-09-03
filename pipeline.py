@@ -299,8 +299,15 @@ class Session:
             # son sort plus tard — le temps que le moteur attaque. Sans cette
             # durée dans la trace, la latence mesurée est plus courte que celle
             # qu'on entend, et c'est celle qu'on entend qui compte.
+            # `ATTAQUE_S` seul ne suffit plus : depuis le WAV par phrase
+            # (03/09), le premier son attend la FIN de la synthèse, donc
+            # l'attaque croît avec le texte. La constante ne couvre plus que le
+            # démarrage d'ALSA. On demande donc la valeur au moteur quand il
+            # sait la calculer, et on retombe sur la constante sinon.
+            attaque = getattr(self.voix, "attaque", None)
             self.trace.ev("parole_debut", texte=texte,
-                          attaque=round(getattr(self.voix, "ATTAQUE_S", 0.0), 3))
+                          attaque=round(attaque(texte) if attaque else
+                                        getattr(self.voix, "ATTAQUE_S", 0.0), 3))
         # Ferme le tour côté STT : sans ça le prochain transcript recontiendrait
         # tout ce à quoi on vient de répondre.
         self.eng.reset()

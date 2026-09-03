@@ -232,25 +232,33 @@ def lire_controle(txt, langue="fr"):
                         return ("parler", reponse) if reponse else ("parler_sans_texte", "")
                     return cle, ""
             return "format", t
-    parts = t.split(None, 1)      # blancs, et non " " : un saut de ligne avalait
-    mot = parts[0].strip(":.,!?<>[]()").upper()   # la réponse
-    reste = parts[1].strip() if len(parts) > 1 else ""
+    # Ce chemin était MORT, et depuis longtemps : il découpait au premier blanc
+    # (`t.split(None, 1)`), or tous les jetons contiennent des espaces —
+    # « <user finish speaking> » devenait « <user » — puis les mettait en
+    # majuscules alors qu'ils sont en minuscules. Aucune des branches ne pouvait
+    # correspondre. On compare donc le DÉBUT de la chaîne entière au jeton
+    # entier, sans tenir compte de la casse.
+    #
+    # Il ne sert qu'en repli (modèle sans schéma, rejeu d'anciennes traces) et
+    # ne doit jamais devenir le chemin normal — mais un repli qui ne peut pas
+    # fonctionner ne vaut pas mieux que pas de repli, et il transformait
+    # silencieusement chaque décision en « format ».
+    bas = t.lower()
     # On accepte les jetons de TOUTES les langues : le modèle répond parfois dans
     # une autre que celle demandée, et perdre la décision pour ça serait absurde.
+    # Le plus long d'abord : un jeton peut être le préfixe d'un autre.
     ordre = [langue] + [l for l in CATALOGUES if l != langue]
     for lg in ordre:
         j = catalogue(lg)["jetons"]
-        if mot.startswith(j["parler"]):
-            return ("parler", reste) if reste else ("parler_sans_texte", "")
-        if mot.startswith(j["reflechit"]):
-            return "reflechit", ""
-        # Avant `parle` : les deux backchannel sont des préfixes distincts, mais
-        # les tester après une correspondance plus courte serait fragile.
-        for k in ("backchannel", "mhm"):
-            if j.get(k) and mot.startswith(j[k]):
-                return k, ""
-        if mot.startswith(j["parle"]):
-            return "parle", ""
+        for cle in sorted(("parler", "reflechit", "backchannel", "mhm", "parle"),
+                          key=lambda k: -len(j.get(k) or "")):
+            jeton = j.get(cle)
+            if not jeton or not bas.startswith(jeton.lower()):
+                continue
+            reste = t[len(jeton):].strip().strip(":-—")
+            if cle == "parler":
+                return ("parler", reste) if reste else ("parler_sans_texte", "")
+            return cle, ""
     return "format", t            # tracé comme tel, jamais noyé dans « ça parle »
 
 
