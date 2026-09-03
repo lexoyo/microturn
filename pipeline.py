@@ -779,13 +779,9 @@ class Session:
                         # `audio_s` et `estime_s` est la signature d'une phrase
                         # tronquée ou d'un reste de la précédente — invisible
                         # autrement que par l'oreille d'Alex jusqu'au 03/09.
-                        servis = getattr(self.voix, "servis", None)
                         self.trace.ev(
                             "parole_fin", texte=self.texte_dit,
-                            octets=servis,
-                            audio_s=(round(servis / 2 / 22050, 2)
-                                     if servis else None),
-                            jetes=getattr(self.voix, "jetes", None))
+                            audio_s=getattr(self.voix, "audio_s", None))
                     self.parle_depuis = None
                     self.parle_fin = now
 
@@ -803,7 +799,10 @@ class Session:
 
     def close(self):
         self.stop_evt.set()
-        self.voix.stop()
+        # `close()` s'il existe : `Speaker` a un processus piper résident et un
+        # dossier temporaire à libérer, que `stop()` seul laisse derrière.
+        # `Silencieux` et `Enregistreur` n'ont que `stop()`.
+        getattr(self.voix, "close", self.voix.stop)()
         audio.close_stream(self.stream)
         # Attendre la fin de la passe en cours AVANT de rendre la main : le
         # thread de décodage est dans du C qui tient une référence au modèle,

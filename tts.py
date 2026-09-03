@@ -93,6 +93,8 @@ class Speaker:
         self._gen = 0                        # invalide une phrase en vol
         self._parlant = False                # de `say()` à la fin d'`aplay`
         self._dossier = tempfile.mkdtemp(prefix="microturn-tts-")
+        self.audio_s = 0.0                   # durée du WAV de la phrase en cours
+        self._ferme = False
         # Chaque WAV est effacé après lecture ; ceci n'est que la ceinture pour
         # un arrêt brutal, où le `finally` de `_parler` ne passe pas.
         atexit.register(shutil.rmtree, self._dossier, True)
@@ -106,9 +108,16 @@ class Speaker:
 
         La synthèse va dans un fichier qu'on efface : rien ne peut fuir vers le
         haut-parleur, contrairement au tube où la syllabe de chauffe sortait
-        devant la première phrase."""
+        devant la première phrase.
+
+        On chauffe sur une PONCTUATION SEULE, pas sur un mot. La chauffe tient
+        le verrou de synthèse : une vraie phrase arrivée pendant attend qu'elle
+        finisse. Chauffer sur « Bonjour. » ajoutait donc la synthèse d'un mot
+        réel devant la première réponse — sur le Pi, les huit secondes de
+        chargement PLUS une seconde de parole inutile, soit exactement ce que
+        le préchauffage devait éviter."""
         try:
-            chemin = self._synthetiser("Bonjour.")
+            chemin = self._synthetiser(".")
             if chemin:
                 os.unlink(chemin)
         except Exception:
@@ -116,6 +125,10 @@ class Speaker:
 
     def _piper(self):
         """Le processus résident. `--output_dir` : un WAV par ligne d'entrée."""
+        if self._ferme:
+            # Sans ce garde, un `say()` après `close()` ressuscite piper sur un
+            # `--output_dir` qui n'existe plus, et personne ne le tuera jamais.
+            return None
         if self._synth is not None and self._synth.poll() is None:
             return self._synth
         self._synth = subprocess.Popen(
@@ -139,6 +152,8 @@ class Speaker:
         with self._verrou_synth:
             try:
                 p = self._piper()
+                if p is None:
+                    return None              # fermé
                 p.stdin.write((text + "\n").encode())
                 p.stdin.flush()
                 ligne = p.stdout.readline().decode().strip()
@@ -157,6 +172,7 @@ class Speaker:
             return
         with self.lock:
             self._stop_locked()
+            self.audio_s = 0.0               # compteur de CETTE prise de parole
             self._gen += 1
             gen = self._gen
             # `speaking()` doit être vrai DÈS MAINTENANT, pas au premier son :
@@ -173,6 +189,18 @@ class Speaker:
                 self._jouer_espeak(text, gen)
                 return
             chemin = self._synthetiser(text)
+            # Ce qui a RÉELLEMENT été produit, en regard du texte demandé. Un
+            # écart net signale une phrase tronquée ou un reste de la
+            # précédente — invisible autrement qu'à l'oreille. Le WAV est
+            # complet ici, donc la mesure est exacte : c'est mieux que le
+            # comptage d'octets qu'elle remplace, qui n'a jamais survécu à la
+            # réécriture du 03/09 et écrivait `None` dans chaque trace.
+            if chemin:
+                try:
+                    with wave.open(chemin) as w:
+                        self.audio_s = round(w.getnframes() / w.getframerate(), 2)
+                except Exception:
+                    self.audio_s = 0.0
             with self.lock:
                 if self._gen != gen:
                     return                   # coupé pendant la synthèse
@@ -245,6 +273,12 @@ class Speaker:
         with self.lock:
             return self._parlant
 
+    def pret(self):
+        """piper a-t-il fini de charger ? L'hôte peut attendre avant le premier
+        tick plutôt que de payer le chargement sur la première réponse."""
+        with self.lock:
+            return self._synth is not None and self._synth.poll() is None
+
     def wait(self, timeout=30.0):
         t0 = time.time()
         while self.speaking() and time.time() - t0 < timeout:
@@ -252,6 +286,7 @@ class Speaker:
 
     def close(self):
         self.stop()
+        self._ferme = True
         with self.lock:
             if self._synth is not None and self._synth.poll() is None:
                 try:
