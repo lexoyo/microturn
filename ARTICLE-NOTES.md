@@ -5,7 +5,10 @@ le **pourquoi** ; `bench/JOURNAL.md` garde les chiffres, `bench/CANDIDATS.md` la
 file de tests, `FORMAT-CHERCHEURS.md` ce qu'on a constaté chez eux.
 
 **Fiche de lecture du papier fondateur : `PAPIER.md`** — thèse, sept jetons,
-réglages, résultats, et les quatre points encore à vérifier dans le PDF.
+réglages, résultats. Le PDF a été lu à la source le 03/09 au soir : trois des
+quatre points en attente sont tranchés, et **deux chiffres de ce fichier étaient
+faux** (le 0,955 et la latence « 1,2 s » des deux tableaux ci-dessous, corrigés).
+La définition de `<user is thinking>` reste ouverte.
 
 ## Le sujet
 
@@ -13,7 +16,8 @@ DuplexCascade (arXiv 2603.09180) fait tenir une conversation vocale sans
 détecteur de parole : ASR → LLM → TTS, micro-tours à horloge fixe, et c'est le
 modèle qui décide s'il doit parler, au moyen de jetons de contrôle décrivant
 l'état de l'**utilisateur**. Ils obtiennent 0,858 de justesse moyenne sur
-Full-Duplex-Bench, avec un Qwen2-7B fine-tuné en LoRA (8×H100, 5 heures).
+Full-Duplex-Bench, avec un Qwen2-7B fine-tuné en LoRA (8×H100, 5 heures) —
+**à un pas d'horloge de 0,6 s**, ce qui n'est pas le nôtre (voir plus bas).
 
 **La question de microturn : est-ce que ça se transpose par prompting ?** Sans
 entraînement, sur un modèle hébergé, avec un Raspberry Pi 3B au bout.
@@ -117,7 +121,7 @@ déterministe.
 |---|---|---|---|
 | `gemini-2.5-flash-lite` (nous) | **0,824** | 0,207 | **0,808** |
 | `qwen-2.5-7b-instruct`, prompté | **0,471** | 0,172 | **0,649** |
-| Qwen2-7B **fine-tuné** (le papier) | | | 0,858 |
+| Qwen2-7B **fine-tuné** (le papier, Δt = 0,6 s) | | | 0,858 |
 
 **Le chiffre qui manquait à l'article n'est pas 0,042. C'est 0,209 pour le
 fine-tuning, dont 0,159 rattrapés en changeant simplement de modèle.** Le
@@ -145,13 +149,32 @@ même temps qu'un autre.*
 
 | | justesse | fins de tour | pauses ratées | latence |
 |---|---|---|---|---|
-| DuplexCascade | 0,858 | 0,955 | — | 1,2 s |
-| microturn, base du 29/08 au matin | 0,634 | 11/17 | 11/29 | 5–7 s |
-| **microturn, configuration retenue** | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | **3,55 / 3,75 s** |
+| DuplexCascade (Δt = 0,6 s) | 0,858 | — | — | 1,724 s |
+| microturn, base du 29/08 au matin (Δt = 1,2 s) | 0,634 | 11/17 | 11/29 | 5–7 s |
+| **microturn, configuration retenue** (Δt = 1,2 s) | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | **3,55 / 3,75 s** |
 
 Les deux lignes microturn portent sur les **mêmes deux sessions** (`032332` et
 `073852`), rejouées en déterministe : elles sont comparables entre elles. La
 ligne DuplexCascade ne l'est pas — c'est leur banc, leur corpus, leur mesure.
+
+⚠️ **Ce tableau a été corrigé le 03/09 au soir, sur lecture du PDF** (Tableau 1
+p. 3, § 4.4 p. 4 ; détail en `PAPIER.md` § 5) :
+
+- la case « fins de tour » de DuplexCascade portait **0,955**, qui est en réalité
+  leur **User Interruption TOR** — un taux de prise de tour sur interruption, pas
+  une fin de tour. Elle est **retirée** et non remplacée : Full-Duplex-Bench n'a
+  pas de colonne comparable à nos 13,8/17, et remplir la case rejouerait l'erreur ;
+- leur latence n'est pas « 1,2 s ». **1,724 s** est leur latence de **prise de
+  tour**, **1,225 s** leur latence d'**interruption**, et **1,2 s** est notre
+  **pas d'horloge Δt** — trois grandeurs distinctes qui se ressemblent ;
+- **leur 0,858 est mesuré à Δt = 0,6 s.** Leur § 4.4 balaie Δt de 0,3 à 1,8 s :
+  la justesse monte jusqu'à 1,2 s puis se dégrade, et ils prennent 0,6 s comme
+  compromis avec la latence. À notre Δt de 1,2 s, leur Figure 3 culmine vers
+  **~0,93** (lu sur un graphique, ±0,005 — pas une valeur de tableau). **À
+  réglage comparable, l'écart n'est donc pas de quatre points mais d'une
+  douzaine.** En sens inverse, **notre 1,2 s est leur optimum de justesse** : le
+  choix retenu par transposition est validé par leur propre ablation, et la
+  latence qu'on paie est exactement le prix qu'ils ont refusé de payer.
 
 ⚠️ **La ligne du bas est une moyenne de cinq passes, et les fractions ne sont
 donc plus entières.** C'est volontaire : voir « Le chiffre du projet est 0,816 »
@@ -362,10 +385,13 @@ pas de GPU.
 
 C'est le chiffre qui manquait à l'article depuis le premier jour, et il change la
 thèse. Jusqu'ici nous écrivions « quatre points d'écart avec un modèle
-fine-tuné » — 0,858 contre 0,816 — en mélangeant sans le dire **deux** choses :
-leur entraînement, et le fait qu'ils tournent sur un Qwen2-7B quand nous tournons
-sur `gemini-2.5-flash-lite`. Une seule mesure les sépare : **notre prompt, tel
-quel, sur un Qwen de la même famille et de la même taille.**
+fine-tuné » — 0,858 contre 0,816 — en mélangeant sans le dire **trois** choses :
+leur entraînement ; le fait qu'ils tournent sur un Qwen2-7B quand nous tournons
+sur `gemini-2.5-flash-lite` ; et, découvert le 03/09 au soir en lisant le PDF,
+**le fait que leur 0,858 est mesuré à Δt = 0,6 s quand nous tournons à 1,2 s**
+(`PAPIER.md` § 5.3 — à notre Δt, leur courbe est vers ~0,93). Une seule mesure
+sépare les deux premières : **notre prompt, tel quel, sur un Qwen de la même
+famille et de la même taille.**
 
 Qwen2-7B n'est plus servi sur OpenRouter ; `qwen/qwen-2.5-7b-instruct` est la
 génération suivante. Trois passes par modèle, lancées en parallèle, catalogue et
@@ -375,7 +401,7 @@ code gelés dans une copie parce que le dépôt bougeait pendant la mesure.
 |---|---|---|---|
 | `gemini-2.5-flash-lite` (nous) | **0,824** | 0,207 | **0,808** |
 | `qwen-2.5-7b-instruct`, **prompté** | **0,471** | 0,172 | **0,649** |
-| Qwen2-7B, **fine-tuné** (le papier) | | | 0,858 |
+| Qwen2-7B, **fine-tuné** (le papier, Δt = 0,6 s) | | | 0,858 |
 
 **Le chiffre du fine-tuning est 0,209. Le changement de modèle en rattrape
 0,159.** Autrement dit : le prompting sur un bon petit modèle récupère les trois
@@ -416,7 +442,8 @@ inverse l'une de l'autre, et on ne sait pas laquelle domine :
 sur lequel l'article doit s'appuyer. Toute soustraction avec 0,858 reste
 indicative : leur banc est Full-Duplex-Bench, en anglais, avec des pauses
 annotées par des humains ; le nôtre est deux sessions françaises d'Alex avec des
-pauses dérivées de ffmpeg.
+pauses dérivées de ffmpeg ; et leur 0,858 est pris à un pas d'horloge deux fois
+plus court que le nôtre.
 
 Détail qui vaut d'être gardé : le tic « je suis un grand modèle linguistique »
 est à **0 % chez Qwen** sur les deux sessions. C'est un trait de gemini, pas un
@@ -811,9 +838,10 @@ donc chaque capteur retombe sous le budget de départ.*
 
 ## IV. Où on en est, et ce qui reste ouvert
 
-Chiffres honnêtes en regard : 0,858 pour DuplexCascade, **0,816 pour nous** au
-02/09 — et ce dernier chiffre est **en cours de remplacement**, voir
-l'avertissement en tête de fichier.
+Chiffres honnêtes en regard : 0,858 pour DuplexCascade **à Δt = 0,6 s** (~0,93
+à notre Δt de 1,2 s, `PAPIER.md` § 5.3), **0,816 pour nous** au 02/09 — et ce
+dernier chiffre est **en cours de remplacement**, voir l'avertissement en tête de
+fichier.
 
 0,816 est la moyenne de **cinq passes**, sur les deux sessions, de la
 configuration telle qu'elle était le 02/09 : sherpa-onnx à deux threads,
@@ -874,11 +902,18 @@ alertes. À signaler à qui tient ce fichier.
 | `073852-sherpa` | 0,784 | 6/8 | 4/22 | 2 | 3,55 s |
 | `032332-sherpa` | **0,873** | 8/9 | 1/7 | 2 | 3,75 s |
 | moyenne de cette passe | 0,826 | 14/17 | 5/29 | 4 | |
-| **moyenne des cinq passes** | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | | |
-| DuplexCascade | 0,858 | 0,955 | — | — | 1,2 s |
+| **moyenne des cinq passes** (Δt = 1,2 s) | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | | |
+| DuplexCascade (Δt = 0,6 s) | 0,858 | — | — | — | 1,724 s |
 
 **Quatre points d'écart avec un Qwen2-7B fine-tuné cinq heures sur huit H100.**
 Le point de départ du même matin était 0,634.
+
+⚠️ **Mêmes corrections que sur le tableau des chiffres de référence, 03/09 au
+soir** : le 0,955 était leur User Interruption TOR et non un taux de fin de tour
+(case retirée) ; leur latence de prise de tour est 1,724 s, celle d'interruption
+1,225 s, et 1,2 s est notre pas d'horloge. **Et les quatre points comparent deux
+pas d'horloge différents** — à Δt = 1,2 s, le nôtre, leur Figure 3 est vers
+~0,93, soit une douzaine de points d'écart. Voir `PAPIER.md` § 5.3.
 
 Quatre précautions à tenir, et elles ne sont pas négociables dans le texte :
 

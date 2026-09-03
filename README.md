@@ -30,8 +30,11 @@ on l'obtient par **prompting** là où eux le font par fine-tuning.
 Fiche de lecture du papier : [`PAPIER.md`](PAPIER.md).
 
 Ce que coûte leur version : un Qwen2-7B-Instruct affiné en LoRA sur **8×H100
-pendant 5 heures**. La nôtre coûte un prompt. L'écart mesuré est de quatre
-points — 0,816 contre 0,858, voir « Ce que ça vaut ».
+pendant 5 heures**. La nôtre coûte un prompt. L'écart brut est de quatre points
+— 0,816 contre 0,858 — mais les deux chiffres ne sont pas pris au même pas
+d'horloge : le leur est mesuré à Δt = 0,6 s, le nôtre à 1,2 s. **À réglage
+comparable, l'écart est plutôt d'une douzaine de points.** Voir « Ce que ça
+vaut ».
 
 Deux choix leur sont directement empruntés, et ils comptent :
 
@@ -93,13 +96,33 @@ Deux sessions réelles rejouées en déterministe, **moyenne de cinq passes** :
 | | justesse | fins de tour | pauses ratées | latence vécue |
 |---|---|---|---|---|
 | base du 29/08 au matin | 0,634 | 11/17 | 11/29 | 5–7 s |
-| **configuration retenue** | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | **3,55 / 3,75 s** |
-| DuplexCascade (leur banc) | 0,858 | 0,955 | — | 1,2 s |
+| **configuration retenue** (Δt = 1,2 s) | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | **3,55 / 3,75 s** |
+| DuplexCascade (leur banc, Δt = 0,6 s) | 0,858 | — | — | 1,724 s |
 
 **Quatre points d'écart avec un Qwen2-7B affiné cinq heures sur huit H100**, et
 obtenus par prompting. La ligne DuplexCascade n'est pas comparable aux deux autres
 — c'est leur corpus, leur banc, leur mesure ; elle donne l'ordre de grandeur, pas
 un classement.
+
+**Et il faut lire ces quatre points avec le pas d'horloge.** Leur 0,858 est
+mesuré à Δt = 0,6 s. Leur ablation (§ 4.4 du papier) balaie Δt de 0,3 à 1,8 s :
+la justesse monte jusqu'à **1,2 s** puis se dégrade, et ils retiennent 0,6 s
+comme compromis avec la latence. À *notre* pas d'horloge — 1,2 s — leur Figure 3
+culmine autour de **0,93** (valeur lue sur un graphique, à ±0,005 près : ce
+n'est pas une valeur de tableau). **À réglage comparable, l'écart n'est donc pas
+de quatre points mais d'une douzaine.** En sens inverse, notre 1,2 s se trouve
+être *leur* optimum de justesse : ce que nous payons en latence est exactement
+le prix qu'ils ont refusé de payer.
+
+**Deux cases que cette ligne ne remplit pas, et pourquoi.** Full-Duplex-Bench
+n'a pas de colonne comparable à nos « fins de tour » : la case portait jusqu'ici
+0,955, qui est en réalité leur *taux de prise de tour sur interruption* (User
+Interruption TOR, Tableau 1 du papier) — rien à voir avec une fin de tour. Elle
+est retirée plutôt que remplacée, parce qu'aligner deux grandeurs différentes
+dans une même colonne est exactement ce qui a produit l'erreur. Et leur latence
+est **1,724 s**, qui est leur **latence de prise de tour** ; leur latence
+d'*interruption* vaut 1,225 s, et nos 1,2 s sont un pas d'horloge, pas une
+latence — trois grandeurs qui se ressemblent et qu'il faut nommer.
 
 Trois précautions qui font partie du chiffre :
 

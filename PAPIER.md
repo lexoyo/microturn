@@ -9,6 +9,10 @@ est *leur* résultat, sur *leur* banc. Nos chiffres à nous vivent dans
 `RESULTATS.md`, `RESULTATS-PI.md` et `bench/JOURNAL.md`, et ne se comparent pas
 ligne à ligne à ceux-ci (cf. § 7).
 
+**Statut au 03/09 au soir : le PDF a été lu à la source.** Le Tableau 1 (p. 3)
+et le § 4.4 (p. 4) sont relevés ligne à ligne ; ce qui en vient est marqué et
+n'a plus de réserve. Le reste garde la sienne (§ 0).
+
 Deux fiches voisines, à ne pas confondre :
 - **celle-ci** — ce que dit le papier : thèse, jetons, réglages, résultats ;
 - **`FORMAT-CHERCHEURS.md`** — le *format* exact, papier **et** code lu dans
@@ -19,13 +23,22 @@ Deux fiches voisines, à ne pas confondre :
 
 ## 0. Réserve de méthode — à lire avant de citer quoi que ce soit
 
-Les chiffres de la § 5 proviennent d'une **lecture automatique de la page HTML
-du papier le 03/09/2026**, pas d'une lecture ligne à ligne du PDF. Ils sont
-suffisants pour orienter une discussion ; ils **ne sont pas publiables en
-l'état** et ne doivent pas, seuls, trancher une décision de conception.
+**Ce qui est vérifié à la source, et ne porte plus de réserve** : tout ce qui
+est marqué **« Tableau 1 p. 3 »** ou **« § 4.4 p. 4 »**, c'est-à-dire les § 5.1,
+5.3 et 6. Lecture directe du PDF, 03/09/2026 au soir. Elle a corrigé **trois
+chiffres qui circulaient faux dans le dépôt, dont deux dans le `README.md`
+public** — le détail des corrections est en § 5.4.
 
-Trois d'entre eux sont marqués « à confirmer dans le PDF » — dont le 0,748 de la
-§ 6, qui est contre-intuitif et qui engage un arbitrage en cours.
+**Ce qui garde sa réserve** : tout le reste vient d'une lecture automatique de la
+page HTML du papier, le 03/09 au matin. Concrètement les réglages du § 4, les
+données synthétiques, le VoiceBench de la § 5.2 — et surtout la **définition de
+`<user is thinking>`** du § 3, qui n'est ni dans le Tableau 1 ni au § 4.4, et
+qui reste la case ouverte qui engage le plus (elle porte l'argument de vente du
+projet). État à jour en § 9.
+
+Rappel qui vaut pour toute la fiche : **aucun de ces chiffres n'est une mesure de
+microturn**, et un chiffre lu sur un graphique n'est pas un chiffre de tableau
+— quand c'est le cas, c'est écrit.
 
 ---
 
@@ -101,6 +114,13 @@ ne le croyait**, pas moins.
 
 Le texte utilisateur est agrégé périodiquement en micro-tour et envoyé au LLM.
 
+⚠️ **Leur 0,6 s n'est pas leur optimum de justesse — c'est un compromis assumé
+avec la latence.** Leur propre ablation (§ 4.4 p. 4) place l'optimum de justesse
+à **1,2 s**, la valeur que nous avons prise. Ce n'est donc pas « eux 0,6, nous
+1,2, facteur deux » : c'est **deux arbitrages opposés sur la même courbe**, la
+leur pour la réactivité, la nôtre pour la justesse. Développé en § 5.3, et c'est
+le point le plus important de cette fiche.
+
 Les 10 tokens système ne sont pas un détail de tokenisation : c'est **la
 condition du barge-in**, parce qu'ils ménagent un point de décision au milieu de
 la réponse (cf. `IDEES.md` § 8).
@@ -136,16 +156,113 @@ Six phénomènes simulés :
 
 ## 5. Leurs résultats
 
-**Full-Duplex-Bench** :
+### 5.1 Full-Duplex-Bench — Tableau 1 page 3, relevé à la source
 
-| métrique | valeur |
+Onze colonnes, dans l'ordre du tableau. **Les deux lignes DuplexCascade sont à
+Δt = 0,6 s** — ça n'était écrit nulle part chez nous, et ça change tout (§ 5.3).
+dGSLM est donné pour l'échelle, pas pour l'argument.
+
+| colonne du Tableau 1 | DuplexCascade | DuplexCascade-β | dGSLM |
+|---|---|---|---|
+| Pause Handling — Synthetic TOR ↓ | **0,058** | 0,343 | 0,934 |
+| Pause Handling — Candor TOR ↓ | 0,222 | 0,458 | 0,935 |
+| Backchannel — TOR ↓ | 0,218 | 0,309 | 0,691 |
+| Backchannel — ICC Freq ↑ | 0,009 | 0,034 | 0,015 |
+| Backchannel — JSD ↓ | 0,949 | 0,811 | 0,934 |
+| Smooth Turn Taking — Candor TOR ↑ | 0,832 | 0,899 | 0,975 |
+| Smooth Turn Taking — **Latency** ↓ | **1,724 s** | 0,567 s | 0,352 s |
+| User Interruption — **TOR** ↑ | **0,955** | 0,950 | 0,917 |
+| User Interruption — Synthetic GPT-4o ↑ | 4,016 | 4,011 | 0,201 |
+| User Interruption — **Latency** ↓ | **1,225 s** | 0,850 s | 2,531 s |
+| **Averaged Turn-Taking Accuracy** | **0,858** | **0,748** | 0,466 |
+
+### 5.2 Les deux pièges de nommage de ce tableau
+
+Ils ont produit, à eux deux, les chiffres faux du dépôt. Ils sont écrits ici
+pour que personne ne refasse l'aller-retour.
+
+**Piège n° 1 — trois « environ 1,2 seconde » qui ne sont pas la même grandeur :**
+
+| ce qu'on lit | ce que c'est |
 |---|---|
-| justesse moyenne de turn-taking | **0,858** — meilleur système open source de leur tableau |
-| Pause Handling TOR (bas = mieux) | 0,058 |
-| Backchannel ICC | 0,949 |
-| latence de turn-taking | 1,225 s |
+| **1,724 s** | leur **latence de prise de tour** (Smooth Turn Taking Latency) |
+| **1,225 s** | leur latence d'**interruption** (User Interruption Latency) |
+| **1,2 s** | **notre pas d'horloge Δt** — pas une latence, ni la leur ni la nôtre |
 
-**VoiceBench** (intelligence conversationnelle) :
+Nos tableaux publics donnaient « 1,2 s » comme *leur* latence. C'était faux deux
+fois : ce n'est pas leur chiffre, et ce n'est pas une latence.
+
+**Piège n° 2 — 0,955 n'est pas un taux de fin de tour.** C'est le **User
+Interruption TOR**, le taux de prise de tour **sur interruption**. Il était
+affiché dans trois tableaux du dépôt en colonne « fins de tour », face à nos
+13,8/17. Retiré, pas corrigé (§ 5.4).
+
+### 5.3 🔴 Leur 0,858 est mesuré à Δt = 0,6 s — et 1,2 s est leur optimum
+
+**§ 4.4 page 4, lu à la source.** Ils balaient Δt ∈ {0,3 · 0,6 · 0,9 · **1,2** ·
+1,5 · 1,8 s} et écrivent, mot pour mot :
+
+> *« Averaged Turn-Taking Accuracy improves as Δt increases up to 1.2 s, after
+> which it degrades. »*
+
+> *« under our simulation setting, Δt=1.2 s provides the strongest turn-taking
+> performance, but at the cost of higher latency. We therefore choose Δt=0.6 s
+> as a practical trade-off between turn-taking accuracy and latency. »*
+
+Deux conséquences, et elles vont en sens inverse.
+
+**La mauvaise — à réglage comparable, l'écart n'est pas de quatre points, il est
+d'une douzaine.** Sur leur **Figure 3**, le pic à Δt = 1,2 s est **aux alentours
+de 0,93**. Cette valeur est **lue sur un graphique, à ±0,005 près : ce n'est pas
+une valeur de tableau et elle ne se cite pas comme telle.** Notre 0,816 tourne à
+Δt = 1,2 s. « 0,816 contre 0,858 » oppose donc **deux réglages différents** ; la
+soustraction reste publiable, mais **plus jamais sans cette phrase**.
+
+**La bonne — notre Δt = 1,2 s est leur optimum de justesse.** Le choix de 1,2 s
+avait été pris par transposition et n'a jamais été mesuré chez nous
+(`IDEES.md` § 4) : il est validé par **leur propre ablation**. Et ce que nous
+payons en latence — 3,55 s vécue — est exactement le prix qu'ils ont refusé de
+payer. Ce n'est pas une excuse, c'est **l'arbitrage inverse du leur, pris pour
+la raison inverse** : leur problème était la réactivité, le nôtre est la
+justesse. À écrire dans l'article en face de la mauvaise nouvelle, pas ailleurs.
+
+**Ça clôt l'alerte du 03/09 au matin sur `IDEES.md` § 4 et
+`FORMAT-CHERCHEURS.md` § 5** : la lecture antérieure — « 0,858 à 0,6 s et 0,934
+à 1,2 s, latence 1,72 s → ~2,85 s » — était **bonne**. Le 1,72 s est bien la
+latence de prise de tour du Tableau 1 à Δt = 0,6 s ; le pic est bien celui de la
+Figure 3. Seule retouche : écrire « ~0,93, lu sur la Figure 3 » plutôt que
+« 0,934 », qui affiche une précision que le graphique ne donne pas.
+
+⚠️ **Coïncidence piégeuse, à ne pas retomber dedans** : **0,934 est aussi une
+valeur du Tableau 1**, deux fois, sur la ligne **dGSLM** (Pause Handling
+Synthetic TOR, et Backchannel JSD). Qui cherche « 0,934 » dans le tableau le
+trouve — au mauvais endroit, sur le mauvais système. Le 0,934 du compromis Δt
+est dans la **Figure 3**, pas dans le Tableau 1.
+
+### 5.4 Ce qui a été corrigé dans le dépôt le 03/09 au soir
+
+| document | avant | après |
+|---|---|---|
+| `README.md` — tableau « Ce que ça vaut » | `0,955` en colonne « fins de tour » | **case retirée**, note sous le tableau |
+| `README.md` — même tableau | latence `1,2 s` | **1,724 s**, nommée « latence de prise de tour » |
+| `README.md` — intro | « L'écart mesuré est de quatre points » | l'écart brut **plus le Δt de chacun** |
+| `ARTICLE-NOTES.md` — deux tableaux | idem `0,955` et `1,2 s` | idem |
+
+**La case a été retirée plutôt que corrigée.** Nos 13,8/17 ne correspondent à
+aucune colonne de Full-Duplex-Bench : y mettre *quelque chose*, même une
+grandeur juste, rejouerait exactement le geste qui a produit le 0,955 — aligner
+deux choses différentes parce qu'une colonne était vide. **Une note sous le
+tableau vaut mieux qu'une case fausse.**
+
+🔴 **Une quatrième occurrence reste à corriger, et elle n'est pas de mon
+ressort** : `bench/JOURNAL.md`, test 5 (« la borne haute »), porte la même
+colonne DuplexCascade avec **`fins de tour 0,955`** et **`latence 1,2 s`**. Le
+fichier appartient à la session de tests. Les deux cases sont fausses pour les
+raisons ci-dessus ; à signaler à qui tient ce journal.
+
+### 5.5 VoiceBench (intelligence conversationnelle)
+
+⚠️ **Non vérifié dans le PDF** — lecture HTML du 03/09 au matin.
 
 | | DuplexCascade | baseline DSM-ASR + Qwen |
 |---|---|---|
@@ -153,63 +270,51 @@ Six phénomènes simulés :
 | AlpacaEval | 4,40 | — |
 | CommonEval | 3,64 | — |
 
-Le second tableau est le prix qu'ils paient : le full-duplex leur **coûte** de
-l'intelligence conversationnelle par rapport à la cascade classique.
+C'est le prix qu'ils paient : le full-duplex leur **coûte** de l'intelligence
+conversationnelle par rapport à la cascade classique.
 
-### ⚠️ Deux incohérences avec nos notes existantes, à arbitrer sur le PDF
+## 6. 🔴 Le backchannel n'est pas gratuit — et il casse d'abord les pauses
 
-**a) Le 0,955 des tableaux de comparaison.** `README.md`, `ARTICLE-NOTES.md`
-(deux endroits) portent une colonne « fins de tour = 0,955 » pour DuplexCascade.
-Ce nombre **n'est pas ressorti de la lecture du 03/09**. Il vient probablement
-d'un TOR de turn-taking de Full-Duplex-Bench, mais tant qu'il n'est pas retrouvé
-dans le PDF, il est **non sourcé dans trois documents publics du dépôt**.
+**Confirmé au Tableau 1 p. 3 ; la réserve « à confirmer dans le PDF » est
+levée.** DuplexCascade-β, la variante qui active les backchannels, rend
+**0,748** de justesse moyenne contre **0,858** pour la configuration phare :
+**−0,110**. Le chiffre était déjà juste dans `IDEES.md` § 6 depuis une lecture
+antérieure.
 
-**b) Le compromis Δt.** `IDEES.md` § 4 et `FORMAT-CHERCHEURS.md` § 5 affirment
-que le papier donne « 0,858 à 0,6 s et **0,934 à 1,2 s**, la latence montant de
-1,72 s à ~2,85 s ». La lecture du 03/09 donne 0,858 **avec** une latence de
-1,225 s, et n'a pas retrouvé le 0,934. Les deux lectures ne peuvent pas être
-vraies ensemble : ou bien 1,72 s et 1,225 s ne désignent pas la même grandeur
-(auquel cas il faut nommer laquelle est laquelle — règle 4), ou bien l'une des
-deux est périmée.
+Ce qui manquait, et c'est le point qui nous concerne : **où** β perd.
 
-C'est loin d'être théorique : **notre choix de 1,2 s repose entièrement sur le
-0,934**, et il est déjà signalé dans `IDEES.md` comme « retenu par
-transposition, jamais mesuré chez nous ».
+| | phare | β | |
+|---|---|---|---|
+| **Pause Handling — Synthetic TOR ↓** | **0,058** | **0,343** | **× 5,9 — c'est là que ça casse** |
+| Pause Handling — Candor TOR ↓ | 0,222 | 0,458 | × 2,1 |
+| Backchannel — TOR ↓ | 0,218 | 0,309 | dégradé |
+| Smooth Turn Taking — Candor TOR ↑ | 0,832 | 0,899 | gagné |
+| Smooth Turn Taking — Latency ↓ | 1,724 s | 0,567 s | gagné, ÷ 3 |
+| User Interruption — Latency ↓ | 1,225 s | 0,850 s | gagné |
+| **Averaged Turn-Taking Accuracy** | **0,858** | **0,748** | **−0,110** |
 
----
+**Activer les backchannels dégrade d'abord la détection des pauses.** Pas la
+latence, pas les interruptions — β y *gagne*, et nettement. Ce qu'il perd, c'est
+précisément la dimension pour laquelle ce projet existe, et précisément celle où
+**trois variantes de prompt ont déjà échoué chez nous**.
 
-## 6. 🔴 Le backchannel n'est pas gratuit
+Leur configuration phare n'a pas de backchannel. Ce n'est pas un oubli : c'est
+le même arbitrage, fait dans le même sens.
 
-**La variante DuplexCascade-β, celle qui active les backchannels, tombe à 0,748
-de justesse de turn-taking, contre 0,858 pour la configuration phare.**
+### Pour le § 12 de `SPEC-PIVOT.md` — avertissement daté, pas veto
 
-Autrement dit : **chez des gens qui ont fine-tuné pour ça, activer les
-backchannels coûte environ 0,11 de justesse.** Leur configuration phare n'en a
-pas — ce n'est pas un oubli, c'est un arbitrage.
+`SPEC-PIVOT.md` § 12 (réflexions d'Alex du 03/09) envisage d'ajouter les
+backchannels dans les deux sens, par le prompt. **Avertissement du 03/09 :
+l'ajout se paie d'abord sur la détection des pauses, chez des gens qui ont
+entraîné pour ça.**
 
-⚠️ **Statut : à confirmer dans le PDF avant publication ou décision.** C'est le
-chiffre le plus contre-intuitif de la fiche et celui qui engage le plus.
-
-**Corroboration partielle, et elle est encourageante.** `IDEES.md` § 6 portait
-déjà, depuis une lecture antérieure, « activer le backchannel fait tripler le
-taux de prise de parole intempestive sur les pauses (0,058 → 0,343) et coûte
-**11 points d'exactitude** ». 0,858 − 0,748 = 0,110 : **deux lectures
-indépendantes tombent sur le même écart.** Ça ne dispense pas de la
-vérification, mais ça déplace le doute du « chiffre aberrant » vers le simple
-contrôle de forme.
-
-### Ce que ça veut dire pour la décision en cours
-
-`SPEC-PIVOT.md` § 12 (réflexions d'Alex du 03/09) envisage d'ajouter **les
-backchannels dans les deux sens, par le prompt**. Cette fiche dit : ce n'est pas
-gratuit, et le coût est connu chez ceux qui ont entraîné pour ça. Il n'y a aucune
-raison de penser qu'un prompt ferait mieux qu'un fine-tuning sur ce point précis.
-
-Ce n'est pas un veto — c'est un chiffre à avoir en tête avant de s'engager, et
-une raison de mesurer l'ajout **isolément**, avec et sans, plutôt que de le
-livrer avec le reste.
-
----
+À lire pour ce que c'est : **leur** mesure, sur **leur** banc, **avec**
+fine-tuning, sur des données synthétiques. Rien ne prouve qu'un prompt suive la
+même courbe — dans un sens comme dans l'autre. Ce que ça dit, c'est qu'il n'y a
+aucune raison d'espérer que ce soit gratuit, et que **l'ajout doit être mesuré
+isolément, avec et sans, sur les deux TOR séparés**, jamais livré avec autre
+chose. Un agrégat suffirait à cacher un TOR de pauses multiplié par six : c'est
+le résultat n° 9 d'`ARTICLE-NOTES.md`, appliqué d'avance.
 
 ## 7. Sur quoi ils se mesurent — et pourquoi ça nous concerne
 
@@ -221,7 +326,9 @@ Deux conséquences, et elles sont différentes :
    corpus, notre banc, notre mesure contre les leurs. Les trois documents qui
    affichent ce tableau (`README.md`, `ARTICLE-NOTES.md`) le disent déjà : la
    ligne DuplexCascade « donne l'ordre de grandeur, pas un classement ». Cette
-   précaution n'est pas décorative, elle est structurelle.
+   précaution n'est pas décorative, elle est structurelle. **Et depuis le § 5.3
+   elle est double** : les deux chiffres ne sont même pas au même pas d'horloge
+   — 0,858 est à Δt = 0,6 s, 0,816 à Δt = 1,2 s.
 
 2. **L'étape 6 du `PLAN.md` — passer sur eot-bench en français — ne nous rendra
    pas comparables à *eux*.** Elle nous rendra comparables à **Smart Turn et
@@ -253,14 +360,30 @@ sens des Incremental Units), et le motif de la partie I — la différence entre
 
 ---
 
-## 9. À faire — la vérification PDF
+## 9. À faire — ce qui reste à vérifier
 
-Une seule séance de lecture du PDF réglerait tout ce qui est marqué ⚠️ :
+**Fait le 03/09 au soir, lecture directe du PDF :**
 
-- [ ] le 0,748 de DuplexCascade-β (§ 6) — **le plus urgent, il bloque une décision**
-- [ ] la définition exacte de `<user is thinking>` (§ 3) — pause intra-tour ou silence post-réponse ?
-- [ ] le 0,955 affiché dans nos trois tableaux (§ 5a) — le retrouver, ou le retirer
-- [ ] le compromis Δt : 0,934 à 1,2 s, et la latence 1,72 s vs 1,225 s (§ 5b)
+- [x] **le 0,748 de DuplexCascade-β** (§ 6) — confirmé, Tableau 1 p. 3. Et le
+      détail qui manquait : il perd sur le Pause Handling (0,058 → 0,343)
+- [x] **le 0,955 de nos trois tableaux** (§ 5.2) — retrouvé, et **mal
+      attribué** : c'est le User Interruption TOR. Retiré du `README.md` et
+      d'`ARTICLE-NOTES.md`. ⚠️ **Une quatrième occurrence subsiste dans
+      `bench/JOURNAL.md` (test 5)**, avec la latence « 1,2 s » — fichier de la
+      session de tests, non corrigé ici (§ 5.4)
+- [x] **le compromis Δt** (§ 5.3) — confirmé, § 4.4 p. 4 : leur 0,858 est à
+      Δt = 0,6 s, leur optimum de justesse est à 1,2 s, et 1,724 s ≠ 1,225 s ≠
+      1,2 s
 
-Tant que ces cases ne sont pas cochées, les chiffres de cette fiche circulent
-**en interne**, avec leur réserve.
+**Toujours ouvert :**
+
+- [ ] **la définition exacte de `<user is thinking>`** (§ 3) — pause intra-tour
+      ou silence après réponse ? Elle n'est ni dans le Tableau 1 ni au § 4.4,
+      donc **non tranchée**. C'est la case qui engage le plus : `SPEC-PIVOT.md`
+      § 3 en fait l'argument de vente du projet, et `FORMAT-CHERCHEURS.md` § 2
+      affirme sans réserve l'équivalence avec notre `REFLECHIT`
+- [ ] les réglages du § 4 (micro-tours, LoRA, données synthétiques) et le
+      VoiceBench du § 5.5 — encore issus de la lecture HTML du matin
+
+Les chiffres non cochés circulent **en interne**, avec leur réserve. Les cochés
+sont publiables, avec leur source de page.

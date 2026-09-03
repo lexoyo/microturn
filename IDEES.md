@@ -167,11 +167,20 @@ et coupures de phrase.
 
 ## 4. Quelle valeur pour l'horloge ?
 
-**Statut : 1,2 s retenu par transposition, jamais mesuré chez nous.**
+**Statut : 1,2 s retenu par transposition, jamais mesuré chez nous — mais
+confirmé comme *leur* optimum, PDF lu le 03/09 au soir.**
 
-Le papier donne 0,858 d'exactitude à 0,6 s et **0,934 à 1,2 s**, avec la latence
-qui monte de 1,72 s à ~2,85 s. Ils ont choisi 0,6 s pour la réactivité ; nous avons
-pris 1,2 s parce que notre problème est la justesse. **Leur mesure, pas la nôtre.**
+Le papier donne 0,858 d'exactitude à Δt = 0,6 s (Tableau 1 p. 3) et un pic vers
+**~0,93 à 1,2 s** (Figure 3 — **valeur lue sur un graphique, ±0,005 : ce n'est
+pas une valeur de tableau**, et le « 0,934 » écrit ici jusqu'au 03/09 affichait
+une précision que le graphique ne donne pas). Leur § 4.4 balaie Δt de 0,3 à
+1,8 s : la justesse monte jusqu'à 1,2 s puis se dégrade. Leur latence de prise
+de tour monte de 1,724 s (à 0,6 s) à ~2,85 s. Ils ont choisi 0,6 s pour la
+réactivité ; nous avons pris 1,2 s parce que notre problème est la justesse —
+**et c'est leur optimum de justesse.** Leur mesure, pas la nôtre.
+
+⚠️ Piège de recherche : **0,934 figure aussi deux fois au Tableau 1, sur la
+ligne dGSLM.** Ce n'est pas le même chiffre. Détail : `PAPIER.md` § 5.3.
 
 **Protocole** : rejouer la même session à 0,6 / 1,2 / 1,8 s. Attention, ce n'est pas
 gratuit : 0,6 s double le coût en appels réseau.
@@ -196,8 +205,11 @@ noyer le prompt.
 
 **Statut : écarté pour l'instant, sur une mesure.**
 
-Chez eux, activer le backchannel fait **tripler** le taux de prise de parole
-intempestive sur les pauses (0,058 → 0,343) et coûte 11 points d'exactitude. Leur
+Chez eux, activer le backchannel fait **presque sextupler** le taux de prise de
+parole intempestive sur les pauses (0,058 → 0,343, soit × 5,9) et coûte 11 points
+d'exactitude (0,858 → 0,748). **Confirmé au Tableau 1 p. 3, PDF lu le 03/09 au
+soir** : ce qu'ils perdent en activant le backchannel, c'est d'abord la détection
+des pauses — la latence et les interruptions, elles, s'améliorent. Leur
 configuration phare n'en a pas.
 
 **Si on y revient** : un clip audio **pré-enregistré**, tiré au hasard, jamais passé

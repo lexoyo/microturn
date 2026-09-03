@@ -64,6 +64,13 @@ naturellement comme l'utilisateur, pas comme le robot.
 Δt = 0,6 s en pratique. Le papier note un optimum d'EXACTITUDE à 1,2 s, avec un
 compromis exactitude/latence entre les deux. Nous sommes à 1,2 s.
 
+**Confirmé sur le PDF le 03/09 au soir** (§ 4.4 p. 4) : ils balaient
+Δt ∈ {0,3 · 0,6 · 0,9 · 1,2 · 1,5 · 1,8 s}, la justesse monte jusqu'à 1,2 s puis
+se dégrade, et ils retiennent 0,6 s comme « practical trade-off » avec la
+latence. **Leur 0,858 est donc un chiffre à 0,6 s, pas leur meilleur.** À notre
+Δt de 1,2 s, leur Figure 3 est vers ~0,93 (lu sur un graphique, ±0,005).
+Détail : `PAPIER.md` § 5.3.
+
 ## Ce qui reste non documenté chez eux
 
 - le format littéral d'un micro-tour (aucun exemple concret publié) ;
