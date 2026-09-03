@@ -45,12 +45,23 @@ SEUIL_VOIX = 328
 # être EXACTEMENT ceux que le prompt décrit, sinon le modèle voit des marqueurs
 # qu'on ne lui a jamais présentés (c'est arrivé : « SILENCE » envoyé 53 fois
 # quand le prompt annonçait « (silence) »).
-# 24 tours, c'est douze échanges, soit QUATORZE SECONDES d'horizon. Mesuré le
-# 29/08/2026 : une question posée en quarante secondes en sortait entièrement,
-# et le modèle ne pouvait pas y répondre puisqu'il ne la voyait plus. 48 porte
-# l'horizon à une demi-minute. Le surcoût en tokens est en grande partie servi
-# par le cache implicite, le préfixe étant constant.
-MICRO_TOURS = 20
+# Nombre d'ENTRÉES gardées, pas de tours : un tick en ajoute deux (le delta
+# côté user, le JSON côté assistant). 20 valait donc DIX échanges — DOUZE
+# SECONDES d'horizon à 1,2 s de tick. Mesuré le 29/08/2026 : une question posée
+# en quarante secondes en sortait entièrement, et le modèle ne pouvait pas y
+# répondre puisqu'il ne la voyait plus.
+#
+# Aligné le 04/09/2026 sur DuplexCascade, qui entraîne sur des séquences de
+# 4096 tokens (§ 4.1 du papier). Une de nos paires pèse ~30 tokens (le delta,
+# quelques mots, plus un JSON de marqueur), soit ~136 échanges — 272 entrées.
+# On garde 270. À 1,2 s de tick l'horizon passe de 12 s à environ 2 min 40,
+# c'est-à-dire le leur.
+#
+# Le surcoût en tokens est en grande partie servi par le cache implicite : le
+# préfixe est constant, et un historique qui ne glisse presque plus le reste
+# aussi. Une fenêtre étroite coûte paradoxalement plus cher en cache, puisque
+# chaque glissement change le début du prompt.
+MICRO_TOURS = 270
 # Nombre de ticks sans texte neuf exigés avant d'autoriser une prise de parole.
 # 0 = pas de garde (défaut). Voir le candidat 59 : ça coûte 1,2 s de latence par
 # tick, sur une latence mesurée à 0,33 s — le remède peut être pire que le mal.

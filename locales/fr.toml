@@ -14,22 +14,27 @@
 systeme = """
 Tu es en train d'avoir une conversation avec un utilisateur.
 
-"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
+Sa parole t'arrive par bouts, un toutes les {tick} secondes. Le DERNIER \
+message est ce qu'il vient de dire pendant le dernier intervalle : c'est sur \
+lui que porte ta décision. Ceux d'avant sont l'historique de la conversation, \
+et tu peux t'y référer.
 
-Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
+"<no voice>" signifie qu'on n'a rien entendu pendant cet intervalle.
 
-  <|user is talking|>       (sa phrase n'est pas finie)
-  <|user finish talking|>   (sa phrase est finie)
-  <|user is thinking|>      (il se tait, mais il réfléchit)
-  <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
-  <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
-  <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
+À chaque bout, tu dis où en est l'utilisateur :
+
+  <user is speaking>     (il parle encore — tais-toi)
+  <user finish speaking> (il a fini — réponds-lui)
+  <user is thinking>     (il se tait après ta réponse, il réfléchit — n'agis pas)
+  <user is interrupting> (il reprend la parole alors que tu parles — arrête-toi)
+  <user backchannel>     (un signal d'écoute pendant que tu parles — ignore-le, continue)
+  <system backchannel>   (TOI, tu émets un bref signal d'écoute pendant qu'il parle)
 
 Tu réponds par un objet : {"m": "<le marqueur>"}.
 
-Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une \
+Cas particulier : avec <user finish speaking>, et seulement là, ajoute une \
 phrase qui sera transmise à l'utilisateur : \
-{"m": "<|user finish talking|>", "r": "ta phrase, parlée"}
+{"m": "<user finish speaking>", "r": "ta phrase, parlée"}
 
 ### EXEMPLE DE CONVERSATION
 
@@ -49,22 +54,27 @@ Tu es en train d'avoir une conversation avec un utilisateur.
 Le texte que tu reçois est en majuscules et sans ponctuation : c'est \
 la reconnaissance vocale qui est ainsi, pas l'utilisateur qui crie.
 
-"<|no voice|>" signifie qu'on n'a rien entendu de l'utilisateur
+Sa parole t'arrive par bouts, un toutes les {tick} secondes. Le DERNIER \
+message est ce qu'il vient de dire pendant le dernier intervalle : c'est sur \
+lui que porte ta décision. Ceux d'avant sont l'historique de la conversation, \
+et tu peux t'y référer.
 
-Voici une liste de marqueurs (et ce qu'ils veulent dire est entre parenthèses)
+"<no voice>" signifie qu'on n'a rien entendu pendant cet intervalle.
 
-  <|user is talking|>       (sa phrase n'est pas finie)
-  <|user finish talking|>   (sa phrase est finie)
-  <|user is thinking|>      (il se tait, mais il réfléchit)
-  <|user interruption|>     (il reprend la parole alors que tu es en train de lui répondre)
-  <|user backchannel|>      (un signal d'écoute, pas une prise de parole)
-  <|assistant_backchannel|> (tu as compris ce qu'il dit mais tu attends plus d'informations)
+À chaque bout, tu dis où en est l'utilisateur :
+
+  <user is speaking>     (il parle encore — tais-toi)
+  <user finish speaking> (il a fini — réponds-lui)
+  <user is thinking>     (il se tait après ta réponse, il réfléchit — n'agis pas)
+  <user is interrupting> (il reprend la parole alors que tu parles — arrête-toi)
+  <user backchannel>     (un signal d'écoute pendant que tu parles — ignore-le, continue)
+  <system backchannel>   (TOI, tu émets un bref signal d'écoute pendant qu'il parle)
 
 Tu réponds par un objet : {"m": "<le marqueur>"}.
 
-Cas particulier : avec <|user finish talking|>, et seulement là, ajoute une \
+Cas particulier : avec <user finish speaking>, et seulement là, ajoute une \
 phrase qui sera transmise à l'utilisateur : \
-{"m": "<|user finish talking|>", "r": "ta phrase, parlée"}
+{"m": "<user finish speaking>", "r": "ta phrase, parlée"}
 
 ### EXEMPLE DE CONVERSATION
 
@@ -74,15 +84,21 @@ phrase qui sera transmise à l'utilisateur : \
 """
 
 [jetons]
-parle       = "<|user is talking|>"
-parler      = "<|user finish talking|>"
-reflechit   = "<|user is thinking|>"
-coupe       = "<|user interruption|>"
+# Alignés le 04/09/2026 sur les noms EXACTS du papier (§ 3.2), y compris la
+# forme <...> sans les barres verticales. On avait dérivé sur quatre d'entre
+# eux — « talking » pour speaking, « user interruption » pour user is
+# interrupting, « assistant_backchannel » pour system backchannel — sans que
+# rien ne le justifie. Se caler sur leur vocabulaire coûte zéro et rend le
+# projet lisible par qui a lu le papier. Imposé sans mesure, décision d'Alex.
+parle       = "<user is speaking>"
+parler      = "<user finish speaking>"
+reflechit   = "<user is thinking>"
+coupe       = "<user is interrupting>"
 # Leurs deux backchannel. Le code ne les traite pas encore : ils sont dans
 # l'enum, donc le modèle peut les choisir, et ils sont ramenés à « ne prends
 # pas la parole ». C'est leur sens le plus proche en attendant mieux.
-backchannel = "<|user backchannel|>"
-mhm         = "<|assistant_backchannel|>"
+backchannel = "<user backchannel>"
+mhm         = "<system backchannel>"
 
 [etats]
 parle = ""
@@ -90,13 +106,13 @@ vient = ""
 muet  = ""
 
 [divers]
-silence    = "<|no voice|>"
-silence_repete = "<|no voice|>"
-# Conforme à leur design : <|no voice|> dès que l'ASR ne rend rien, quel que
+silence    = "<no voice>"
+silence_repete = "<no voice>"
+# Conforme à leur design : <no voice> dès que l'ASR ne rend rien, quel que
 # soit le son. Leur code ne regarde que `delta_text.strip()`.
 # La crête audio est toujours mesurée dans audio.py (seuil -40 dBFS) mais ne
 # sert plus qu'en interne — le prompt n'a que leurs marqueurs.
-bruit_sans_texte = "<|no voice|>"
+bruit_sans_texte = "<no voice>"
 whisper    = "fr"
 espeak     = "fr"
 voix_piper = "fr_FR-siwis-medium"
@@ -104,26 +120,26 @@ tour_en_cours = "{texte}"
 
 [[exemples]]
 entree = "est-ce que tu peux"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
-entree = "<|no voice|>"
-sortie = '''{"m": "<|user is talking|>"}'''
+entree = "<no voice>"
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "me dire la"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "taille de la tour Eiffel"
-sortie = '''{"m": "<|user finish talking|>", "r": "La tour Eiffel mesure 320 mètres"}'''
+sortie = '''{"m": "<user finish speaking>", "r": "La tour Eiffel mesure 320 mètres"}'''
 # Le silence qui SUIT une réponse. « is talking » y enseignait le
 # contraire de la bonne décision, dans le cas précis où le modèle se
 # trompait : +0,025 mesuré. Perdu une fois dans une série de
 # variantes, d'où ce commentaire — c'est un résultat, pas un détail.
 [[exemples]]
-entree = "<|no voice|>"
-sortie = '''{"m": "<|user is thinking|>"}'''
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
 [[exemples]]
 entree = "et aussi est-ce que tu peux"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "me dire quelle heure il est"
-sortie = '''{"m": "<|user finish talking|>", "r": "Il est bientôt minuit."}'''
+sortie = '''{"m": "<user finish speaking>", "r": "Il est bientôt minuit."}'''

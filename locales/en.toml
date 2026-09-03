@@ -12,22 +12,24 @@
 systeme = """
 You are having a conversation with a user.
 
-"<|no voice|>" means nothing was heard from the user.
+Their speech reaches you in chunks, one every {tick} seconds. The LAST message is what they said during the latest interval: your decision is about THAT one. The earlier ones are the conversation history, and you may refer to them.
 
-Here is the list of markers (their meaning is in brackets)
+"<no voice>" means nothing was heard during that interval.
 
-  <|user is talking|>       (their sentence is not finished)
-  <|user finish talking|>   (their sentence is finished)
-  <|user is thinking|>      (they are silent, but thinking)
-  <|user interruption|>     (they start speaking again while you are answering)
-  <|user backchannel|>      (a listening signal, not a bid for the floor)
-  <|assistant_backchannel|> (you understood, but you are waiting for more)
+At each chunk, you say where the user stands:
+
+  <user is speaking>     (they are still speaking — stay silent)
+  <user finish speaking> (they are done — answer them)
+  <user is thinking>     (silent after your reply, they are thinking — do nothing)
+  <user is interrupting> (they take the floor back while you speak — stop)
+  <user backchannel>     (a listening signal while you speak — ignore it, go on)
+  <system backchannel>   (YOU emit a short listening signal while they speak)
 
 You answer with an object: {"m": "<the marker>"}.
 
-One exception: with <|user finish talking|>, and only there, add a sentence that \
+One exception: with <user finish speaking>, and only there, add a sentence that \
 will be spoken to the user: \
-{"m": "<|user finish talking|>", "r": "your sentence, short and spoken"}
+{"m": "<user finish speaking>", "r": "your sentence, short and spoken"}
 
 ### EXAMPLE CONVERSATION
 
@@ -50,22 +52,24 @@ You are having a conversation with a user.
 The text you receive is in capital letters and without punctuation: that is \
 how the speech recognition renders it, not the user shouting.
 
-"<|no voice|>" means nothing was heard from the user.
+Their speech reaches you in chunks, one every {tick} seconds. The LAST message is what they said during the latest interval: your decision is about THAT one. The earlier ones are the conversation history, and you may refer to them.
 
-Here is the list of markers (their meaning is in brackets)
+"<no voice>" means nothing was heard during that interval.
 
-  <|user is talking|>       (their sentence is not finished)
-  <|user finish talking|>   (their sentence is finished)
-  <|user is thinking|>      (they are silent, but thinking)
-  <|user interruption|>     (they start speaking again while you are answering)
-  <|user backchannel|>      (a listening signal, not a bid for the floor)
-  <|assistant_backchannel|> (you understood, but you are waiting for more)
+At each chunk, you say where the user stands:
+
+  <user is speaking>     (they are still speaking — stay silent)
+  <user finish speaking> (they are done — answer them)
+  <user is thinking>     (silent after your reply, they are thinking — do nothing)
+  <user is interrupting> (they take the floor back while you speak — stop)
+  <user backchannel>     (a listening signal while you speak — ignore it, go on)
+  <system backchannel>   (YOU emit a short listening signal while they speak)
 
 You answer with an object: {"m": "<the marker>"}.
 
-One exception: with <|user finish talking|>, and only there, add a sentence that \
+One exception: with <user finish speaking>, and only there, add a sentence that \
 will be spoken to the user: \
-{"m": "<|user finish talking|>", "r": "your sentence, short and spoken"}
+{"m": "<user finish speaking>", "r": "your sentence, short and spoken"}
 
 ### EXAMPLE CONVERSATION
 
@@ -75,12 +79,12 @@ will be spoken to the user: \
 """
 
 [jetons]
-parle       = "<|user is talking|>"
-parler      = "<|user finish talking|>"
-reflechit   = "<|user is thinking|>"
-coupe       = "<|user interruption|>"
-backchannel = "<|user backchannel|>"
-mhm         = "<|assistant_backchannel|>"
+parle       = "<user is speaking>"
+parler      = "<user finish speaking>"
+reflechit   = "<user is thinking>"
+coupe       = "<user is interrupting>"
+backchannel = "<user backchannel>"
+mhm         = "<system backchannel>"
 
 # Empty, like in French: DuplexCascade carries no marker describing the SYSTEM's
 # state — its interleaved structure makes it implicit.
@@ -90,9 +94,9 @@ vient = ""
 muet  = ""
 
 [divers]
-silence          = "<|no voice|>"
-silence_repete   = "<|no voice|>"
-bruit_sans_texte = "<|no voice|>"
+silence          = "<no voice>"
+silence_repete   = "<no voice>"
+bruit_sans_texte = "<no voice>"
 tour_en_cours    = "{texte}"
 whisper    = "en"
 espeak     = "en"
@@ -100,24 +104,24 @@ voix_piper = "en_US-amy-medium"
 
 [[exemples]]
 entree = "can you"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
-entree = "<|no voice|>"
-sortie = '''{"m": "<|user is talking|>"}'''
+entree = "<no voice>"
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "tell me the"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "height of the Eiffel Tower"
-sortie = '''{"m": "<|user finish talking|>", "r": "The Eiffel Tower is 320 metres tall."}'''
+sortie = '''{"m": "<user finish speaking>", "r": "The Eiffel Tower is 320 metres tall."}'''
 # The silence that FOLLOWS an answer: the sentence just ended, so "still talking"
 # would teach the opposite of the right call. Measured in French: +0,025.
 [[exemples]]
-entree = "<|no voice|>"
-sortie = '''{"m": "<|user is thinking|>"}'''
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
 [[exemples]]
 entree = "and also can you"
-sortie = '''{"m": "<|user is talking|>"}'''
+sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "tell me what time it is"
-sortie = '''{"m": "<|user finish talking|>", "r": "It's nearly midnight."}'''
+sortie = '''{"m": "<user finish speaking>", "r": "It's nearly midnight."}'''
