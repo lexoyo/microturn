@@ -2253,15 +2253,22 @@ you tell me the height of the Eiffel Tower, please? » ressort de sherpa en
 dans une phrase de douze mots : un mot substitué en tête, un nom propre
 défiguré, un mot tronqué en fin.
 
-⚠️ **Ce que cet exemple ne dit pas** : ni le commentaire ni le message de commit
-n'indiquent **qui** a prononcé la phrase. Les deux lectures vont dans le même
-sens mais ne se valent pas — si c'est Alex, l'échantillon *mesure déjà le coût
-de l'accent* ; si c'est une voix propre, alors c'est le plancher et l'accent ne
-peut que l'aggraver. À trancher avant de s'en servir en illustration dans
-l'article, parce que la phrase qu'on écrira n'est pas la même. *(Et les +0,063 /
-−0,103 cités autour de ce commentaire sont des chiffres **français** : le commit
-dit lui-même que l'effet n'est pas mesuré en anglais, faute de sessions de
-référence.)*
+**Tranché par Alex le 04/09 : c'est sa voix, avec son accent.** La réserve qui
+tenait ici — on ne savait pas qui avait prononcé la phrase — tombe, et dans le
+sens le plus fort. Ce n'est pas le plancher de sherpa en anglais, c'est **la
+mesure directe de ce que l'accent coûte**, faite sur le corpus du projet et
+consignée dans le dépôt six jours avant qu'on se pose la question. L'argument
+de l'article n'est donc plus une précaution raisonnable, c'est un constat : la
+personne qui écrit ce système ne peut pas être celle qui l'enregistre.
+
+Le passage s'écrit à la première personne sans rien exagérer : *« J'ai essayé
+avec ma voix. "Can you tell me the height of the Eiffel Tower" est revenu en
+"BELOW CAN YOU TELL ME THE HEIGHT OF THE EYEFUL TOWER PLE". »* Trois dégâts en
+douze mots, et rien à ajouter.
+
+*(Une précaution demeure, sans rapport avec la voix : les +0,063 / −0,103 cités
+autour de ce commentaire sont des chiffres **français**. Le commit dit lui-même
+que l'effet n'est pas mesuré en anglais, faute de sessions de référence.)*
 
 **La tension à raconter, et c'est elle qui vaut le paragraphe.** On écarte un
 biais en en introduisant un autre. `PLAN-REPRO.md` (« Ce qui peut faire échouer
