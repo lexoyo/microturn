@@ -377,14 +377,25 @@ class Session:
             return self._rien()
         if not mv:
             return " ".join(mc).strip() or self._rien()
-        # Ancrage par la QUEUE, pas par la tête. Un préfixe commun tombe à zéro
-        # dès que whisper corrige un mot du début, insère une hésitation ou fait
-        # glisser sa fenêtre au-delà de PLAFOND_S — et on renvoyait alors toute
-        # la phrase comme si elle venait d'être dite. Mesuré deux fois en 20 s.
-        # Les derniers mots déjà vus, eux, restent stables : on les retrouve et
-        # on coupe juste après.
         cv = [self._cle(m) for m in mv]
         cc = [self._cle(m) for m in mc]
+        # Ancrage par le PRÉFIXE, et c'est le contrat de `stt.py` qui l'autorise.
+        # `transcript` est `fige + segment courant` : `fige` ne fait que croître
+        # (les segments clos y sont concaténés, jamais réécrits) et seul le
+        # segment courant est révisable. Le préfixe commun entre deux transcripts
+        # couvre donc tout `fige` puis la part stable du segment — s'y ancrer,
+        # c'est s'ancrer sur le préfixe DU SEGMENT.
+        #
+        # Ce que l'ancrage par la queue perdait : quand le décodeur RÉVISE un mot
+        # déjà envoyé ET ajoute derrière dans le même tick, le mot révisé tombe
+        # AVANT le dernier bloc aligné, donc il n'était jamais envoyé et le
+        # modèle gardait la version fausse pour tout le reste du tour
+        # (« TU AS UN TRAIN » → « TU AS EU UN TRAIN DIRECT » ne rendait que
+        # « DIRECT »). Un doublon se relit ; un mot manquant ne se devine pas.
+        prefixe = 0
+        while (prefixe < len(cv) and prefixe < len(cc)
+               and cv[prefixe] == cc[prefixe]):
+            prefixe += 1
         # Alignement de GAUCHE À DROITE des mots déjà vus dans le texte courant,
         # puis on rend ce qui dépasse. Deux méthodes ont échoué avant celle-ci :
         #
@@ -406,6 +417,21 @@ class Session:
         for i, j, n in blocs.get_matching_blocks():
             if n:
                 apres = max(apres, j + n)
+        # Deux cas seulement interdisent le préfixe, et l'alignement les couvre :
+        #
+        #   - `prefixe == 0` — la TÊTE a été réécrite. Whisper n'est pas causal,
+        #     il re-transcrit toute sa fenêtre : il corrige son premier mot
+        #     (« LA » → « L HEURE »), colle un générique halluciné devant, ou
+        #     fait glisser sa fenêtre au-delà de PLAFOND_S. Publier `mc[0:]`
+        #     renverrait la phrase ENTIÈRE comme si elle venait d'être dite : le
+        #     modèle la lit comme un énoncé neuf et complet et répond au milieu
+        #     du propos. Mesuré deux fois en 20 s ;
+        #   - `apres == len(cc)` — la croissance est INTERNE, rien n'est arrivé
+        #     en queue (« je peux venir » → « je ne peux pas venir »). Tout ce
+        #     qui suit le préfixe a déjà été envoyé : seul l'inséré est neuf,
+        #     et c'est le dépouillement des opcodes, plus bas, qui l'isole.
+        if prefixe and apres < len(cc):
+            return " ".join(mc[prefixe:]).strip() or self._rien()
         if mc[apres:]:
             return " ".join(mc[apres:]).strip() or self._rien()
         # Rien APRÈS l'alignement, alors que du texte est arrivé : c'est une
