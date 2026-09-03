@@ -1261,3 +1261,93 @@ un gain perdu sans bruit contamine tout ce qui est mesuré ensuite, et une base
 doit être remesurée dès que le code bouge entre deux séries. C'est le pendant du
 résultat n° 5 — après « mesurer le bruit de sa mesure », **vérifier que sa
 référence est encore la bonne**.
+
+### Le positionnement s'est déplacé deux fois dans la même semaine — 03/09
+
+Trois définitions du projet en six jours, et elles ne diffèrent pas seulement
+par le vocabulaire :
+
+- **29/08** — un **compagnon vocal** : on lui parle, il répond.
+- **02/09** — une **bibliothèque qui observe le tour de parole** : elle ne parle
+  jamais, elle rend des transitions d'état décrivant l'utilisateur, et le
+  développeur branche derrière le modèle de réponse qu'il veut
+  (`SPEC-PIVOT.md` § 1).
+- **03/09** — **« transformer un LLM en full-duplex »** : en entrée du texte
+  horodaté, en sortie du texte ou une interruption (`SPEC-PIVOT.md` § 12, commit
+  `9f928d8`, noté tel quel et pas encore tranché).
+
+Le troisième déplacement n'étend pas le deuxième, il le contredit là où ça
+compte : ce n'est plus **un composant qu'on branche**, c'est **une
+transformation qu'on applique à un modèle**. La sortie reporte le texte de la
+réponse — exactement ce que le § 1 avait écarté en posant que la bibliothèque ne
+fait que la moitié amont.
+
+**L'angle d'article, et c'est l'enchaînement des trois axes qui se referme sur
+lui-même** : la contrainte matérielle — Pi 3B, 905 Mio, donc pas de fine-tuning
+— a imposé le prompting ; et le prompting, à force d'être la seule variable
+libre du projet, a fini par **redéfinir le produit**. Le déplacement de
+positionnement ne vient pas d'une étude de marché, il vient d'une contrainte
+d'exécution. C'est la version forte du « le prompt est notre fine-tuning » de la
+partie II : ce que le prompt fabrique, ce n'est pas seulement un comportement,
+c'est le périmètre de ce qu'on vend.
+
+#### Les deux renversements du 03/09 vont dans le même sens : la fusion
+
+Deux points de la spec du 02/09 sont renversés, et par la même logique.
+
+1. **Détection et réponse restent dans le MÊME appel** (contre le § 9, qui
+   faisait des trois modes une option et présentait le mode séparé comme la voie
+   de la modularité). Ce renversement-là **est adossé à une mesure** : séparer
+   coûte **−0,165 de TOR sur les fins de tour** (mesure du 02/09, détaillée plus
+   haut). Le fusionné n'était donc pas un compromis qu'on tolérait faute de
+   mieux : c'était le bon choix, et on ne le savait pas.
+2. **Les backchannels, dans les deux sens, passent par le prompt** (contre le
+   § 2, où l'`assistant_backchannel` avait été confié au second modèle au motif
+   qu'émettre un « mhm » suppose de connaître l'aval). L'objection tombe
+   mécaniquement dès que le modèle qui répond est celui qui observe. Ce
+   renversement-ci **n'est pas mesuré** : c'est une conséquence logique du
+   premier, pas un résultat.
+
+**Ce que l'article doit en tirer** : la modularité qu'on croyait vertueuse
+coûtait des points de justesse. Découper un système en organes propres est un
+réflexe d'ingénieur, et il est ici **payé au comptant** — sur une tâche de
+langage, une frontière d'architecture est aussi une frontière d'information, et
+le modèle perd ce qu'on lui retire de l'autre côté. La formulation à garder est
+celle déjà écrite plus haut : *le prompt n'a pas besoin que le modèle fasse la
+seconde tâche, il a besoin qu'il l'ait en tête.* Le 03/09 en tire la conséquence
+d'architecture qui manquait.
+
+#### Ce qui est neuf, et n'existait dans aucune version : l'agrégateur
+
+Une couche **derrière le STT**, avant que quoi que ce soit n'atteigne le modèle :
+c'est là que vivraient le calcul du delta, le recollage des segments et la
+révision. Aucune des trois définitions ne la mentionnait — elle apparaît le
+03/09, et elle apparaît parce que la journée a été passée dedans (le bug `_delta`
+de la partie II, quarante secondes de conversation morte).
+
+Pour le récit, c'est une bonne illustration d'un motif récurrent du projet :
+**un étage d'architecture qui se découvre en réparant un bug**, pas en dessinant
+un schéma. Il n'a encore ni spec ni mesure.
+
+#### La décision du 03/09 : sortir du dépôt pour tester la brique la plus élémentaire
+
+Avant toute extraction de bibliothèque, un prototype isolé teste **une seule
+question** : à partir du texte seul, décider si une phrase est complète ou non.
+Pas de micro, pas d'ASR, pas de Pi.
+
+Il vit **hors du dépôt microturn**, délibérément, pour que ses mesures ne se
+mêlent pas à celles du projet — le fichier `RESULTATS.md` a déjà connu quatre
+bougés de référence en une journée (voir l'avertissement en tête de fichier), et
+une seconde source de chiffres portant sur une autre tâche est exactement ce
+qu'il ne faut pas y ajouter.
+
+**L'intérêt éditorial est qu'il réduit la thèse du projet à son os** : *la
+détection de fin de tour se fait sur le sens, pas sur le son.* Tout le reste —
+l'ASR en flux, les micro-tours à horloge fixe, le TTS, le budget de 905 Mio —
+est de la plomberie autour de cette affirmation. Si elle tient sur du texte nu,
+elle est démontrable par n'importe qui, sans matériel, en quelques lignes ; si
+elle ne tient pas, aucun des sept changements gardés ne compte.
+
+C'est aussi la première fois que le projet accepte de **mesurer quelque chose
+qui n'est pas Full-Duplex-Bench**. À suivre : rien n'est mesuré à ce stade, la
+décision seule est prise.
