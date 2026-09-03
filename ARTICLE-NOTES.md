@@ -1681,3 +1681,121 @@ dans trois fichiers avec exactement le même statut épistémique qu'un chiffre
 mesuré, sans jamais avoir été rattaché à quoi que ce soit. Une affirmation sur la
 concurrence est une donnée comme une autre ; elle mérite le même régime que les
 scores.
+
+### État de l'art des petits modèles de fin de tour — recherche du 03/09 au soir
+
+Complète le § 7 de `SPEC-PIVOT.md` (recherche du 02/09), qui couvrait Smart Turn,
+LiveKit et MaAI. Ce qui suit est ce que la soirée a ajouté : le **mécanisme**
+interne du détecteur LiveKit, un modèle qui manquait à la liste, et une
+conclusion de positionnement.
+
+⚠️ **Divergence à vérifier avant publication, non tranchée ici.** Le § 7 parle de
+**Smart Turn v3.2** avec 12,6 ms CPU / 59,8 ms ARM et **23 langues dont le
+français** ; la fiche `pipecat-ai/smart-turn-v3` relevée ce soir donne des
+chiffres proches mais pas identiques et **ne mentionne pas explicitement le
+français**. Il s'agit peut-être de deux versions différentes du modèle. Ne pas
+recopier l'un ou l'autre tant que ce n'est pas vérifié.
+
+#### LiveKit : ils lisent la probabilité d'un jeton, exactement comme nous
+
+Le morceau important. Le turn-detector de LiveKit est un **Qwen2.5-0.5B
+fine-tuné** — la variante multilingue est **distillée depuis un Qwen2.5-7B
+professeur**. Le mécanisme, lui, est d'une simplicité qui frappe :
+
+- on lui donne l'**historique récent au format chat Qwen**, jusqu'à **6 tours**,
+  tronqué à **128 tokens** ;
+- le **dernier message utilisateur est laissé volontairement ouvert** ;
+- et on lit la **probabilité du token `<|im_end|>`**. Probabilité haute = le tour
+  est fini.
+
+**Aucune tête de classification** : ils réutilisent la tête de langage du modèle.
+14 langues dont le français. **TPR 99,3-99,4 %, TNR 85,1-96,3 %** selon la
+langue.
+
+**L'angle d'article est là, et il est fort.** C'est **exactement** le mécanisme
+que notre prototype vient d'adopter le même soir (entrée précédente : lire les
+logprobs du jeton de décision plutôt que demander un nombre au modèle). Deux
+équipes qui ne se lisent pas aboutissent au même geste : *ne pas faire cracher
+une probabilité, aller la chercher là où elle existe déjà.* La différence tient
+au moyen — **eux l'obtiennent par fine-tuning, nous par prompting**, ce qui est
+la thèse du projet depuis le premier jour. **Convergence indépendante sur le
+mécanisme, divergence sur le moyen** : c'est le meilleur argument disponible pour
+l'axe 2 de la vision, parce qu'il ne vient pas de nous.
+
+#### La licence LiveKit se referme pour de bon, et c'est documenté
+
+Le modèle est annoncé « open weights », mais sous **LiveKit Model License**,
+restreinte au framework LiveKit. Au point qu'un développeur a dû ouvrir une
+**issue publique** (`livekit/agents#3262`) parce qu'il ne pouvait pas même
+**benchmarker** le modèle hors d'une session LiveKit.
+
+Ça confirme ce que le § 7 appelait déjà « le vrai trou du marché », mais ça le
+change de statut : **l'issue est une source citable, plus une impression.** Pour
+l'article, l'anecdote vaut mieux qu'un commentaire sur la licence — on ne peut
+pas comparer un modèle qu'on n'a pas le droit d'exécuter pour le comparer.
+
+#### TurnSense, qui manquait au § 7 — et qui n'est pas binaire non plus
+
+Sorti en **mai 2026**, donc absent de la recherche du 02/09. **47 M paramètres,
+~50 Mo en int8, ~55 ms CPU (p50)**, et surtout **trois classes** : complete /
+incomplete / **invalid** (bruits, vocalisations non verbales).
+
+Cette troisième classe est proche de notre `BACKCHANNEL`, et c'est **un précédent
+utile** : quelqu'un d'autre, indépendamment, a jugé qu'un binaire ne suffisait
+pas pour décrire ce qui sort de la bouche d'un utilisateur. À rapprocher de la
+décision de l'entrée précédente (la zone grise doit rester grise) : deux façons
+différentes de refuser le binaire, l'une par une classe de plus, l'autre par une
+probabilité.
+
+**F1 96,3 %** sur son test chinois court, **~92 %** sur le plus large. Deux
+réserves qui comptent avant de s'en réclamer : entraîné pour le **chinois**,
+anglais ajouté en 1.1, **français non mentionné** ; licence **Apache 2.0 « avec
+restrictions additionnelles »**, à lire avant de s'appuyer dessus.
+
+#### Smart Turn v3 : pas un concurrent frontal, et il tournerait sur le Pi
+
+Encodeur **Whisper Tiny sur la waveform brute** + classifieur linéaire, **8 M
+paramètres, 8 Mo en int8 ONNX, ~12 ms CPU**, **BSD-2**, entraîné sur **270 k
+exemples**, déclenché par un VAD sur le silence. **Il ne lit jamais de texte.**
+
+Le point à faire dans l'article, et il évite une comparaison malhonnête : **ce
+n'est pas un concurrent frontal.** Il répond à « **ce silence est-il final ?** »
+là où nous répondons à « **cette phrase est-elle complète ?** ». Deux questions
+voisines, deux entrées différentes, et deux régimes d'erreur différents. Et il
+tournerait sans peine sur le Pi 3B — c'est une raison de plus de ne pas se
+positionner contre lui.
+
+#### La conclusion, et elle est de positionnement
+
+**Personne ne couvre les trois cases à la fois — texte, français, licence
+réellement libre :**
+
+| | entrée | français | licence |
+|---|---|---|---|
+| **Smart Turn v3** | audio | (à vérifier, cf. ⚠️) | BSD-2, libre |
+| **TurnSense** | texte | non mentionné (chinois, puis anglais) | Apache 2.0 « avec restrictions » |
+| **LiveKit turn-detector** | texte | oui | verrouillée au framework |
+
+Smart Turn est libre mais part de l'audio ; TurnSense est du texte mais chinois ;
+LiveKit est du texte et du français mais fermé. **Et les trois passent par de
+l'entraînement.** C'est ce qui retourne la contrainte du projet : « pas de
+fine-tuning » cesse d'être un handicap subi par manque de mémoire sur un Pi 3B
+pour devenir **un argument de positionnement** — le seul des quatre qui ne
+demande ni corpus d'entraînement, ni GPU, ni redistribution de poids sous
+licence, et qui se transporte d'un modèle à l'autre.
+
+#### Corollaire de méthode : aucune comparaison directe n'est possible
+
+Ces modèles publient des **F1** ou des **TPR/TNR** sur leurs propres corpus,
+jamais une **AUC** sur le nôtre. Mettre notre chiffre à côté des leurs serait
+exactement le genre de rapprochement que ce fichier passe son temps à démonter
+ailleurs. **Le seul terrain commun reste eot-bench en français**, déjà identifié
+comme l'étape 6 de `PLAN.md` et comme préalable dans `SPEC-PIVOT.md` § 7.
+
+#### Sources
+
+- `huggingface.co/livekit/turn-detector`
+- `github.com/livekit/agents/issues/3262`
+- `livekit.com/blog/using-a-transformer-to-improve-end-of-turn-detection`
+- `huggingface.co/pipecat-ai/smart-turn-v3`
+- `huggingface.co/brgroup/TurnSense`
