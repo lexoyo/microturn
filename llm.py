@@ -3,8 +3,10 @@
 
 Toutes les `TICK_S` secondes, on lui envoie ce qui vient d'être transcrit, ou le
 marqueur de silence si rien n'a été dit. Il répond par l'état qu'il perçoit — ça
-parle encore, c'est fini, ça réfléchit, ça me coupe — et seulement dans le
-deuxième cas par une phrase à prononcer.
+parle encore, c'est fini, ça réfléchit, ça acquiesce — et seulement dans le
+deuxième cas par une phrase à prononcer. L'INTERRUPTION, elle, n'est plus un
+état qu'il perçoit : c'est l'hôte qui la déduit, parce qu'il est le seul à
+savoir qu'il est en train de parler (PLAN-REPRO § 3.1, SPEC-PIVOT § 2).
 
 L'idée vient de DuplexCascade (arXiv 2603.09180) : plutôt qu'un détecteur de
 parole qui tranche sur un seuil de silence, c'est le modèle qui juge, à partir du
@@ -91,7 +93,12 @@ def _lire_catalogue(langue):
     # Un catalogue incomplet doit échouer AU DÉMARRAGE, pas au premier silence
     # d'une conversation : une clé manquante donnerait sinon un KeyError au
     # milieu d'une session, ou pire, un marqueur vide que le prompt ne décrit pas.
-    for section, clefs in (("jetons", ("parle", "parler", "reflechit", "coupe")),
+    # `coupe` n'est PLUS exigé : le jeton d'interruption a été retiré des
+    # catalogues le 04/09 (PLAN-REPRO § 3.1), l'hôte déduit. `backchannel` et
+    # `mhm`, eux, sont maintenant traités par le code (§ 3.2 et § 3.3) : un
+    # catalogue qui les oublierait désactiverait les deux en silence.
+    for section, clefs in (("jetons", ("parle", "parler", "reflechit",
+                                       "backchannel", "mhm")),
                            ("etats", ("parle", "vient", "muet")),
                            ("divers", ("silence", "silence_repete", "bruit_sans_texte", "tour_en_cours",
                                        "whisper", "espeak"))):
@@ -124,7 +131,18 @@ def _lire_catalogue(langue):
     if not cat.get("exemples"):
         raise SystemExit(f"{chemin} : aucun exemple — sans eux la sortie du modèle "
                          f"devient invalide dans les deux tiers des cas")
-    cat["exemples"] = [(e["entree"], e["sortie"]) for e in cat["exemples"]]
+    # `exemples` est le jeu par défaut ; `exemples_<moteur>` le remplace quand ce
+    # moteur tourne — exactement le mécanisme des prompts. `systeme_sherpa`
+    # annonce « majuscules sans ponctuation » et montrait sept exemples en
+    # minuscules ponctuées : le prompt se contredisait dans la zone qui vaut
+    # +0,063 de justesse. Les entrées ne peuvent donc pas être communes aux deux
+    # moteurs, pas plus que la phrase d'avertissement ne l'était.
+    for clef in [c for c in cat if c == "exemples" or c.startswith("exemples_")]:
+        cat[clef] = [(e["entree"], e["sortie"]) for e in cat[clef]]
+    # Les clips de <system backchannel> : facultatifs (un catalogue sans eux
+    # n'en joue simplement aucun), mais normalisés une fois pour toutes.
+    cat["backchannels"] = [str(c) for c in
+                           (cat.get("backchannels", {}).get("clips") or [])]
     cat["systeme"] = cat["systeme"].strip()
     return cat
 
@@ -142,10 +160,17 @@ def langues():
     return sorted(f[:-5] for f in os.listdir(LOCALES) if f.endswith(".toml"))
 
 
-def rendre_exemples(langue="fr"):
+def exemples(langue="fr", moteur=None):
+    """Le jeu d'exemples du moteur, ou celui par défaut. Lecture de clé, pas
+    construction : le catalogue reste la seule source."""
+    cat = catalogue(langue)
+    return cat.get(f"exemples_{moteur}") or cat["exemples"]
+
+
+def rendre_exemples(langue="fr", moteur=None):
     """Les exemples en texte, tels qu'ils apparaissent DANS le message système."""
     return "\n".join(f"  utilisateur: {u}\n  assistant: {a}"
-                     for u, a in catalogue(langue)["exemples"])
+                     for u, a in exemples(langue, moteur))
 
 
 def systeme(langue="fr", tick=1.2, moteur=None):
@@ -167,7 +192,7 @@ def systeme(langue="fr", tick=1.2, moteur=None):
     brut = cat.get(f"systeme_{moteur}") or cat["systeme"]
     return (brut
             .replace("{tick}", str(tick).replace(".", virgule))
-            .replace("{exemples}", rendre_exemples(langue)))
+            .replace("{exemples}", rendre_exemples(langue, moteur)))
 
 
 # ------------------------------------------------------------------ décodage
@@ -195,21 +220,17 @@ def lire_controle(txt, langue="fr"):
         if isinstance(d, dict) and d.get("m"):
             j = catalogue(langue)["jetons"]
             reponse = (d.get("r") or "").strip()
-            for cle in ("parler", "reflechit", "coupe", "parle"):
+            # Les DEUX backchannel rendent leur PROPRE action depuis le 04/09.
+            # Les ramener tous les deux à `reflechit` (ce que faisait le code
+            # depuis b5a6652) les rendait indiscernables du silence : le
+            # `<system backchannel>` ne déclenchait donc rien, et le
+            # `<user backchannel>` ne se distinguait plus d'un `parle` du point
+            # de vue de l'hôte, qui coupe désormais sur `parle`.
+            for cle in ("parler", "reflechit", "backchannel", "mhm", "parle"):
                 if d["m"] == j.get(cle):
                     if cle == "parler":
                         return ("parler", reponse) if reponse else ("parler_sans_texte", "")
                     return cle, ""
-            # Les DEUX backchannel sont dans l'enum du schéma, donc le modèle a
-            # le droit de les choisir — et il le fait. Ne pas les mapper les
-            # faisait tomber en « hors format » et JETAIT la décision, alors que
-            # le catalogue promet qu'ils sont « ramenés à ne prends pas la
-            # parole ». Vu en session le 03/09 :
-            #   ⚠ malformed: {"m": "<|user backchannel|>", "r": "Hello!"}
-            # Un signal d'écoute n'est pas une prise de parole : c'est bien
-            # « attends », soit exactement `reflechit`.
-            if d["m"] in (j.get("backchannel"), j.get("mhm")):
-                return "reflechit", ""
             return "format", t
     parts = t.split(None, 1)      # blancs, et non " " : un saut de ligne avalait
     mot = parts[0].strip(":.,!?<>[]()").upper()   # la réponse
@@ -223,12 +244,13 @@ def lire_controle(txt, langue="fr"):
             return ("parler", reste) if reste else ("parler_sans_texte", "")
         if mot.startswith(j["reflechit"]):
             return "reflechit", ""
-        if mot.startswith(j["coupe"]):
-            return "coupe", ""
+        # Avant `parle` : les deux backchannel sont des préfixes distincts, mais
+        # les tester après une correspondance plus courte serait fragile.
+        for k in ("backchannel", "mhm"):
+            if j.get(k) and mot.startswith(j[k]):
+                return k, ""
         if mot.startswith(j["parle"]):
             return "parle", ""
-        if any(mot.startswith(j[k]) for k in ("backchannel", "mhm") if j.get(k)):
-            return "reflechit", ""
     return "format", t            # tracé comme tel, jamais noyé dans « ça parle »
 
 
@@ -271,8 +293,12 @@ class Simule:
     concurrent. Il ne doit JAMAIS servir à juger la qualité du tour de parole.
     """
 
+    # `moteur` est ignoré mais ACCEPTÉ : le pipeline le passe aux deux
+    # décideurs sans distinction, et son absence ici faisait tomber
+    # `--modele-simule` sur un TypeError au démarrage — c'est-à-dire le seul
+    # mode qui permette d'exercer la chaîne entière sans réseau.
     def __init__(self, model="simule", timeout=None, trace=None, langue="fr",
-                 tick=1.2):
+                 tick=1.2, moteur=None):
         self.model, self.trace, self.langue = model, trace, langue
         cat = catalogue(langue)
         self.jetons = cat["jetons"]
@@ -392,7 +418,9 @@ class Decideur:
     def decide(self, transcript, history=None):
         """Rend (action, texte, latence).
 
-        action ∈ {parle, parler, parler_sans_texte, reflechit, coupe, format, error}.
+        action ∈ {parle, parler, parler_sans_texte, reflechit, backchannel, mhm,
+        format, error}. Plus de `coupe` : l'interruption est déduite par l'hôte,
+        qui est le seul à savoir qu'il parle (PLAN-REPRO § 3.1).
         Une erreur est renvoyée telle quelle, JAMAIS confondue avec « ça parle » :
         l'appelant doit pouvoir réessayer au lieu de perdre l'énoncé.
         """

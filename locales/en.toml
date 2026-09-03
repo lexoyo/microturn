@@ -1,4 +1,4 @@
-# English catalogue for microturn. Kept in step with `fr.toml`: same seven control
+# English catalogue for microturn. Kept in step with `fr.toml`: same control
 # tokens as DuplexCascade (`FORMAT-CHERCHEURS.md`), same JSON-constrained output,
 # same structure. It is what makes the researchers' English benchmark runnable
 # without touching the rest of the system.
@@ -21,9 +21,21 @@ At each chunk, you say where the user stands:
   <user is speaking>     (they are still speaking — stay silent)
   <user finish speaking> (they are done — answer them)
   <user is thinking>     (silent after your reply, they are thinking — do nothing)
-  <user is interrupting> (they take the floor back while you speak — stop)
-  <user backchannel>     (a listening signal while you speak — ignore it, go on)
-  <system backchannel>   (YOU emit a short listening signal while they speak)
+  <user backchannel>     ("okay", "yes", "mhm", "right": they are signalling \
+that they are listening, they ask for nothing — do not answer it, and do not \
+stop for it)
+  <system backchannel>   (YOU emit a short listening signal: their request is \
+getting long, you have understood and you are waiting for the rest)
+
+A user backchannel is recognised by WHAT IS SAID, never by when it is said: one \
+or two words that carry no question, no instruction, no new information. "Okay" \
+on its own is a backchannel; "Okay, please summarize in one sentence" is a real \
+turn, although it opens with the same word. Judge the whole line, not the first \
+word.
+
+<system backchannel> is short and is NOT an answer: you place it while they are \
+still speaking, and you do not take the floor for it. Do not emit one at every \
+chunk — at most one per request, just before you answer.
 
 You answer with an object: {"m": "<the marker>"}.
 
@@ -46,6 +58,10 @@ will be spoken to the user: \
 # Checked on 2026-09-03 that the English model behaves like the French one:
 # « Hello, can you tell me the height of the Eiffel Tower, please? » comes back
 # as « BELOW CAN YOU TELL ME THE HEIGHT OF THE EYEFUL TOWER PLE ».
+#
+# It also carries its OWN examples ([[exemples_sherpa]]): announcing uppercase
+# without punctuation and then showing seven lowercase punctuated ones is a
+# contradiction sitting in the very part of the prompt that is worth +0.063.
 systeme_sherpa = """
 You are having a conversation with a user.
 
@@ -61,9 +77,21 @@ At each chunk, you say where the user stands:
   <user is speaking>     (they are still speaking — stay silent)
   <user finish speaking> (they are done — answer them)
   <user is thinking>     (silent after your reply, they are thinking — do nothing)
-  <user is interrupting> (they take the floor back while you speak — stop)
-  <user backchannel>     (a listening signal while you speak — ignore it, go on)
-  <system backchannel>   (YOU emit a short listening signal while they speak)
+  <user backchannel>     ("OKAY", "YES", "MHM", "RIGHT": they are signalling \
+that they are listening, they ask for nothing — do not answer it, and do not \
+stop for it)
+  <system backchannel>   (YOU emit a short listening signal: their request is \
+getting long, you have understood and you are waiting for the rest)
+
+A user backchannel is recognised by WHAT IS SAID, never by when it is said: one \
+or two words that carry no question, no instruction, no new information. "OKAY" \
+on its own is a backchannel; "OKAY PLEASE SUMMARIZE IN ONE SENTENCE" is a real \
+turn, although it opens with the same word. Judge the whole line, not the first \
+word.
+
+<system backchannel> is short and is NOT an answer: you place it while they are \
+still speaking, and you do not take the floor for it. Do not emit one at every \
+chunk — at most one per request, just before you answer.
 
 You answer with an object: {"m": "<the marker>"}.
 
@@ -79,10 +107,14 @@ will be spoken to the user: \
 """
 
 [jetons]
+# ⚠️ `coupe` (<user is interrupting>) was REMOVED on 2026-09-04
+# (PLAN-REPRO § 3.1): it was defined as "while you speak" and nothing tells the
+# model that it speaks — 0 emissions over 897 decisions. The interruption is now
+# deduced by the HOST: a `parle` received while it is reading a reply IS an
+# interruption. SPEC-PIVOT § 2: the observer knows nothing of what is downstream.
 parle       = "<user is speaking>"
 parler      = "<user finish speaking>"
 reflechit   = "<user is thinking>"
-coupe       = "<user is interrupting>"
 backchannel = "<user backchannel>"
 mhm         = "<system backchannel>"
 
@@ -101,6 +133,12 @@ tour_en_cours    = "{texte}"
 whisper    = "en"
 espeak     = "en"
 voix_piper = "en_US-amy-medium"
+
+# The four clips heard in their demo 3, in their own words. A pre-synthesised
+# WAV drawn at random, never on-the-fly TTS (paper § 3.2). Regenerate with
+# `clips/generer.py`.
+[backchannels]
+clips = ["Mhmm.", "Sure.", "Uh-huh.", "Gotcha."]
 
 [[exemples]]
 entree = "can you"
@@ -125,3 +163,80 @@ sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "tell me what time it is"
 sortie = '''{"m": "<user finish speaking>", "r": "It's nearly midnight."}'''
+[[exemples]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
+# The last six show the two backchannels IN OUTPUT, added 2026-09-04
+# (PLAN-REPRO § 3.2). They were listed among the markers and shown nowhere.
+[[exemples]]
+entree = "so I would need to know"
+sortie = '''{"m": "<user is speaking>"}'''
+# The request is getting long, we have understood, we let it finish: the
+# listening signal falls here, right before the answer — like their demo 3,
+# where the four clips open the reply.
+[[exemples]]
+entree = "how to get from Paris to Lyon"
+sortie = '''{"m": "<system backchannel>"}'''
+[[exemples]]
+entree = "by train on a Sunday"
+sortie = '''{"m": "<user finish speaking>", "r": "There is a direct train every hour, about two hours."}'''
+# The last three are their demo 2 verbatim: two backchannels, then a real turn,
+# all three while we are speaking. The same word plays both roles — what
+# separates them is the whole line, not the vocabulary and not the timing.
+[[exemples]]
+entree = "okay"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples]]
+entree = "yes"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples]]
+entree = "okay please summarize in one sentence"
+sortie = '''{"m": "<user finish speaking>", "r": "Trains run hourly to Lyon, seven days a week."}'''
+
+# The same examples for sherpa, inputs in UPPERCASE WITHOUT PUNCTUATION — that
+# is, in the shape `systeme_sherpa` announces on its first line.
+# ⚠️ Only `entree` changes shape. The `r` field is the SPOKEN sentence: it goes
+# to the TTS, and piper inserts two false pauses in the middle of a "J.K.
+# Rowling" — uppercasing it would damage the voice for nothing.
+[[exemples_sherpa]]
+entree = "CAN YOU"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "TELL ME THE"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "HEIGHT OF THE EIFFEL TOWER"
+sortie = '''{"m": "<user finish speaking>", "r": "The Eiffel Tower is 320 metres tall."}'''
+[[exemples_sherpa]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
+[[exemples_sherpa]]
+entree = "AND ALSO CAN YOU"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "TELL ME WHAT TIME IT IS"
+sortie = '''{"m": "<user finish speaking>", "r": "It's nearly midnight."}'''
+[[exemples_sherpa]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
+[[exemples_sherpa]]
+entree = "SO I WOULD NEED TO KNOW"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "HOW TO GET FROM PARIS TO LYON"
+sortie = '''{"m": "<system backchannel>"}'''
+[[exemples_sherpa]]
+entree = "BY TRAIN ON A SUNDAY"
+sortie = '''{"m": "<user finish speaking>", "r": "There is a direct train every hour, about two hours."}'''
+[[exemples_sherpa]]
+entree = "OKAY"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples_sherpa]]
+entree = "YES"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples_sherpa]]
+entree = "OKAY PLEASE SUMMARIZE IN ONE SENTENCE"
+sortie = '''{"m": "<user finish speaking>", "r": "Trains run hourly to Lyon, seven days a week."}'''

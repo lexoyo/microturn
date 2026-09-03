@@ -26,9 +26,20 @@ et tu peux t'y référer.
   <user is speaking>     (il parle encore — tais-toi)
   <user finish speaking> (il a fini — réponds-lui)
   <user is thinking>     (il se tait après ta réponse, il réfléchit — n'agis pas)
-  <user is interrupting> (il reprend la parole alors que tu parles — arrête-toi)
-  <user backchannel>     (un signal d'écoute pendant que tu parles — ignore-le, continue)
-  <system backchannel>   (TOI, tu émets un bref signal d'écoute pendant qu'il parle)
+  <user backchannel>     (« d'accord », « oui », « mhm » : il fait signe qu'il \
+écoute, il ne demande rien — n'y réponds pas, ne t'arrête pas pour autant)
+  <system backchannel>   (TOI, tu émets un bref signal d'écoute : sa demande \
+s'allonge, tu as compris et tu attends la suite)
+
+Un backchannel de l'utilisateur se reconnaît à CE QU'IL DIT, jamais au moment \
+où il le dit : un ou deux mots qui n'apportent ni question, ni consigne, ni \
+information neuve. « D'accord » tout seul est un backchannel ; « D'accord, et \
+le samedi ? » est un vrai tour de parole, bien qu'il commence par le même mot. \
+Juge la phrase entière, pas le premier mot.
+
+<system backchannel> est bref et n'est pas une réponse : tu le poses pendant \
+qu'il parle encore et tu ne prends pas la parole pour autant. N'en émets pas à \
+chaque bout — au plus un par demande, juste avant de lui répondre.
 
 Tu réponds par un objet : {"m": "<le marqueur>"}.
 
@@ -48,6 +59,10 @@ phrase qui sera transmise à l'utilisateur : \
 # Mesurée dans les deux sens le 29/08/2026 — la même phrase coûte 0,103 à
 # whisper, qui ponctue : le modèle cesse de chercher une ponctuation qui est
 # pourtant là. Elle ne peut donc pas être commune aux deux.
+#
+# Et ce prompt tire ses PROPRES exemples ([[exemples_sherpa]]) : annoncer des
+# majuscules sans ponctuation puis en montrer sept en minuscules ponctuées,
+# c'est se contredire dans la zone du prompt qui vaut justement +0,063.
 systeme_sherpa = """
 Tu es en train d'avoir une conversation avec un utilisateur.
 
@@ -66,9 +81,20 @@ et tu peux t'y référer.
   <user is speaking>     (il parle encore — tais-toi)
   <user finish speaking> (il a fini — réponds-lui)
   <user is thinking>     (il se tait après ta réponse, il réfléchit — n'agis pas)
-  <user is interrupting> (il reprend la parole alors que tu parles — arrête-toi)
-  <user backchannel>     (un signal d'écoute pendant que tu parles — ignore-le, continue)
-  <system backchannel>   (TOI, tu émets un bref signal d'écoute pendant qu'il parle)
+  <user backchannel>     (« d'accord », « oui », « mhm » : il fait signe qu'il \
+écoute, il ne demande rien — n'y réponds pas, ne t'arrête pas pour autant)
+  <system backchannel>   (TOI, tu émets un bref signal d'écoute : sa demande \
+s'allonge, tu as compris et tu attends la suite)
+
+Un backchannel de l'utilisateur se reconnaît à CE QU'IL DIT, jamais au moment \
+où il le dit : un ou deux mots qui n'apportent ni question, ni consigne, ni \
+information neuve. « D ACCORD » tout seul est un backchannel ; « D ACCORD ET \
+LE SAMEDI » est un vrai tour de parole, bien qu'il commence par le même mot. \
+Juge la phrase entière, pas le premier mot.
+
+<system backchannel> est bref et n'est pas une réponse : tu le poses pendant \
+qu'il parle encore et tu ne prends pas la parole pour autant. N'en émets pas à \
+chaque bout — au plus un par demande, juste avant de lui répondre.
 
 Tu réponds par un objet : {"m": "<le marqueur>"}.
 
@@ -90,13 +116,18 @@ phrase qui sera transmise à l'utilisateur : \
 # interrupting, « assistant_backchannel » pour system backchannel — sans que
 # rien ne le justifie. Se caler sur leur vocabulaire coûte zéro et rend le
 # projet lisible par qui a lu le papier. Imposé sans mesure, décision d'Alex.
+#
+# ⚠️ `coupe` (<user is interrupting>) a été RETIRÉ le 04/09 (PLAN-REPRO § 3.1).
+# Il était défini « pendant que tu parles » et rien ne dit au modèle qu'il
+# parle : 0 émission sur 897 décisions. L'interruption est désormais déduite
+# par l'HÔTE — un `parle` reçu pendant qu'il lit une réponse EST une
+# interruption. Conforme à SPEC-PIVOT § 2 : l'observateur ignore l'aval.
 parle       = "<user is speaking>"
 parler      = "<user finish speaking>"
 reflechit   = "<user is thinking>"
-coupe       = "<user is interrupting>"
-# Leurs deux backchannel. Le code ne les traite pas encore : ils sont dans
-# l'enum, donc le modèle peut les choisir, et ils sont ramenés à « ne prends
-# pas la parole ». C'est leur sens le plus proche en attendant mieux.
+# Leurs deux backchannel, tous deux traités par le code depuis le 04/09 :
+# `backchannel` veut dire « ne prends pas la parole ET ne t'interromps pas »,
+# `mhm` déclenche un clip audio pré-synthétisé (cf. [backchannels]).
 backchannel = "<user backchannel>"
 mhm         = "<system backchannel>"
 
@@ -117,6 +148,14 @@ whisper    = "fr"
 espeak     = "fr"
 voix_piper = "fr_FR-siwis-medium"
 tour_en_cours = "{texte}"
+
+# Les clips joués quand le modèle émet <system backchannel>. Comme les
+# chercheurs (papier § 3.2), c'est un WAV pré-synthétisé tiré au hasard, PAS du
+# TTS à la volée : sur un Pi 3B la synthèse coûterait une seconde, ce qui est
+# exactement ce qu'un signal d'écoute ne peut pas se permettre.
+# Les fichiers se régénèrent avec `clips/generer.py`.
+[backchannels]
+clips = ["Mhm.", "D'accord.", "Oui.", "Je vois."]
 
 [[exemples]]
 entree = "est-ce que tu peux"
@@ -143,3 +182,82 @@ sortie = '''{"m": "<user is speaking>"}'''
 [[exemples]]
 entree = "me dire quelle heure il est"
 sortie = '''{"m": "<user finish speaking>", "r": "Il est bientôt minuit."}'''
+[[exemples]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
+# Les six suivants sont les deux backchannel EN SORTIE, ajoutés le 04/09
+# (PLAN-REPRO § 3.2). Ils étaient listés dans les marqueurs et montrés nulle
+# part : autant dire qu'ils n'existaient pas.
+[[exemples]]
+entree = "alors j'aurais besoin de savoir"
+sortie = '''{"m": "<user is speaking>"}'''
+# La demande s'allonge, on a compris, on la laisse finir : c'est ici que le
+# signal d'écoute tombe, juste avant la réponse — comme leur démo 3, où les
+# quatre clips ouvrent la réponse.
+[[exemples]]
+entree = "comment on va de Paris à Lyon"
+sortie = '''{"m": "<system backchannel>"}'''
+[[exemples]]
+entree = "en train le dimanche"
+sortie = '''{"m": "<user finish speaking>", "r": "Il y a un direct toutes les heures, environ deux heures de trajet."}'''
+# Les trois derniers sont la séquence de leur démo 2 : deux backchannel puis
+# une vraie reprise de parole, tous pendant qu'on parle. Le même mot y joue les
+# deux rôles — c'est le contenu de la phrase entière qui les sépare, pas le
+# vocabulaire ni le moment.
+[[exemples]]
+entree = "d'accord"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples]]
+entree = "oui"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples]]
+entree = "d'accord et le samedi"
+sortie = '''{"m": "<user finish speaking>", "r": "Le samedi, c'est la même cadence."}'''
+
+# Les mêmes exemples pour sherpa, entrées en MAJUSCULES SANS PONCTUATION —
+# c'est-à-dire dans la forme que `systeme_sherpa` annonce à la ligne 1.
+# ⚠️ Seul `entree` change de forme. Le champ `r` est la phrase PRONONCÉE : elle
+# part au TTS, et piper insère deux faux silences au milieu d'un « J.K.
+# Rowling » — la mettre en majuscules abîmerait la voix pour rien.
+[[exemples_sherpa]]
+entree = "EST CE QUE TU PEUX"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "ME DIRE LA"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "TAILLE DE LA TOUR EIFFEL"
+sortie = '''{"m": "<user finish speaking>", "r": "La tour Eiffel mesure 320 mètres"}'''
+[[exemples_sherpa]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
+[[exemples_sherpa]]
+entree = "ET AUSSI EST CE QUE TU PEUX"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "ME DIRE QUELLE HEURE IL EST"
+sortie = '''{"m": "<user finish speaking>", "r": "Il est bientôt minuit."}'''
+[[exemples_sherpa]]
+entree = "<no voice>"
+sortie = '''{"m": "<user is thinking>"}'''
+[[exemples_sherpa]]
+entree = "ALORS J AURAIS BESOIN DE SAVOIR"
+sortie = '''{"m": "<user is speaking>"}'''
+[[exemples_sherpa]]
+entree = "COMMENT ON VA DE PARIS A LYON"
+sortie = '''{"m": "<system backchannel>"}'''
+[[exemples_sherpa]]
+entree = "EN TRAIN LE DIMANCHE"
+sortie = '''{"m": "<user finish speaking>", "r": "Il y a un direct toutes les heures, environ deux heures de trajet."}'''
+[[exemples_sherpa]]
+entree = "D ACCORD"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples_sherpa]]
+entree = "OUI"
+sortie = '''{"m": "<user backchannel>"}'''
+[[exemples_sherpa]]
+entree = "D ACCORD ET LE SAMEDI"
+sortie = '''{"m": "<user finish speaking>", "r": "Le samedi, c'est la même cadence."}'''

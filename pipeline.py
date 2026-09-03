@@ -191,6 +191,11 @@ class Session:
         else:
             self.voix = tts.Speaker(engine or tts.ENGINE, voice=_voix, langue=_lg)
         self.muet = muet
+        # Les clips de `<system backchannel>` : des WAV pré-synthétisés, joués
+        # à côté du locuteur et jamais à travers lui. Inactifs en mesure muette
+        # et au rendu du banc — on tire quand même, pour que la trace dise ce
+        # qui aurait été joué (cf. tts.Clips).
+        self.clips = tts.Clips(langue, actif=not (muet or rendu))
         self.robot_parle = False
         self.trace = None
         if trace_dir:
@@ -461,6 +466,23 @@ class Session:
                 return " ".join(neufs).strip() or self._rien()
         return self._rien()
 
+    def _je_parle(self):
+        """Suis-je en train de lire une réponse ? La question centrale de 3.1.
+
+        L'HÔTE est le seul à le savoir, et il le sait exactement : c'est un état
+        interne, pas une inférence. C'est toute la raison pour laquelle le jeton
+        `<user is interrupting>` a été retiré du catalogue — il demandait au
+        modèle de percevoir une chose qu'on ne lui disait pas, et il ne l'a
+        jamais produite (0 sur 897 décisions). `SPEC-PIVOT.md` § 2 : l'observateur
+        ignore l'aval, c'est l'appelant qui interprète.
+
+        `robot_parle` est rafraîchi au passage : la boucle temps réel le tient à
+        jour à chaque tour, mais le rejeu déterministe, lui, ne le faisait pas —
+        il restait vrai pour toujours après la première réponse.
+        """
+        self.robot_parle = self.voix.speaking()
+        return self.robot_parle
+
     def _est_echo(self, delta):
         """Reconnaît sa propre voix dans ce que le STT vient de rendre.
 
@@ -552,7 +574,7 @@ class Session:
         # On revient au design des chercheurs : chaque micro-tour ne porte que
         # ce qui vient d'être dit, et le contexte vit dans l'historique.
         e = self.etats
-        if self.robot_parle:
+        if self._je_parle():
             delta = e["parle"] + " " + delta
         elif self.parle_fin and time.time() - self.parle_fin < 6.0:
             delta = e["vient"] + " " + delta
@@ -674,11 +696,19 @@ class Session:
                 return
             self._tour(delta, "parler", dt, f"▶ {texte}")
             self._dire(texte)
-        elif action in ("coupe", "parle"):
-            # Comme DuplexCascade : n'importe quel tick où elle parle pendant
-            # qu'on parle coupe la synthèse. Faire dépendre l'interruption du
-            # seul label INTERRUPTING la rendait impossible — il n'a jamais été
-            # émis une seule fois sur 153 décisions.
+        elif action == "parle":
+            # ---- L'INTERRUPTION, DÉDUITE PAR L'HÔTE (PLAN-REPRO § 3.1) ----
+            # Un `<user is speaking>` reçu pendant qu'on lit une réponse EST une
+            # interruption : la première moitié est une observation du modèle,
+            # la seconde n'est connue que d'ici. Le jeton `<user is interrupting>`
+            # a été retiré du catalogue — on remplace un marqueur qui ne sortait
+            # jamais (0 sur 897) par un ET logique déterministe.
+            #
+            # `<user backchannel>` ne passe PAS par ici, et c'est tout l'objet de
+            # la démo 2 : « Okay » puis « Yes » ne coupent pas, « Okay, please
+            # summarize in one sentence » coupe. Le modèle sépare les deux au
+            # CONTENU de la ligne entière ; l'hôte, lui, ne fait qu'appliquer.
+            #
             # Les DEUX marqueurs de « rien de neuf » protègent de la coupure.
             # N'en tester qu'un a suffi à casser le système : le jour où
             # `bruit_sans_texte` a été ajouté, il n'était couvert par aucune
@@ -686,14 +716,17 @@ class Session:
             # pendant qu'on parle, il apparaissait à chaque réponse. Résultat :
             # quatre coupures sur quatre prises de parole, moins d'une seconde
             # après le début, sans qu'Alex ait dit un mot.
-            if (self.voix.speaking()
+            if (self._je_parle()
                     and not delta.strip().endswith(
                         (self.silence, self.bruit_sans_texte))
                     and not self._est_echo(delta)):
                 self.voix.stop()
-                self._tour(delta, "coupe", dt, "✂ speech cut")
+                # Le marqueur affiché est celui que le modèle a VRAIMENT rendu ;
+                # la coupure, elle, est signée « host » parce qu'elle vient
+                # d'ici et de nulle part ailleurs.
+                self._tour(delta, "parle", dt, "✂ speech cut (host)")
                 if self.trace:
-                    self.trace.ev("coupure")
+                    self.trace.ev("coupure", origine="hote")
             else:
                 # Sans cette ligne l'écran devient AVEUGLE : `parle` est l'action
                 # de très loin la plus fréquente, et depuis qu'elle a rejoint la
@@ -707,6 +740,24 @@ class Session:
             # elle noyait le reste. Elle reste dans la TRACE (`type=decision`),
             # donc l'analyse d'après coup ne perd rien — seul l'écran s'allège.
             pass
+        elif action == "backchannel":
+            # « okay », « mhm », « d'accord » : un signal d'écoute. Il ne prend
+            # pas la parole ET IL NE COUPE PAS — c'est ce qui le sépare de
+            # `parle` ci-dessus, et c'est exactement la démo 2. Ne rien faire
+            # est donc l'action juste, pas un trou dans le code.
+            self._tour(delta, action, dt, "◦ listening")
+        elif action == "mhm":
+            # `<system backchannel>` : un clip pré-synthétisé tiré au hasard,
+            # comme eux (papier § 3.2). Pas de TTS à la volée — le clip doit
+            # sortir maintenant ou ne pas sortir. Il ne touche pas au locuteur,
+            # donc il ne retarde pas la réponse du tick suivant, et il ne pose
+            # pas l'état « je parle », donc il ne coupe pas l'écoute.
+            chemin = self.clips.jouer()
+            self._tour(delta, action, dt,
+                       f"♪ {os.path.basename(chemin)}" if chemin
+                       else "♪ aucun clip (clips/generer.py)")
+            if self.trace:
+                self.trace.ev("backchannel", clip=chemin, joue=self.clips.actif)
         elif action == "parler_sans_texte":
             # Une décision de parler dont la réponse manque. La confondre avec
             # l'attente rendait le système muet ET faussait le ratio, en silence.
@@ -824,16 +875,19 @@ class Session:
                 # Barge-in local, sans réseau : la porte a mesuré une vraie voix
                 # par-dessus notre parole. Passer par le modèle coûterait un tick
                 # plus un aller-retour, soit plus d'une seconde et demie.
+                # C'est la propriété la plus précieuse du prototype, et elle est
+                # INTACTE après le retrait du jeton : elle n'a jamais dépendu de
+                # lui — seul l'affichage le citait, faute de mieux.
                 if (self.porte is not None and self.porte.barge_in
                         and self.voix.speaking()):
                     self.voix.stop()
                     self.porte.barge_in = False
                     self.log(f"{'(audio gate)':<44} → "
-                             f"{self.jetons['coupe']:<26} ✂ speech cut")
+                             f"{'✂ interruption (host)':<26} speech cut")
                     if self.trace:
                         self.trace.ev("coupure", origine="porte")
 
-                self.robot_parle = self.voix.speaking()
+                self._je_parle()
                 if not self.robot_parle and self.parle_depuis is not None:
                     if self.trace:
                         # Ce qui a RÉELLEMENT été envoyé au haut-parleur, en
@@ -865,6 +919,7 @@ class Session:
         # dossier temporaire à libérer, que `stop()` seul laisse derrière.
         # `Silencieux` et `Enregistreur` n'ont que `stop()`.
         getattr(self.voix, "close", self.voix.stop)()
+        self.clips.stop()
         audio.close_stream(self.stream)
         # Attendre la fin de la passe en cours AVANT de rendre la main : le
         # thread de décodage est dans du C qui tient une référence au modèle,

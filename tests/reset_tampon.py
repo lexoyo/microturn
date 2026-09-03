@@ -84,24 +84,45 @@ def main():
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 def test_exemple_silence_apres_reponse():
-    """Le `<|no voice|>` qui suit une réponse doit enseigner `is thinking`.
+    """Le marqueur de silence qui SUIT une réponse doit enseigner `is thinking`.
 
     Ce gain (+0,025) a été perdu une fois : une série de variantes a restauré un
     catalogue pris avant son application, et la base mesurée ensuite était
-    amputée sans que rien ne le signale. Un test le dit maintenant."""
+    amputée sans que rien ne le signale. Un test le dit maintenant.
+
+    Deux réparations le 04/09/2026 — il ne testait plus rien depuis un moment :
+
+      - il cherchait `<|no voice|>`, l'ANCIEN marqueur à barres verticales. Le
+        commit d721c84 l'a renommé `<no voice>` : la liste était vide, et un
+        `assert` sur une liste vide dans une fonction jamais appelée ne dit
+        rien à personne. Le marqueur est maintenant LU dans le catalogue ;
+      - il était défini APRÈS `sys.exit(main())`, donc mort. Il est appelé
+        avant, et pour les deux langues et les deux jeux d'exemples.
+
+    Le compte exact d'exemples de silence n'est plus vérifié — il a changé le
+    04/09 avec les exemples de backchannel, et ce n'était pas ce qui comptait.
+    La règle testée est celle qui porte le gain : après une réponse, un silence
+    est une réflexion, jamais « ça parle encore »."""
     import llm
-    ex = llm.catalogue("fr")["exemples"]
-    silences = [(i, s) for i, (e, s) in enumerate(ex) if e == "<|no voice|>"]
-    assert len(silences) == 2, f"deux exemples de silence attendus, {len(silences)}"
-    apres_reponse = silences[-1][1]
-    assert "is thinking" in apres_reponse, (
-        f"le silence qui suit une réponse doit être `is thinking`, pas : {apres_reponse}")
-    print("  exemple du silence après réponse             OK")
+    vus = 0
+    for langue in llm.langues():
+        cat = llm.catalogue(langue)
+        silence = cat["divers"]["silence"]
+        pense, fini = cat["jetons"]["reflechit"], cat["jetons"]["parler"]
+        for moteur in (None, "sherpa"):
+            ex = llm.exemples(langue, moteur)
+            for i, (entree, _) in enumerate(ex):
+                if i == 0 or entree != silence or fini not in ex[i - 1][1]:
+                    continue
+                assert pense in ex[i][1], (
+                    f"{langue}/{moteur} : le silence qui suit une réponse doit "
+                    f"être `{pense}`, pas : {ex[i][1]}")
+                vus += 1
+    assert vus, "aucun exemple « silence après réponse » dans aucun catalogue"
+    print(f"  silence après réponse ({vus} exemples)       OK")
 
 
-test_exemple_silence_apres_reponse()
+if __name__ == "__main__":
+    test_exemple_silence_apres_reponse()
+    sys.exit(main())
