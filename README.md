@@ -27,6 +27,7 @@ qui lui dispose du **contenu** et pas seulement du signal. Leur implémentation
 s'appuie sur les modèles Kyutai, qui demandent plus de 3 Go de mémoire : hors
 d'atteinte de la cible visée ici. On reprend donc le mécanisme, pas le code — et
 on l'obtient par **prompting** là où eux le font par fine-tuning.
+Fiche de lecture du papier : [`PAPIER.md`](PAPIER.md).
 
 Ce que coûte leur version : un Qwen2-7B-Instruct affiné en LoRA sur **8×H100
 pendant 5 heures**. La nôtre coûte un prompt. L'écart mesuré est de quatre

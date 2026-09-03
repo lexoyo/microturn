@@ -4,6 +4,9 @@ Journal des décisions et des découvertes, tenu au fil de l'eau. Ce fichier gar
 le **pourquoi** ; `bench/JOURNAL.md` garde les chiffres, `bench/CANDIDATS.md` la
 file de tests, `FORMAT-CHERCHEURS.md` ce qu'on a constaté chez eux.
 
+**Fiche de lecture du papier fondateur : `PAPIER.md`** — thèse, sept jetons,
+réglages, résultats, et les quatre points encore à vérifier dans le PDF.
+
 ## Le sujet
 
 DuplexCascade (arXiv 2603.09180) fait tenir une conversation vocale sans
