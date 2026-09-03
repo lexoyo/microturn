@@ -150,10 +150,14 @@ class Session:
         self.langue = langue
         cat = llm.catalogue(langue)
         self.silence = cat["divers"]["silence"]
-        self.repete = cat["divers"]["silence_repete"]
+        # Ce qu'on accole à un micro-tour replié pour dire combien de fois il
+        # s'est répété. Vide = repliage silencieux (l'historique raccourcit mais
+        # le modèle ne sait pas que ça dure) — c'est le défaut historique, aligné
+        # sur les chercheurs qui n'ont qu'un marqueur de silence.
+        self.repete_suffixe = os.environ.get("MICROTURN_REPETE", "×{n}")
         self.bruit_sans_texte = cat["divers"]["bruit_sans_texte"]
         self.tour_en_cours = cat["divers"]["tour_en_cours"]
-        self.silences = 0           # longueur de la série de silences en cours
+        self.silences = 0           # longueur de la série de répétitions
         self.jetons = cat["jetons"]
         self.etats = cat["etats"]
         # En muet on garde un locuteur qui DURE : sans lui `speaking()` reste
@@ -495,13 +499,21 @@ class Session:
         # appris cette forme et lisait le rappel comme un marqueur de silence,
         # donc répondait REFLECHIT alors que la question entière était sous ses
         # yeux. Deux sens opposés ne doivent pas avoir la même apparence.
-        vu_mots = self.transcript.split()
-        # Le rappel vaut SURTOUT quand le delta est un marqueur de silence :
-        # c'est là que le modèle n'a rien d'autre à se mettre sous la dent. La
-        # condition qui l'excluait a fait tomber le score de 3/9 à 2/9.
-        if len(vu_mots) > len(delta.split()) + 2:
-            delta = delta + " " + self.tour_en_cours.replace(
-                "{texte}", " ".join(vu_mots[-60:]))
+        # Le rappel du tour en cours a été RETIRÉ le 03/09, sur décision d'Alex
+        # après lecture d'une session. Il concaténait tout le tour APRÈS le
+        # delta, et coûtait deux choses :
+        #
+        #   - il DUPLIQUAIT le texte, le delta étant déjà contenu dans le
+        #     rappel : « MODEL SO COULD YOU EX ILD A DEEP LEARNING MODEL SO
+        #     COULD YOU EX » ;
+        #   - il CASSAIT le repliage des silences, qui teste si le delta se
+        #     termine par le marqueur. Avec le rappel collé derrière, ce test
+        #     est toujours faux — donc sept micro-tours de silence strictement
+        #     identiques restaient dans l'historique, avec la même réponse à
+        #     chaque fois, et le modèle se confirmait lui-même.
+        #
+        # On revient au design des chercheurs : chaque micro-tour ne porte que
+        # ce qui vient d'être dit, et le contexte vit dans l'historique.
         e = self.etats
         if self.robot_parle:
             delta = e["parle"] + " " + delta
@@ -568,6 +580,19 @@ class Session:
         # répondre, il ne la voyait plus. L'horizon utile tombait à quatorze
         # secondes. Compter plutôt que jeter garde l'information de durée, qui
         # est justement ce qui distingue une respiration d'un tour fini.
+        # Une série de silences est REPLIÉE en un seul tour qui porte leur
+        # nombre, au lieu d'occuper une ligne chacun. Mesuré : à 147 s, douze
+        # `(silence)` consécutifs avaient chassé la question d'Alex hors d'un
+        # historique qui ne tient que douze tours — il ne pouvait pas y
+        # répondre, il ne la voyait plus.
+        #
+        # Le critère a été élargi le 03/09 à « le modèle vient de répondre deux
+        # fois la même chose », ce qui multipliait les replis par cinq — et la
+        # mesure l'a REJETÉ : le repliage ne raccourcit pas le prompt, il libère
+        # des places que des micro-tours de PAROLE viennent occuper, donc le
+        # modèle voit plus de parole, détecte une fin de tour de plus et paie
+        # trois intrusions. 0,804 contre 0,824 en fins de tour, 0,241 contre
+        # 0,149 en pauses. On garde donc le critère étroit.
         muet = action == "parle" and delta.strip().endswith(
             (self.silence, self.bruit_sans_texte))
         if muet and self.silences and len(self.micro_tours) >= 2:
@@ -577,7 +602,7 @@ class Session:
                         if delta.strip().endswith(self.bruit_sans_texte)
                         else self.silence)
             self.micro_tours[-2]["content"] = delta[:-len(marqueur)] + \
-                self.repete.replace("{n}", str(n))
+                self.repete_suffixe.replace("{n}", str(n))
             self.stats.append(("silence_replie", 0.0))
             self._tour(delta, "parle", dt, f"[folded ×{n}]")
             return

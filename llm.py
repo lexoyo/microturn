@@ -44,6 +44,29 @@ SANS_R = bool(os.environ.get("MICROTURN_SANS_R"))
 MODEL = os.environ.get("MICROTURN_MODEL", "google/gemini-2.5-flash-lite")
 HOST, PATH = "openrouter.ai", "/api/v1/chat/completions"
 TIMEOUT = float(os.environ.get("MICROTURN_TIMEOUT", "1.5"))
+# La longueur de la réponse est suggérée par le SCHÉMA, plus par `max_tokens`.
+#
+# `max_tokens` était à 60 et il coupait pour de vrai : la troncature casse le
+# JSON, donc c'est la DÉCISION entière qui est perdue, pas seulement la fin de
+# la phrase. Onze fois sur 897 chez gemini, et en session le 03/09 sur une
+# réponse de 250 caractères. Il compte tout, en plus — accolades, noms de
+# champs, marqueur : `<|user finish talking|>` en mange une douzaine à lui
+# seul. Il est retiré, il n'y en a plus du tout.
+#
+# `maxLength` a été essayé le 03/09 puis retiré. Il n'est PAS respecté à la
+# lettre — à limite de 200 la réponse fait 4 231 caractères — mais il influence
+# fortement (aucun → 7 995 car, 200 → 4 231, 80 → 1 515), et sans jamais casser
+# le JSON. C'est donc un levier utilisable, gardé ici comme information : on ne
+# limite plus rien du tout.
+#
+# Les chercheurs ne limitent rien : chez eux la longueur est apprise des
+# données. L'autre levier mesuré est le PROMPT — la consigne « courte » tenait
+# les réponses à 57 caractères contre 77 sans elle.
+#
+# Le garde-fou contre une génération qui s'emballe reste `TIMEOUT`, qui limite
+# le TEMPS. C'est la bonne grandeur dans une boucle à 1,2 s, et il ne casse
+# rien : un appel coupé est une erreur franche, pas un JSON tronqué.
+
 
 
 # ---------------------------------------------------------------- catalogues
@@ -393,8 +416,8 @@ class Decideur:
         props = {"m": {"type": "string", "enum": jetons}}
         if not SANS_R:
             props["r"] = {"type": "string"}
-        corps = {"model": self.model, "messages": msgs, "max_tokens": 60,
-                 "temperature": 0,
+        # Aucune limite de longueur, ni ici ni dans le schéma : cf. en tête.
+        corps = {"model": self.model, "messages": msgs, "temperature": 0,
                  "response_format": {"type": "json_schema", "json_schema": {
                      "name": "tour", "strict": True, "schema": {
                          "type": "object", "properties": props,
@@ -403,7 +426,7 @@ class Decideur:
         # la seule façon de comprendre APRÈS COUP pourquoi le modèle a mal tranché.
         # La clé, elle, ne voyage que dans les en-têtes et n'est jamais écrite.
         self._tracer("llm_appel", modele=self.model, langue=self.langue,
-                     messages=msgs, max_tokens=60, temperature=0,
+                     messages=msgs, temperature=0,
                      contraint=True)
         t0 = time.time()
         try:
