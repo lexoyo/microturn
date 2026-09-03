@@ -177,6 +177,16 @@ def lire_controle(txt, langue="fr"):
                     if cle == "parler":
                         return ("parler", reponse) if reponse else ("parler_sans_texte", "")
                     return cle, ""
+            # Les DEUX backchannel sont dans l'enum du schéma, donc le modèle a
+            # le droit de les choisir — et il le fait. Ne pas les mapper les
+            # faisait tomber en « hors format » et JETAIT la décision, alors que
+            # le catalogue promet qu'ils sont « ramenés à ne prends pas la
+            # parole ». Vu en session le 03/09 :
+            #   ⚠ malformed: {"m": "<|user backchannel|>", "r": "Hello!"}
+            # Un signal d'écoute n'est pas une prise de parole : c'est bien
+            # « attends », soit exactement `reflechit`.
+            if d["m"] in (j.get("backchannel"), j.get("mhm")):
+                return "reflechit", ""
             return "format", t
     parts = t.split(None, 1)      # blancs, et non " " : un saut de ligne avalait
     mot = parts[0].strip(":.,!?<>[]()").upper()   # la réponse
@@ -194,6 +204,8 @@ def lire_controle(txt, langue="fr"):
             return "coupe", ""
         if mot.startswith(j["parle"]):
             return "parle", ""
+        if any(mot.startswith(j[k]) for k in ("backchannel", "mhm") if j.get(k)):
+            return "reflechit", ""
     return "format", t            # tracé comme tel, jamais noyé dans « ça parle »
 
 
