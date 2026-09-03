@@ -1351,3 +1351,96 @@ elle ne tient pas, aucun des sept changements gardés ne compte.
 C'est aussi la première fois que le projet accepte de **mesurer quelque chose
 qui n'est pas Full-Duplex-Bench**. À suivre : rien n'est mesuré à ce stade, la
 décision seule est prise.
+
+### Le prototype a changé le contrat de sortie : une probabilité, pas un booléen — 03/09 au soir
+
+Le prototype isolé décidé dans l'après-midi (« phrase complète ou non, à partir
+du texte seul », hors du dépôt) a produit sa première matière d'article le soir
+même. Aucun score n'est disponible à ce stade : ce qui suit est de la méthode et
+une décision de conception, pas un résultat.
+
+#### Le jeu de test est fait de nos propres transcriptions, et il est gelé
+
+**156 exemples en français, construits à partir des transcriptions réelles des
+sessions déjà enregistrées du projet** — pas des phrases écrites pour
+l'occasion. Les exemples « incomplets » sont de vraies troncatures d'ASR en
+temps réel : *« salut est ce que tu m'ent »*, *« je voudrais que tu que tu te
+choisisses un autre »*. Ils arrivent donc avec leurs fautes de transcription,
+leurs répétitions et leurs mots coupés — c'est-à-dire dans le **régime réel du
+système**, pas dans du français propre qu'il ne verra jamais.
+
+**Le jeu est gelé dès qu'il est écrit, et le scorer aussi.** La boucle
+d'amélioration n'a pas le droit de toucher à son propre juge. C'est un point de
+méthode qui mérite sa place dans l'article, et il se dit en une phrase : **un
+agent qui répare son jeu de test ne mesure plus rien.** Le motif est le même que
+celui de l'interlude « mesurer, et d'abord mesurer sa mesure » de la partie II —
+sauf qu'ici la règle est posée *avant* la première mesure au lieu d'être
+découverte après.
+
+#### La question d'Alex sur « Hi » a déplacé le contrat
+
+Il a demandé s'il était normal qu'un « Hi » tout seul compte comme une phrase
+finie. La réponse est oui, et elle oblige à écrire le critère en toutes lettres :
+une salutation est un **acte de parole entier**, et **la longueur n'est pas le
+critère**. Ce qui sépare complet d'incomplet, c'est qu'un complément soit
+**syntaxiquement obligatoire** ou non.
+
+Le jeu de test le montre à longueur égale — trois mots des deux côtés :
+
+| complets | incomplets |
+|---|---|
+| « ça va » | « je m'appelle » |
+| « et toi » | « tu sais » |
+| « tu m'entends » | « c'est quoi ton » |
+
+Une bonne illustration pour l'article, parce qu'elle démonte l'intuition
+disponible (« court = pas fini ») en six exemples et sans une seule mesure.
+
+#### Et derrière la question, le vrai problème : la vérité terrain est ambiguë
+
+C'est le meilleur morceau. **Le même texte peut être les deux.** « ça va » est un
+tour complet ici, et le début de « ça va faire trois ans que… » là. Sans
+historique de la conversation et sans prosodie, la vérité terrain sur les
+**fragments courts** est **intrinsèquement ambiguë** — ce n'est pas un étiquetage
+mal fait, c'est une information qui n'est pas dans le texte.
+
+D'où le problème de mesure, qui vaut bien au-delà de ce prototype : **un
+étiquetage binaire force un choix arbitraire sur toute une zone.** Et une boucle
+qui optimise la justesse binaire passe alors son temps à courir après du **bruit
+d'étiquetage** plutôt qu'après la tâche — elle progresse sur le score en
+apprenant nos arbitrages, pas la langue.
+
+#### La décision : le détecteur rend une probabilité
+
+**Le détecteur rend une probabilité que le tour soit fini, plus un booléen.** Ce
+n'est pas un raffinement de confort : c'est ce qui **laisse la zone grise être
+grise**. Le seuil devient un **réglage de l'hôte**, pas une propriété du
+détecteur — celui qui construit l'application sait, lui, ce que coûte une coupure
+de parole comparée à un silence de trop.
+
+La décision converge avec deux choses déjà écrites, ce qui est plutôt bon signe :
+`PLAN.md` § 3 posait déjà que « `confidence` n'est pas décoratif », et eot-bench,
+la référence que le projet vise, a tout son intérêt dans le **balayage
+seuil/latence**. Ce qui était une case à remplir « dès qu'on sait la produire »
+devient la sortie principale.
+
+**Conséquence directe sur la mesure**, à répercuter quand les chiffres arriveront :
+
+- l'**AUC** remplace la justesse comme critère de comparaison entre variantes ;
+- accompagnée de la **courbe seuil → (rappel sur les complètes, rappel sur les
+  incomplètes)**, qui est la forme lisible du compromis pour l'hôte ;
+- et d'un **diagramme de calibration**, sans lequel une probabilité n'est qu'un
+  score déguisé.
+
+#### La réserve de méthode : une probabilité demandée n'est pas une probabilité
+
+À garder telle quelle dans l'article, parce que c'est un piège très répandu :
+**demander en toutes lettres une probabilité à un LLM donne des valeurs mal
+calibrées et grumeleuses** — il répond 0,9 ou 0,95, jamais 0,63. La voie propre
+est de lire les **logprobs du jeton de décision** ; le repli est
+l'**échantillonnage à température non nulle**, qui reconstruit une fréquence au
+prix de plusieurs appels.
+
+**Laquelle des deux voies marche effectivement sur `gemini-2.5-flash-lite` via
+OpenRouter n'est pas encore connue — la mesure tourne.** Point ouvert, à
+compléter ; ne rien en déduire d'ici là.
