@@ -1799,3 +1799,48 @@ comme l'étape 6 de `PLAN.md` et comme préalable dans `SPEC-PIVOT.md` § 7.
 - `livekit.com/blog/using-a-transformer-to-improve-end-of-turn-detection`
 - `huggingface.co/pipecat-ai/smart-turn-v3`
 - `huggingface.co/brgroup/TurnSense`
+
+#### Mise au point : LiveKit n'est pas DuplexCascade (confusion faite le 03/09)
+
+À garder dans les notes parce qu'elle est facile à refaire au moment de rédiger,
+et embarrassante une fois publiée. **Ce sont deux systèmes d'organisations
+différentes, et ils ne font pas le même travail.**
+
+| | **DuplexCascade** | **LiveKit turn-detector** |
+|---|---|---|
+| origine | arXiv 2603.09180 — Yang / Fujita / Sudo, SB Intuitions + université de Tokyo | LiveKit |
+| modèle | **Qwen2-7B-Instruct** | **Qwen2.5-0.5B**, distillé d'un Qwen2.5-7B professeur (variante multilingue) |
+| taille | — | **quinze fois plus petit** |
+| périmètre | système complet : détection **et** génération de la réponse | **la moitié amont seulement**, aucune réponse générée |
+| chez nous | c'est **la ligne 0,858 du README**, et le mécanisme dont le projet est parti | référence de marché, § 7 de `SPEC-PIVOT.md` |
+
+Ce que DuplexCascade fine-tune, précisément : **LoRA sur les projections query et
+value**, plus la matrice d'embeddings, les embeddings des **jetons spéciaux
+nouvellement introduits** et la **tête de prédiction**, entièrement. Ce sont ses
+propres **jetons de contrôle conversationnels**, créés pour piloter la prise de
+parole sous contrainte de streaming — c'est de là que viennent nos
+`<|user is talking|>` et les autres. Code et poids : `github.com/sbintuitions/DuplexCascade`.
+
+⚠️ **Un chiffre à vérifier avant publication** : la note du 03/09 dit « LoRA rank
+32 », `PAPIER.md` § « Le fine-tuning » dit **r=16, α=32**. Possible confusion
+entre le rang et l'α. Trancher sur le papier avant d'écrire l'un ou l'autre.
+
+##### Ce que la confusion a de juste — et c'est le vrai contenu de l'entrée
+
+Les deux font passer la décision de tour **par un jeton du modèle de langage**,
+pas par une tête de classification ajoutée par-dessus. Et notre prototype fait de
+même. Ça donne un **dégradé en trois marches**, qui est un bon squelette de
+paragraphe pour l'article :
+
+1. **DuplexCascade** — il **ajoute** ses propres jetons au vocabulaire et
+   fine-tune la tête de prédiction pour eux. Coût : 8×H100 pendant 5 heures.
+2. **LiveKit** — il se contente de lire la probabilité d'un jeton qui **existait
+   déjà** dans le vocabulaire (`<|im_end|>`). Coût : un fine-tuning, mais sur un
+   0,5B, et sans toucher au vocabulaire.
+3. **Notre prototype** — il ne fine-tune **rien du tout** et lit un logprob sur un
+   modèle générique. Coût d'entraînement : **zéro**.
+
+**Même mécanisme, coût d'entraînement décroissant jusqu'à rien.** C'est la
+formulation la plus économique qu'on ait trouvée pour l'axe 2 de la vision, et
+elle a l'avantage de ne rien devoir à nos propres mesures : les deux premières
+marches sont le travail des autres.
