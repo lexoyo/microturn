@@ -2294,6 +2294,187 @@ contraire en montrant trois démos qui marchent.
 *Suite technique dans `PLAN-REPRO.md` § 1.1* : le TTS retenu, ses contraintes
 d'API, et le rééchantillonnage à ne pas oublier.
 
+---
+
+### Fabriquer le banc a été plus instructif que le banc — nuit du 03 au 04/09
+
+Le fil qui traverse toute la séquence, et c'est lui qui vaut le paragraphe :
+**chaque outil a menti d'une façon différente, et aucun de ces mensonges n'était
+bruyant.** Pas de plantage, pas de message d'erreur, pas de fichier manquant. À
+chaque fois un artefact bien formé, de durée plausible, qui ne disait pas ce
+qu'on croyait. On a passé la nuit à fabriquer des données de test, et la
+matière d'article n'est pas le banc : c'est la liste des façons dont on a failli
+mesurer autre chose que ce qu'on voulait.
+
+#### Le TTS n'est plus piper, et il coûte trois contraintes d'API
+
+Alex a écouté l'échantillon piper et l'a écarté d'un mot. Le banc passe à
+**`openai/gpt-audio-mini` via OpenRouter**, avec la clé que le projet avait
+déjà — aucun service ouvert, aucune dépendance nouvelle dans la chaîne temps
+réel. Voix **`ash`**, homme, accent américain. *(`PLAN-REPRO.md` § 1.1 dit
+encore « `ash` ou `onyx`, Alex tranche à l'écoute » : c'est tranché, c'est
+`ash`.)*
+
+Les trois contraintes, payées comptant, écrites pour qui reprendra : la sortie
+audio **exige `stream: true`** (sinon HTTP 400) ; en streaming **`pcm16` est le
+seul format accepté** — ni wav, ni mp3, ni opus, donc on emballe le PCM
+soi-même ; et le flux sort en **24 kHz** quand la chaîne consomme du 16 kHz.
+Détail déjà consigné dans `PLAN-REPRO.md`, répété ici parce qu'il est du même
+genre que tout le reste de la nuit : oublier le rééchantillonnage ne casse rien,
+ça allonge juste tous les silences d'une fois et demie — et le silence est
+précisément la grandeur qu'on mesure.
+
+#### Trois façons de se faire mentir par un TTS génératif
+
+C'est le cœur du passage, et les trois sont de natures différentes.
+
+**1. Il refuse les silences longs.** On lui demande une pause de deux secondes
+au milieu d'une phrase, il en fait un dixième. Conséquence de méthode, sans
+appel : **les silences se montent, ils ne se demandent pas.** Ce qu'on demande
+au modèle, c'est l'intonation ; la durée, c'est le monteur qui la pose. C'est
+exactement la raison pour laquelle `PLAN-REPRO.md` § 1.1 exigeait déjà un
+montage — sauf qu'on sait maintenant que ce n'est pas un confort de
+reproductibilité, c'est une impossibilité côté modèle.
+
+**2. Deux prises recollées ne font pas une hésitation.** Synthétiser « What is
+the capital » puis « of Japan? » séparément donne deux phrases complètes,
+chacune avec sa mélodie descendante. À l'oreille : deux phrases, pas quelqu'un
+qui cherche son mot. Il faut demander explicitement une voix **suspendue** —
+pitch tenu, phrase inachevée — puis une **reprise**. *Le principe a été trouvé
+par l'agent qui travaillait sur piper, et il a invalidé la première version* : il
+avait obtenu le même effet autrement, par une virgule qui fait produire à piper
+une intonation suspendue plus 0,12 s de silence, qu'il allongeait ensuite. Deux
+moteurs, deux moyens, une même exigence — **une pause de réflexion n'est pas un
+trou entre deux sons, c'est une intonation.**
+
+**3. Il répond au lieu de lire.** Le piège le plus coûteux, parce que c'est le
+plus silencieux. Quand la moitié droite d'une phrase coupée forme une question
+autonome, le modèle la lit **puis y répond**. « tallest mountain on Earth? » est
+revenu en « …It's Mount Everest, standing at… », **quatre fois sur quatre**,
+produisant **5,8 s d'audio là où la lecture seule en fait 1,3**. Rien ne signale
+l'erreur : le WAV existe, il dure ce qu'il veut, et la feuille de temps décrit
+une piste qui ne dit pas ce qu'on croit.
+
+La parade tient en une ligne de code et en une idée : **comparer le transcript
+que l'API renvoie au texte demandé**, reprendre la prise si ça diverge, et pour
+les lignes irrécupérables couper à la première frontière de phrase.
+
+Le principe général vaut bien au-delà de ce projet, et c'est la phrase à garder
+telle quelle : *quand un outil génératif fabrique vos données de test, il faut
+vérifier ce qu'il a produit, pas seulement qu'il a produit quelque chose.* C'est
+le pendant, un étage plus bas, du résultat n° 4 — *le prompt qu'on lit n'est pas
+celui qu'on envoie*. Là c'était l'entrée du modèle qui divergeait de ce qu'on
+croyait lui donner ; ici c'est le **jeu de test lui-même**.
+
+#### Mesurer plutôt qu'estimer, sur les vidéos qu'on avait déjà — l'idée d'Alex
+
+Les silences entre questions avaient été calés **au jugé**, à partir du nombre
+de mots des réponses. Alex a fait remarquer qu'on **a les vidéos** : donc les
+vraies durées. Un `silencedetect` (ffmpeg, seuil −35 dB, durée minimale 0,6 s)
+sur les trois fichiers rend la structure temporelle réelle des démos.
+
+Le résultat valide la méthode par lui-même, et c'est ce qui en fait un bon
+paragraphe. Recalées sur ces mesures, nos pistes tombent à **104,1 s** contre
+**103,8 s** pour leur vidéo, et **90,0 s** contre **90,2 s**. Ce qui était estimé
+était systématiquement **trop court** : leurs réponses font **1,7 à 4,9 s** et
+non « 2 s », et le résumé final **47 s**.
+
+Deux détails qui ne sont pas des détails :
+
+- **le blanc final n'est pas décoratif.** La dernière question du scénario 1 est
+  « summarize our dialogue » — c'est-à-dire le test même de la mémoire longue,
+  celui pour lequel la fenêtre est passée de 12 s à ~2 min 40. Sans blanc en
+  fin de piste, le rejeu s'arrête avant le résumé et **on ne verra jamais s'il a
+  marché** ;
+- **l'analyse échoue partiellement sur la démo 3.** Le détecteur fusionne
+  question et réponse quand moins de 0,6 s les sépare — sa propre durée
+  minimale. Un intervalle de la démo 3 **reste donc estimé**, et il est écrit
+  comme tel. C'est une limite de la méthode, pas une approximation qu'on laisse
+  passer : un banc dont on ne sait pas dire quelle valeur est mesurée et
+  laquelle est devinée ne vaut pas mieux qu'un banc au jugé.
+
+*Effet de bord sur `PLAN-REPRO.md` § 1.1* : « on fait comme si nos réponses
+avaient la durée des leurs » n'est plus une convention commode, c'est une durée
+relevée sur leur vidéo.
+
+#### Un quatrième scénario, parce que leur vitrine ne montre pas le cas dur
+
+Alex a relevé que leurs trois dialogues de démo ne contiennent **aucune** pause
+de réflexion en milieu de phrase. Leurs vidéos montrent le full-duplex —
+multi-tour, backchannel, interruption — mais **pas la difficulté de
+l'endpointing**. Et c'est vérifiable dans leur propre papier : **le cas dur est
+dans leur banc, pas dans leur vitrine.** Le Pause Handling — Synthetic TOR du
+Tableau 1 est la ligne où ils sont à **0,058** et où dGSLM explose à 0,934
+(`PAPIER.md`) ; c'est le point de mesure qui sépare un vrai détecteur d'un seuil
+de silence, et il n'apparaît dans aucune des trois démos filmées.
+
+D'où la séparation, qui est une décision de banc autant qu'une décision
+d'article : **trois scénarios fidèles**, qui servent à se comparer à eux, et un
+**quatrième qui est le nôtre** — quatre pauses de **0,8 · 1,5 · 2,5 · 4 s**,
+celui qui doit faire échouer un détecteur à seuil.
+
+Sans cette séparation on ne pourrait plus dire ce qu'on a **reproduit** et ce
+qu'on a **inventé**, et c'est précisément le genre de mélange qui rend une
+comparaison inutilisable. *(`PLAN-REPRO.md` § 1.2 a un tableau à trois lignes :
+il lui en manque une.)*
+
+#### L'enregistrement humain, et une erreur assumée
+
+Alex a demandé un message pour un ami anglophone qui lirait les dialogues. Le
+message est parti **avec les durées estimées**, avant qu'on ait mesuré les
+vidéos : **12 s au lieu de 24,4** avant le premier backchannel, **3 s au lieu de
+13,4** avant l'interruption. Enregistré tel quel, le scénario 2 ne testerait pas
+ce qu'il doit tester — l'ami parlerait avant que le système ait fini sa phrase,
+et « l'interruption est ignorée » ne voudrait plus rien dire.
+
+Décision d'Alex : **on ne refait pas enregistrer, on découpe le son et on
+remonte les pauses.** C'est le bon arbitrage, et il se dit en une phrase : *la
+parole humaine est irremplaçable, les silences ne le sont pas.* Un outil
+(`remonter.py`, hors dépôt) découpe l'enregistrement aux silences et le remonte
+aux durées mesurées.
+
+**Et il faut le raconter comme une erreur, pas comme un contretemps** : c'est le
+seul poste de la nuit où le mensonge n'était pas celui d'un outil mais le nôtre,
+et il a la même signature que les autres — un livrable bien formé, envoyé, qui
+décrivait des durées que personne n'avait mesurées alors que la mesure était à
+portée de commande.
+
+*À mettre en écho au § sur l'accent, juste au-dessus.* On cherche une voix
+humaine **et** une voix de synthèse, pour deux raisons opposées, et les deux
+sont bonnes : la synthèse écarte le biais d'accent et donne des durées
+reproductibles ; l'humain apporte l'hésitation, la respiration et le débit
+irrégulier qu'aucun TTS ne produit — c'est-à-dire exactement ce qui rend la
+détection difficile. La réserve « le banc des démos sera plus facile que la vie »
+trouve donc là son second correctif, après les sessions réelles gardées en
+non-régression.
+
+#### État daté du projet, au 04/09
+
+**Fait** : les jetons portent les noms exacts du papier ; la fenêtre d'historique
+est passée de 12 secondes à ~2 min 40 ; `_delta` s'ancre sur le préfixe du
+segment ; **les quatre pistes audio existent**. *(`PLAN-REPRO.md` dit « aucun
+fichier du banc n'est au dépôt au 04/09 » — vrai au moment où il a été écrit,
+périmé depuis cette nuit pour ce qui est de l'existence des pistes.)*
+
+**En cours** : l'interruption qui passe du modèle à l'hôte ; les backchannels
+expliqués dans le prompt avec leurs exemples — et les **entrées d'exemples qui
+passent en MAJUSCULES**, parce que `systeme_sherpa` annonce une entrée non
+ponctuée et montre l'inverse, ce qui est encore une divergence entre ce qu'on
+déclare au modèle et ce qu'on lui donne ; le `<system backchannel>` enfin **joué
+comme clip** ; et la **durée de parole du TTS** remesurée.
+
+⚠️ **Aucune mesure depuis le changement de jetons, et c'est assumé.** Position
+d'Alex, à écrire telle quelle : *« la référence sera faite quand on est satisfait
+de l'architecture, on est reparti en mode proto là »*.
+
+C'est un **choix de phase, pas un oubli**, et c'est la nuance que l'article doit
+tenir : mesurer une architecture qu'on sait incomplète coûte du temps et ne
+décide rien. Le fil « toutes les mesures sont périmées, et c'est assumé » de
+l'entrée précédente se prolonge donc d'un cran — non seulement on a déclaré
+l'ancienne référence morte, mais **on refuse d'en produire une nouvelle tant que
+la cible bouge encore**. Les deux moitiés de la discipline : savoir jeter un
+chiffre, et savoir ne pas en fabriquer un pour se rassurer.
+
 ## Angle d'article en réserve : « fine-tuning vs prompting »
 
 **Proposé par Alex le 03/09 au soir.** Consigné **ici et pas dans `IDEES.md`** :
