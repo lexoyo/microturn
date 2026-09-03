@@ -1128,3 +1128,143 @@ fine-tuning** et **0,159 rattrapés par le changement de modèle**.
   de la même façon et ne changent pas la comparaison Qwen ↔ gemini ; le retrait
   du tutoiement, lui, est un troisième changement de prompt non mesuré, qui
   s'ajoute au retrait de « courte » dont l'effet sur le tic est chiffré ci-dessus.
+
+## La durée du silence rendue visible : le repliage ne se déclenche presque jamais — 03/09/2026
+
+Le code compte les silences consécutifs et replie la série en un seul micro-tour
+qui porte leur nombre. Le commentaire promet que « compter plutôt que jeter garde
+l'information de durée, qui est justement ce qui distingue une respiration d'un
+tour fini », et `pipeline.py` prévoit l'ancre : `self.repete.replace("{n}", str(n))`.
+Mais le catalogue vaut `silence_repete = "<|no voice|>"`, sans `{n}` : le
+remplacement ne remplace rien et le modèle reçoit le même signal au premier tick
+de silence et au vingtième.
+
+**Variante mesurée**, `locales/fr.toml`, une clé et rien d'autre :
+
+```toml
+silence_repete = "<|no voice|> ×{n}"
+```
+
+Sessions `20260829-032332-sherpa` et `20260829-073852-sherpa`, rejeu `--muet`
+déterministe, 17 fins de tour et 29 pauses, prompt `systeme_sherpa`. **Trois
+passes par configuration, six en parallèle**, chacune son répertoire de trace.
+Code et catalogue gelés dans une copie prise à `b5a6652` — le dépôt bouge sous la
+mesure.
+
+### Les deux dimensions, séparément
+
+| | TOR fins ↑ | TOR pauses ↓ | justesse | passes |
+|---|---|---|---|---|
+| **contrôle** (catalogue actuel) | **0,765** (13/17) | 0,172 (5/29) | **0,796** | 3 |
+| **variante `×{n}`** | **0,765** (13/17) | 0,172 (5/29) | **0,796** | 3 |
+
+Six passes, six fois le même chiffre au millième, sur les deux dimensions et sur
+chaque session prise à part (`032332` 8/9 et 1/7, `073852` 5/8 et 4/22). L'écart
+est nul, pas petit : nul.
+
+### Pourquoi : le repliage ne se déclenche presque jamais
+
+Repliages effectivement produits, par rejeu :
+
+| | 032332 | 073852 |
+|---|---|---|
+| contrôle p1 / p2 / p3 | 0 / 0 / 0 | 0 / 0 / **3** |
+| variante p1 / p2 / p3 | 0 / 0 / **8** | 0 / 0 / **2** |
+
+**Neuf rejeux sur douze n'en produisent aucun.** Treize replis au total, pour
+1 794 décisions et 1 362 ticks de silence. La variante ne mesure donc rien —
+c'est le résultat, pas un accident de la mesure.
+
+Le `{n}` est bien substitué et atteint bien le prompt : vérifié dans la trace de
+`var p3`, où le tour replié apparaît tel quel dans l'historique envoyé —
+
+```
+user : ' <|no voice|> ×9'
+```
+
+— 17 occurrences de `×` dans les messages de `032332`, 11 dans ceux de `073852`.
+Le patch n'est pas un patch mort. C'est le chemin de code qui l'est.
+
+### Les deux verrous, chiffrés
+
+Le repliage exige `muet = action == "parle" and delta.strip().endswith(marqueur)`.
+Sur les 1 362 ticks de silence des douze rejeux :
+
+| ce que le modèle répond sur un tick de silence | nb | fold ? |
+|---|---|---|
+| `<\|user is thinking\|>` | **1 146 (84 %)** | non — `action != "parle"` |
+| `<\|user is talking\|>`, rappel `tour_en_cours` concaténé | **180** | non — le delta ne finit plus par le marqueur |
+| `<\|user finish talking\|>` | 18 | non |
+| hors format | 2 | non |
+| `<\|user is talking\|>`, delta nu | **16 (1,2 %)** | **oui** → 13 replis |
+
+**Verrou 1, le principal : le repliage ne voit pas les silences que le modèle
+appelle « il réfléchit ».** Or c'est sa réponse dans 84 % des cas — et c'est nous
+qui la lui avons apprise, par l'exemple « le silence qui SUIT une réponse »
+ajouté pour +0,025. Ces tours-là occupent une ligne chacun dans l'historique,
+exactement le comportement que le repliage prétend avoir corrigé. Vu dans la
+trace : quatre paires `<|no voice|>` / `is thinking` d'affilée, non repliées.
+**Le repliage ne fait pas le travail que son commentaire décrit.**
+
+**Verrou 2, celui qu'on soupçonnait : le rappel `tour_en_cours` est concaténé
+APRÈS le delta, et le test de repliage est un `endswith`.** Dès que
+`len(transcript) > len(delta) + 2` — c'est-à-dire dès la deuxième phrase de la
+conversation — le delta devient `<|no voice|> LES MOTS DU TOUR` et ne finit plus
+par le marqueur. Sur les 196 ticks qui passaient le premier verrou, **180 (92 %)
+sont tués par le second**. Les deux mécanismes ont été ajoutés séparément, chacun
+mesuré, et personne n'a mesuré leur interaction : c'est un défaut en soi, pas une
+subtilité de la variante.
+
+### Le contrôle ne retombe PAS dans la fourchette annoncée
+
+Attendu 0,808–0,816 ; obtenu **0,796**, trois fois. L'écart tient en un tour :
+la référence du 03/09 (`b511c42`) donnait 14/17 en fins et 6/29 en pauses,
+`b5a6652` donne 13/17 et 5/29 — une fin de tour perdue, une intrusion en moins.
+L'agrégat n'en garde que −0,012, sous le bruit ; **la dimension qui compte, elle,
+a bougé de 0,059, soit ~4 σ de ce qu'une fin de tour vaut.** Quatre commits et un
+retrait de « en tutoyant » séparent les deux points, aucun n'a été mesuré sur ce
+banc. **La fourchette 0,808–0,816 est périmée : c'est 0,796 qu'il faut prendre
+comme base sur `b5a6652`, ou remesurer avant de s'en servir.**
+
+La comparaison contrôle ↔ variante reste valide malgré ça : même commit, mêmes
+sessions, même heure, six passes concurrentes.
+
+### La réponse
+
+**Non — et pas parce que la durée n'aiderait pas : parce que le modèle ne la voit
+jamais.** Le compteur est correct, l'ancre `{n}` fonctionne, le marqueur atteint
+le prompt quand le repliage se déclenche — il se déclenche 13 fois sur 1 362
+ticks de silence. La question « est-ce que dire depuis combien de temps ça dure
+aide à conclure ? » reste **non mesurée**, et le restera tant que les deux
+verrous ci-dessus tiendront.
+
+Ce qu'il faudrait corriger d'abord, dans cet ordre, et un à la fois :
+
+1. **Replier aussi les silences étiquetés `reflechit`** (retirer la condition
+   `action == "parle"`), ou plus généralement fonder `muet` sur le delta seul,
+   pas sur la réponse du modèle. C'est 84 % du gisement.
+2. **Tester le marqueur avant la concaténation du rappel**, pas sur le delta
+   composé. C'est 92 % du reste.
+
+Catalogue laissé dans son état d'origine — la variante n'est pas concluante et,
+telle quelle, ne peut pas l'être.
+
+### Ce dont je ne suis pas sûr
+
+- **Six scores identiques au millième.** Ce n'est pas une mesure morte : les
+  traces diffèrent (117/118 et 180/181 appels selon les passes, `var p3` a une
+  distribution de marqueurs franchement autre — 80 `reflechit` contre 90). C'est
+  la métrique qui est grossière : 17 fins et 29 pauses ne bougent pas pour trois
+  décisions déplacées. Mais avec un écart nul par construction, ces six chiffres
+  ne prouvent pas non plus que la mesure était vivante — ce sont les treize
+  replis vus dans la trace qui le prouvent.
+- **Les replis sont apparus dans les DEUX bras** (3 côté contrôle, 10 côté
+  variante). Ils ne sont donc pas causés par la variante : le premier
+  `is talking` sur un tick de silence est du non-déterminisme du modèle, et le
+  repliage n'est qu'une cascade derrière. Avec un tel taux de déclenchement,
+  trois passes ne suffiraient de toute façon pas à mesurer un effet même réel.
+- **`var p3` a produit 8 replis et le même score.** Lu seul, ça dirait « la durée
+  n'aide pas ». Sur un seul rejeu et une métrique à 17 fins de tour, ça ne dit
+  rien du tout. Ne pas s'en servir comme d'une mesure.
+- **Le contrôle à 0,796 n'est pas expliqué**, seulement constaté. Je n'ai pas
+  isolé lequel des quatre commits déplace la fin de tour manquante.
