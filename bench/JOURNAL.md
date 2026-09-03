@@ -1268,3 +1268,147 @@ telle quelle, ne peut pas l'être.
   rien du tout. Ne pas s'en servir comme d'une mesure.
 - **Le contrôle à 0,796 n'est pas expliqué**, seulement constaté. Je n'ai pas
   isolé lequel des quatre commits déplace la fin de tour manquante.
+
+## Le rappel du tour, et le repliage fondé sur la répétition — 03/09/2026
+
+Deux changements appliqués ensemble dans l'arbre de travail d'Alex, séparés ici
+en quatre bras pour qu'on sache lequel fait quoi :
+
+- **A** — le rappel du tour en cours (`tour_en_cours`, concaténé APRÈS le delta)
+  est retiré. Il dupliquait le texte et, testant `endswith`, il tuait le
+  repliage.
+- **B** — le repliage ne se déclenche plus sur le silence mais sur la
+  **répétition** : `action == derniere_action and delta == dernier_delta`. Le
+  micro-tour replié porte un suffixe `×{n}`, réglable par `MICROTURN_REPETE`.
+
+Sessions `20260829-032332-sherpa` et `20260829-073852-sherpa`, rejeu `--muet`
+déterministe, 17 fins de tour et 29 pauses, prompt `systeme_sherpa`. **Trois
+passes par bras, douze au total, six en parallèle**, chacune son répertoire de
+trace. Code gelé dans quatre copies : `pipeline.py` seul diffère d'un bras à
+l'autre, tout le reste (`llm.py`, `locales/fr.toml`, le catalogue) est identique
+à `752f20d` et vérifié tel. Zéro erreur réseau sur les douze passes.
+
+### Les deux dimensions, séparément
+
+| bras | TOR fins ↑ | TOR pauses ↓ | justesse | replis / passe | tokens d'entrée |
+|---|---|---|---|---|---|
+| **1 · contrôle** (`752f20d`) | 0,765 ± 0,000 | 0,161 ± 0,020 | 0,802 ± 0,010 | 5 / 1 / 12 | 871 |
+| **2 · A seul** (rappel retiré) | **0,824 ± 0,000** | **0,149 ± 0,020** | **0,837 ± 0,010** | 30 / 25 / 39 | **745** |
+| **3 · A + B** (`×{n}`) | 0,804 ± 0,034 | 0,241 ± 0,060 | 0,781 ± 0,013 | 148 / 149 / 189 | 858 |
+| **4 · A + B, suffixe vide** | 0,785 ± 0,034 | 0,195 ± 0,020 | 0,795 ± 0,027 | 189 / 186 / 179 | 839 |
+
+Le détail par session, qui porte tout l'écart :
+
+| bras | 032332 · fins | 032332 · pauses | 073852 · fins | 073852 · pauses |
+|---|---|---|---|---|
+| contrôle | 8/9 ×3 | 1/7 ×3 | 5/8 ×3 | 4, 4, 3 /22 |
+| A seul | 8/9 ×3 | 1/7 ×3 | **6/8 ×3** | 3, 4, 3 /22 |
+| A + B | 7/9 ×3 | 1/7 ×3 | 7, 7, 6 /8 | **7, 7, 4** /22 |
+| A + B vide | 8, 7, 7 /9 | 1/7 ×3 | 6/8 ×3 | 4, 5, 5 /22 |
+
+Le contrôle retombe **exactement** sur le 0,796 / 0,813 mesuré hier sur le même
+commit — 13/17 et 5/29 deux passes sur trois. La base est reproduite, la
+comparaison est légitime.
+
+### Cette fois le repliage se déclenche vraiment
+
+C'était le piège de la mesure précédente : 13 replis sur 1 362 ticks de silence,
+donc rien à mesurer. Ici, sur ~295 ticks par passe :
+
+| | replis | part des ticks | ce qui est replié |
+|---|---|---|---|
+| contrôle | 6 en moyenne | 2 % | `is talking` seulement |
+| A seul | 31 en moyenne | 11 % | `is talking` seulement |
+| A + B | **162 en moyenne** | **55 %** | 116 `is thinking` + 32 `is talking` (p1) |
+
+Les deux verrous diagnostiqués hier sont levés dans l'ordre annoncé : retirer le
+rappel multiplie les replis par cinq (verrou 2, le `endswith` sur un delta
+composé), et changer le critère les multiplie encore par cinq en ouvrant le
+gisement `is thinking` (verrou 1, 84 % des ticks de silence). La variante mesure
+donc quelque chose, cette fois.
+
+### Retirer le rappel : ça rapporte, sur les deux dimensions
+
+**+1 fin de tour sur 17** (13 → 14), reproduit aux trois passes avec un
+écart-type nul des deux côtés, sans rien payer en pauses (4,7 → 4,3 intrusions
+en moyenne, dans l'autre sens). Soit +0,059 en TOR fins, ~4 σ de ce qu'une fin
+de tour vaut, et 126 tokens d'entrée en moins par appel (−14 %). La fin de tour
+gagnée est sur `073852`, la session longue.
+
+C'est le seul bras qui améliore les deux dimensions à la fois. Le mécanisme
+proposé par Alex est confirmé par la trace : sans le rappel, le delta redevient
+`COMMENT TU T'APPELLES` au lieu de
+`COMMENT TU T'APPELLES SALUT ÇA VA BIEN TU M'…`.
+
+### Le repliage sur la répétition : ça coûte
+
+A + B est **sous A sur les deux dimensions** : 0,804 contre 0,824 en fins,
+0,241 contre 0,149 en pauses — soit +2,7 intrusions par passe. Et il tombe même
+sous le contrôle en agrégat (0,781 contre 0,802).
+
+Le mécanisme se lit dans les tokens : le repliage **ne raccourcit pas le
+prompt**, il en change le contenu. 745 tokens en A, 858 en A + B. En repliant
+les lignes de silence, il libère des places dans la fenêtre `MICRO_TOURS`, que
+des micro-tours de PAROLE viennent occuper. Le modèle voit donc plus de parole
+et moins de silence — il détecte une fin de tour de plus sur `073852` (7/8) et
+paie trois intrusions de plus dans les pauses. C'est l'arbitrage connu, pas un
+progrès : le système est simplement devenu plus bavard.
+
+### Dire au modèle que ça dure : rien de démontrable
+
+Bras 3 contre bras 4, la seule question qui compte :
+
+| | TOR fins | TOR pauses |
+|---|---|---|
+| `×{n}` | 0,804 ± 0,034 | 0,241 ± 0,060 |
+| suffixe vide | 0,785 ± 0,034 | 0,195 ± 0,020 |
+
+L'écart vaut **+0,3 fin de tour et +1,3 intrusion par passe**. Les distributions
+se recouvrent (fins : `0,824 0,824 0,765` contre `0,824 0,765 0,765`), et les
+deux écarts sont sous le seuil qu'une métrique à 17 fins et 29 pauses permet de
+trancher. **Non conclusif.** Si direction il y a, elle est cohérente avec le
+reste : le `×{n}` rend le système un peu plus bavard sur les deux dimensions,
+pas plus juste.
+
+### La réponse
+
+1. **Retirer le rappel du tour en cours, ça rapporte** — +1 fin de tour sur 17,
+   reproduit trois fois sur trois, gratuit en pauses et 14 % de tokens en moins.
+   C'est le meilleur des quatre bras.
+2. **Dire au modèle que ça dure ne change rien de mesurable** — et la question
+   reste ouverte, parce que le repliage qui la rend testable coûte par ailleurs
+   plus qu'il ne rapporte.
+
+Recommandation : **garder A, ne pas garder B tel quel.** Si B est conservé pour
+d'autres raisons (l'historique ne se confirme plus lui-même, ce que la mesure ne
+voit pas), le faire en sachant qu'il coûte ~3 intrusions par passe, et le
+mesurer alors contre A, pas contre le contrôle.
+
+### Ce dont je ne suis pas sûr
+
+- **« A seul » n'est pas un changement pur.** Retirer le rappel multiplie déjà
+  les replis de l'ancien critère par cinq (6 → 31 par passe). Le gain de +1 fin
+  de tour est donc celui de « rappel retiré ET cinq fois plus de replis », pas
+  celui du rappel seul. Les séparer demanderait un cinquième bras, rappel retiré
+  et repliage désactivé.
+- **La dimension pauses de `032332` est morte** : 1/7 dans les douze passes, sur
+  les quatre bras. Tout l'écart en pauses vient de `073852`, donc de 22
+  occasions, pas de 29.
+- **n = 3 et une métrique grossière.** Une fin de tour vaut 0,059 en TOR fins,
+  une intrusion 0,034 en TOR pauses. Les bras 3 et 4 varient d'une fin de tour
+  d'une passe à l'autre (`ab` p3 décroche : 13/17 au lieu de 14/17, et 4/22 au
+  lieu de 7/22). Trois passes ne suffisent pas à départager deux bras qui se
+  touchent.
+- **Les douze passes ont tourné à six en parallèle**, ce que les mesures de
+  référence ne font pas. Zéro erreur réseau et un contrôle qui retombe au
+  millième sur celui d'hier disent que ça n'a pas dérangé ; ce n'est pas une
+  preuve.
+- **Le comptage des replis passe par le log**, pas par la trace : `session.jsonl`
+  n'enregistre pas `silence_replie`, et `_tour` n'écrit que sur la sortie
+  standard. J'ai patché `bench/sessions.py` **dans mes copies gelées seulement**
+  pour sauver ce flux. Le dépôt ne le fait toujours pas — une prochaine mesure
+  qui voudra compter les replis devra refaire le même détour, ou l'ajouter pour
+  de bon.
+- **Le dépôt a bougé sous la mesure.** `llm.py` a été modifié par Alex pendant
+  les passes ; les copies gelées portent la version de `752f20d`, vérifiée
+  identique fichier par fichier avant de conclure.
