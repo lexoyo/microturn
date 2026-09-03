@@ -207,8 +207,18 @@ sortie = '''{"m": "<user is speaking>"}'''
 [[exemples_sherpa]]
 entree = "TELL ME THE"
 sortie = '''{"m": "<user is speaking>"}'''
+# The sentence LOOKS complete, but nothing yet says the user has stopped: they
+# may be drawing breath. So we wait one chunk.
 [[exemples_sherpa]]
 entree = "HEIGHT OF THE EIFFEL TOWER"
+sortie = '''{"m": "<user is speaking>"}'''
+# And THIS is the example that was missing, measured on 04/09: every previous
+# example concluded on TEXT, none on a SILENCE. The model had therefore learnt
+# that a silence never ends a turn — it waited for the first word of the NEXT
+# question to decide the previous one was over, which cost 7,5 to 8,1 seconds,
+# every single time. A silence that follows a complete sentence IS the end.
+[[exemples_sherpa]]
+entree = "<no voice>"
 sortie = '''{"m": "<user finish speaking>", "r": "The Eiffel Tower is 320 metres tall."}'''
 [[exemples_sherpa]]
 entree = "<no voice>"

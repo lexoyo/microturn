@@ -228,8 +228,19 @@ sortie = '''{"m": "<user is speaking>"}'''
 [[exemples_sherpa]]
 entree = "ME DIRE LA"
 sortie = '''{"m": "<user is speaking>"}'''
+# La phrase A L'AIR finie, mais rien ne dit encore que la personne s'est
+# arrêtée : elle peut reprendre son souffle. On attend donc un tick.
 [[exemples_sherpa]]
 entree = "TAILLE DE LA TOUR EIFFEL"
+sortie = '''{"m": "<user is speaking>"}'''
+# Et VOICI l'exemple qui manquait, constaté le 04/09 : tous les exemples
+# concluaient sur du TEXTE, aucun sur un SILENCE. Le modèle avait donc appris
+# qu'un silence ne termine jamais un tour — il attendait le premier mot de la
+# question SUIVANTE pour décider que la précédente était finie, ce qui coûtait
+# 7,5 à 8,1 secondes, à chaque fois. Un silence qui suit une phrase achevée EST
+# la fin du tour.
+[[exemples_sherpa]]
+entree = "<no voice>"
 sortie = '''{"m": "<user finish speaking>", "r": "La tour Eiffel mesure 320 mètres"}'''
 [[exemples_sherpa]]
 entree = "<no voice>"
