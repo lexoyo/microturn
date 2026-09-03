@@ -32,10 +32,14 @@ mesuré avant `d721c84`, qui a renommé les jetons **et** multiplié la fenêtre
 refaite depuis — elle ne l'a pas été. C'est l'étape 2 qui la refera. *(Et le
 « 0 sur 153 » de `PLAN.md` n'a aucune session en face : ne pas le citer.)*
 
-**Le banc de démos n'existe pas encore.** La chaîne de synthèse, elle, a été mise
-en marche dans la nuit du 03 au 04/09 — c'est de là que sortent les trois
-contraintes d'API du § 1.1. Mais **aucun fichier du banc n'est au dépôt** au
-04/09 : tant qu'il n'y en a pas, l'étape 1 est à faire, pas à vérifier.
+**Les quatre pistes audio existent** depuis la nuit du 03 au 04/09, hors dépôt
+(workspace d'idea-lab, `ideas/demos-audio/`) : le script et les scénarios sont
+versionnés, les WAV non — ils se régénèrent. Recalées sur les durées mesurées
+au `silencedetect` dans leurs vidéos, elles tombent à 104,1 s contre 103,8 pour
+la leur, et 90,0 contre 90,2.
+
+**Ce qui manque encore à l'étape 1, c'est le scorer et l'injection** (§ 1.3) :
+sans eux les pistes ne mesurent rien.
 
 ---
 
@@ -59,8 +63,8 @@ En anglais, comme eux (`locales/en.toml` existe, le mode anglais est vérifié).
 
 **Ce n'est plus piper.** Le TTS du banc est **`openai/gpt-audio-mini`, appelé via
 OpenRouter** — donc avec la clé que le projet a déjà : aucune clé nouvelle,
-aucun service à ouvrir. Voix **masculine américaine**, `ash` ou `onyx`, Alex
-tranche à l'écoute. piper a été écarté sur écoute, il ne fait pas le poids.
+aucun service à ouvrir. Voix **`ash`** (masculine, américaine),
+retenue à l'écoute. piper a été écarté sur écoute, il ne fait pas le poids.
 
 *Portée du changement* : ce TTS **fabrique les fixtures du banc et n'entre jamais
 dans la chaîne mesurée**. `piper` reste la voix de l'assistant sur le Pi : la
@@ -101,9 +105,13 @@ haut-parleur en 1.3, pas dans la mesure déterministe.
 | 1 · multi-tour | mémoire longue de l'historique | les six questions reçoivent une réponse ; le résumé final en cite six |
 | 2 · backchannel + interruption | « okay » et « yes » ignorés, puis coupure | le TTS ne s'arrête PAS sur les deux premiers, s'arrête sur le troisième |
 | 3 · backchannel assistant | émettre un signal d'écoute | un clip part avant la réponse, sans retarder la réponse |
+| 4 · hésitations *(le nôtre)* | ne pas confondre pause et fin de tour | aucune réponse pendant les quatre pauses ; une réponse après chaque phrase achevée |
 
-La démo 1 est la seule atteignable aujourd'hui : c'est donc elle qui donne la
-**première référence** du nouveau banc.
+La démo 1 est la seule atteignable sans nouveau code : c'est donc elle qui donne
+la **première référence** du nouveau banc. Le scénario 4 n'a pas d'équivalent
+chez eux — leurs trois dialogues ne contiennent aucune pause de réflexion en
+milieu de phrase, ils montrent le full-duplex et non la difficulté de
+l'endpointing. C'est lui qui doit faire échouer un détecteur à seuil.
 
 ### 1.3 Comment on injecte
 
