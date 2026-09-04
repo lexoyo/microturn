@@ -2475,6 +2475,184 @@ l'ancienne référence morte, mais **on refuse d'en produire une nouvelle tant q
 la cible bouge encore**. Les deux moitiés de la discipline : savoir jeter un
 chiffre, et savoir ne pas en fabriquer un pour se rassurer.
 
+### Changement de phase : « on est bon là pour faire les démos » — 04/09, clôture de session
+
+Le constat d'Alex, mot pour mot :
+
+> **« On est bon là pour faire les démos. Il faudra faire les derniers tests, et
+> si ça marche on pourra écrire l'article et faire une vidéo. »**
+
+**À dater, parce que c'est un changement de phase et pas un point d'étape.** Le
+matin même du 04/09, la question ouverte était *est-ce qu'on a une chance de
+reproduire leurs démos*. Le soir, elle est *est-ce que ça tient à la
+vérification*. **Le doute a changé d'objet : il ne porte plus sur la
+faisabilité, il porte sur la preuve.** C'est ce déplacement que l'article doit
+marquer, pas la réussite elle-même — et c'est la première fois du projet que la
+phrase « on pourra écrire l'article » est prononcée comme une conséquence et non
+comme une intention.
+
+#### Ce qui appuie le constat, mesuré le 04/09
+
+**La démo 1 passe en entier.** Six fins de tour sur six, **latence médiane
+3,16 s**, et le résumé final cite **les cinq questions** — Harry Potter, Japon,
+France, Jupiter, Everest. Leur propre vidéo n'en restitue que quatre, et dit
+« Lastly » à propos de Jupiter, qui était l'avant-dernière (`DEMOS.md` § 3).
+**Sur ce point précis, sans fine-tuning, on fait mieux qu'eux.**
+
+⚠️ *La réserve de `DEMOS.md` tient et doit être levée avant publication* : leur
+transcript vient de captures d'écran, et une capture manquante au bon endroit
+produirait exactement cette apparence. **Vérifier une fois sur leur vidéo** avant
+d'écrire la phrase en public. C'est la seule affirmation de la journée qui porte
+sur *eux* et non sur nous ; c'est donc celle qui doit être la plus tenue.
+
+**La séquence complète de la démo 2 est reproduite, dans l'ordre** :
+`<system backchannel>` émis, réponse déroulée, backchannels de l'utilisateur
+ignorés, interruption détectée et parole coupée, réponse résumée. **Une seule
+coupure dans tout le scénario, au bon endroit** — c'est exactement le critère de
+réussite écrit dans `PLAN-REPRO.md` § 1.2, pas une impression d'écoute.
+
+**Qwen2.5-7B non fine-tuné obtient le même score que `gemini-2.5-flash-lite`**
+sur les quatre scénarios : **14/16 fins de tour, 4/4 pauses tenues**, latences
+comparables. C'est la génération suivante du modèle même du papier — celui qu'ils
+ont affiné cinq heures sur huit H100.
+
+⚠️ **Réserve à transporter avec le chiffre partout où il sera cité** : **un seul
+run**, pas de passes multiples, et **16 fins de tour, c'est peu**. Une fin de
+tour vaut ici 1/16 : **l'écart d'un cas est dans le bruit**. Ce que la mesure
+dit n'est pas « le prompting égale le fine-tuning », c'est « **un run n'a pas su
+les distinguer** ». Le résultat n° 6 — une seule session ne mesure rien — vaut
+pour nos bons chiffres comme il valait pour les mauvais.
+
+⚠️ **Et les deux runs ne portent pas le même code**, ce que disent leurs propres
+`meta.json` : gemini à `ac39310`, qwen à `6081aec` — et son quatrième scénario à
+`74e655e`. Trois états du dépôt pour une comparaison à deux lignes. Ni l'un ni
+l'autre ne contient `c57cac4`, le correctif de la lettre isolée. **La ligne
+« même score » est donc à refaire au propre sur le banc gelé avant d'être écrite
+en public** : c'est l'étape 2 de `PLAN-REPRO.md`, et c'est elle qui décide si la
+phrase tient.
+
+#### Les deux itérations de la boucle, et ce qu'elles ont en commun
+
+**Itération 1 — conclure sur un silence.** Aucun exemple du prompt ne concluait
+sur un silence : tous les `finish speaking` suivaient du texte, et les deux
+`<no voice>` présents menaient à `is speaking` puis `is thinking`. Le modèle
+avait donc appris qu'**un silence ne termine jamais un tour**, et attendait le
+premier mot de la question suivante pour décider que la précédente était finie.
+Le défaut n'était pas dans une règle mal écrite : il était dans ce que la
+collection d'exemples démontrait sans le dire.
+
+**Le correctif tient en une règle et un exemple** : une phrase complète donne
+`<user is speaking>`, puis le `<no voice>` qui suit donne `<user finish
+speaking>` — le tour se conclut sur le silence, et non sur le premier mot de la
+question suivante. Annoncé dans la foulée : **fins de tour 13/16 → 14/16, pauses
+tenues 3/4 → 4/4**.
+
+⚠️ **Ce couple ne se lit pas comme un avant/après, pour deux raisons qui
+s'additionnent.** D'abord le banc a bougé entre les deux (voir la faute de
+méthode ci-dessous). Ensuite les archives ne le corroborent pas : les **deux
+seuls runs archivés de la journée** portent des commits différents —
+`gemini-2.5-flash-lite` à `ac39310`, **antérieur** au correctif, déjà à 14/16 et
+4/4 ; `qwen2.5-7b-instruct` à `6081aec`, le correctif lui-même, à 14/16 et 4/4.
+**Aucun run archivé ne porte le 13/16.** Ce qui reste établi est le diagnostic —
+aucun exemple ne concluait sur un silence — pas le gain qu'on lui a attribué.
+
+**Itération 2 — une lettre isolée n'arrête pas la parole.** Sherpa transcrit le
+« Okay » murmuré en un seul caractère, **« O »**. Le modèle répond `is speaking`
+— il n'y a rien à reconnaître dans une lettre — et l'hôte coupe : réponse
+tranchée en plein mot, **56 caractères sur 93**. Le « Yes » du même scénario,
+transcrit « YES », était lui correctement classé backchannel. **C'est la preuve
+que le prompt marchait déjà et que l'échec était en amont de la décision**, dans
+ce que l'ASR avait laissé du signal.
+
+**Le point d'article est dans le refus d'Alex.** J'avais posé un **seuil de
+longueur dans le code** — `COUPURE_MIN_CAR = 2`, un delta de moins de deux
+caractères ne coupe rien. Il l'a refusé,
+mot pour mot : *« retirer ton garde-fou, modifie plutôt le prompt plutôt que de
+mettre des garde-fous pourris »*. **Il a raison, et c'est la thèse du projet
+appliquée à elle-même** : un seuil dans le code, c'est exactement le VAD déguisé
+que DuplexCascade supprime. On aurait remis dans l'hôte, sous un autre nom, la
+décision qu'on revendique de sortir du seuil.
+
+La correction est donc passée par le prompt — *« tu ne t'arrêtes de parler que
+si tu comprends que l'utilisateur est en train de te DIRE QUELQUE CHOSE »* —
+plus un exemple `O` → `<user backchannel>`. **Vérifié isolément, hors banc** :
+`O`, `OK`, `OKAY`, `M`, `YES`, `RIGHT` rendent tous backchannel ; « OKAY PLEASE
+SUMMARIZE IN ONE SENTENCE » rend `parler` ; « AND WHAT ABOUT » rend `parle`.
+**La distinction se fait au contenu, sans aucun seuil** — et une phrase courte
+qui dit quelque chose reste une prise de parole, ce qu'un seuil de longueur
+n'aurait jamais su voir. Le garde-fou a été **retiré intégralement**, et c'est
+le prompt qui fait le travail.
+
+**La leçon, et c'est celle qui vaut pour l'article** : la frontière entre un
+backchannel et une prise de parole n'est pas une propriété de la chaîne de
+caractères, c'est un jugement qui demande le contexte. Un seuil sur la longueur
+du delta la place au mauvais endroit **par construction** — quelle que soit sa
+valeur, il juge la forme de l'entrée là où il faut juger ce qu'elle vient faire
+dans la conversation. C'est exactement le point du papier : le décideur doit
+avoir l'historique de la conversation sous les yeux.
+
+**Le levier est le même dans les deux cas : un exemple, pas une règle.** Les deux
+défauts se sont réparés en ajoutant une démonstration au prompt, pas une
+consigne de plus. C'est une observation qui vaut au-delà de ce projet, et elle
+prolonge le résultat n° 2 (*on peut retirer les règles, pas les données*) d'un
+cran : non seulement les exemples portent le comportement, mais **ce qu'ils ne
+montrent jamais devient une règle implicite que le modèle applique contre
+vous**.
+
+#### La faute de méthode, à ne pas cacher : le banc a bougé sous la mesure
+
+**Le banc audio a été modifié trois fois pendant que ces mesures étaient
+prises** : les durées de silence, d'abord estimées au nombre de mots puis
+recalées sur leurs vidéos ; les gains du mixage des deux voix ; enfin le
+recalage des instants sur les **formes d'onde** de leurs vidéos, blancs finaux
+allongés dans la foulée. **L'itération 1 et l'itération 2 ne portent donc pas
+sur les mêmes sons** : leurs scores ne se comparent pas, et le
+**« 13/16 → 14/16 » ne vaut que pour l'ancien banc** — il ne doit pas être cité
+comme le gain d'une correction.
+
+C'est Alex qui l'a relevé, et la formulation dit exactement ce que ça vaut :
+*« Mais d'où tu as changé tes sons de test, ce n'est pas normal ça. »*
+
+C'est la règle que j'avais moi-même écrite pour les sous-agents — **le banc est
+gelé** — et que je n'ai pas tenue. Le motif est exactement celui du « dépôt a
+bougé sous la mesure » de `bench/JOURNAL.md`, un étage plus haut : là c'était le
+code, ici c'est le jeu de test. **Ce qui reste valable de la journée est ce qui a
+été mesuré hors banc** : le test isolé du prompt sur `O`/`OK`/`YES`, qui ne
+dépend d'aucun montage audio.
+
+**Consigne, à partir du 04/09 : le banc est gelé.** Aucune modification des
+pistes, des silences ni des blancs finaux tant que la baseline n'est pas prise —
+et si une modification devient nécessaire, elle invalide tout ce qui a été
+mesuré avant elle et se déclare comme telle. La suite est dans `PLAN-REPRO.md`,
+étape 2.
+
+#### Ce qui reste avant l'article et la vidéo
+
+Le détail et l'ordre sont dans `PLAN-REPRO.md` (« La suite immédiate »). En
+résumé, quatre vérifications et un tournage :
+
+1. **une baseline propre** des quatre scénarios sur le banc gelé, à laquelle
+   tout se comparera ensuite ;
+2. **mesurer le retrait du « short »** (`74e655e`) — le prompt anglais demandait
+   encore une réponse courte, et le commit qui l'avait retiré n'avait touché que
+   le français, alors que tout le banc des démos tourne en anglais. Ce qui a
+   déclenché la correction est un écart de **durée de parole** sur le scénario de
+   l'interruption : **16,8 s pour leur réponse** (relevée sur la forme d'onde de
+   leur vidéo) contre **11,4 s pour la nôtre**, assez pour que les backchannels
+   calés sur leur vidéo tombent après qu'on a fini de parler. **L'effet du
+   retrait, lui, n'a jamais été mesuré** — les deux runs archivés du 04/09 sont
+   antérieurs ou concomitants au commit ;
+3. **la démo 3**, la moins vérifiée : le `<system backchannel>` sort et les clips
+   existent, mais **personne n'a vérifié qu'il tombe au bon moment** — et le
+   papier chiffre le prix de cette fonction chez eux à **−0,110 de justesse**
+   (0,858 → 0,748) et un **TOR de pauses ×5,9** ;
+4. **l'enregistrement humain**, quand il arrivera : `remonter.py` le découpe et
+   le remonte aux durées mesurées ;
+5. **la vidéo** : le matériel existe déjà — **quatre conversations complètes en
+   mp3 avec les deux voix**, les traces, et le texte horodaté des réponses,
+   archivés par modèle hors dépôt (workspace d'idea-lab). Il n'y a pas de session
+   à rejouer pour tourner, il y a un montage à faire.
+
 ## Angle d'article en réserve : « fine-tuning vs prompting »
 
 **Proposé par Alex le 03/09 au soir.** Consigné **ici et pas dans `IDEES.md`** :

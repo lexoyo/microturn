@@ -13,7 +13,88 @@ bibliothèque, et il suppose un système qui marche.
 
 ---
 
-## L'état au 04/09, sans fard
+## L'état au 04/09 au soir : les démos passent, la vérification reste
+
+**Constat d'Alex en clôture de session, et c'est un changement de phase :**
+*« On est bon là pour faire les démos. Il faudra faire les derniers tests, et si
+ça marche on pourra écrire l'article et faire une vidéo. »* Le doute ne porte
+plus sur la faisabilité, il porte sur la vérification. Le raisonnement complet
+est dans `ARTICLE-NOTES.md`, « Changement de phase ».
+
+Ce qui a tourné le 04/09, et qu'il faut lire avec sa réserve :
+
+- **la démo 1 passe en entier** — six fins de tour sur six, latence médiane
+  **3,16 s**, et le résumé final cite **les cinq questions**. *(Leur vidéo n'en
+  restitue que quatre ; la réserve « à vérifier sur leur vidéo » de `DEMOS.md`
+  § 3 n'est pas levée.)* ;
+- **la séquence complète de la démo 2 est reproduite, dans l'ordre** :
+  `<system backchannel>` émis, réponse déroulée, backchannels ignorés,
+  interruption détectée et parole coupée, réponse résumée — **une seule coupure,
+  au bon endroit** ;
+- **Qwen2.5-7B non fine-tuné fait le même score que `gemini-2.5-flash-lite`** sur
+  les quatre scénarios : **14/16 fins de tour, 4/4 pauses tenues**. ⚠️ **Un seul
+  run, pas de passes multiples** ; sur 16 fins de tour, l'écart d'un cas est dans
+  le bruit. Ce n'est pas une égalité établie, c'est un run qui n'a pas su les
+  distinguer. ⚠️ **Et les deux runs ne portent pas le même code** (`ac39310` pour
+  gemini, `6081aec` pour qwen, `74e655e` pour son dernier scénario) : la
+  comparaison est à refaire à l'étape 2 avant d'être citée.
+
+### ⚠️ Le banc est gelé à partir du 04/09
+
+Le banc audio a été **modifié trois fois pendant que les mesures étaient
+prises** : les durées de silence, d'abord estimées au nombre de mots puis
+recalées sur leurs vidéos ; les gains du mixage des deux voix ; enfin le recalage
+des instants sur les **formes d'onde** de leurs vidéos, blancs finaux allongés
+dans la foulée. Les scores pris sur deux versions différentes **ne portent pas
+sur les mêmes sons et ne se comparent pas** — en particulier, le
+« 13/16 → 14/16 » de la journée ne doit pas être cité comme le gain d'une
+correction. Relevé par Alex : *« Mais d'où tu as changé tes sons de test, ce
+n'est pas normal ça. »*
+
+**Consigne, sans exception** : pistes, silences et blancs finaux ne bougent plus
+tant que la baseline de l'étape 2 n'est pas prise. Si une modification devient
+nécessaire, elle **invalide tout ce qui a été mesuré avant elle** et se déclare
+comme telle dans le journal.
+
+## La suite immédiate — cinq points, dans cet ordre
+
+Rien de ce qui suit ne se cite en public avant d'avoir été mesuré **après le
+gel** du banc.
+
+1. **La baseline propre des quatre scénarios sur le banc gelé** (étape 2). C'est
+   la référence de tout ce qui suit : sans elle, aucune des corrections de la
+   journée n'a de « avant » auquel se comparer, et les runs archivés du 04/09 ne
+   peuvent pas en tenir lieu — ils portent trois états du dépôt différents.
+2. **Mesurer le retrait du « short »** dans le prompt anglais (`74e655e`). Le
+   commit qui retirait la consigne de brièveté n'avait touché que `fr.toml`,
+   alors que tout le banc tourne en anglais. **L'effet n'a jamais été mesuré.**
+   Ce qu'on sait est l'écart de **durée de parole** qui l'a fait découvrir, sur
+   le scénario de l'interruption : **16,8 s pour leur réponse**, relevée sur la
+   forme d'onde de leur vidéo, contre **11,4 s pour la nôtre** — assez pour que
+   les backchannels calés sur leur vidéo tombent une fois qu'on a fini de parler.
+   Nos réponses devraient s'allonger ; reste à voir ce que ça coûte aux fins de
+   tour et aux pauses.
+3. **Vérifier la démo 3**, la moins vérifiée des quatre. `<system backchannel>`
+   sort bien et les clips existent, mais **personne n'a vérifié qu'il tombe au
+   bon moment** — c'est le critère de réussite du § 1.2, et il ne se lit pas dans
+   un score de fins de tour. Rappel du prix chez eux : 0,858 → 0,748 et un TOR de
+   pauses multiplié par près de six.
+4. **Intégrer l'enregistrement humain** quand il arrivera, avec
+   `ideas/demos-audio/remonter.py` (côté idea-lab) : il découpe la prise et la
+   remonte aux durées du banc, silences compris. La voix de synthèse est là parce
+   que **l'accent français d'Alex passe mal à l'ASR** et ferait mesurer l'accent
+   au lieu de la détection de fin de tour ; la prise humaine apporte en retour
+   l'hésitation et le débit irrégulier qu'aucun TTS ne produit. Les deux pistes
+   se gardent, elles ne se remplacent pas. ⚠️ **Remonter une nouvelle piste, c'est
+   modifier le banc** : ça se fait après la baseline du point 1, et ça se déclare.
+5. **Écrire l'article et faire la vidéo**, une fois les quatre points passés.
+   C'est l'ordre posé par Alex — *« si ça marche on écrit l'article et on fait
+   une vidéo »* — et le matériel de tournage existe déjà : les conversations
+   complètes en mp3 avec les deux voix, les traces et les réponses horodatées,
+   archivées par modèle hors dépôt. Le plan de l'article est dans
+   `ARTICLE-NOTES.md`.
+
+## L'état au 04/09 au matin, sans fard
 
 **Il n'y a plus de référence chiffrée.** Le commit `d721c84` a changé les jetons
 et fait passer la fenêtre d'historique de 20 entrées à 270 — sans mesure, à
@@ -37,6 +118,11 @@ refaite depuis — elle ne l'a pas été. C'est l'étape 2 qui la refera. *(Et l
 versionnés, les WAV non — ils se régénèrent. Recalées sur les durées mesurées
 au `silencedetect` dans leurs vidéos, elles tombent à 104,1 s contre 103,8 pour
 la leur, et 90,0 contre 90,2.
+
+⚠️ *Périmé le 04/09 au soir pour la démo 2* : le `silencedetect` fusionne les deux
+locuteurs quand ils se chevauchent, et plaçait le premier backchannel 14 s trop
+tard. Les instants de cette démo viennent désormais de la **lecture des formes
+d'onde** de leur interface, image par image.
 
 **Ce qui manque encore à l'étape 1, c'est le scorer et l'injection** (§ 1.3) :
 sans eux les pistes ne mesurent rien.
@@ -102,7 +188,7 @@ haut-parleur en 1.3, pas dans la mesure déterministe.
 
 | démo | ce qu'elle exige | critère de réussite |
 |---|---|---|
-| 1 · multi-tour | mémoire longue de l'historique | les six questions reçoivent une réponse ; le résumé final en cite six |
+| 1 · multi-tour | mémoire longue de l'historique | les six tours reçoivent une réponse ; le résumé final cite **les cinq questions** (le sixième tour *est* la demande de résumé — `DEMOS.md` § 3) |
 | 2 · backchannel + interruption | « okay » et « yes » ignorés, puis coupure | le TTS ne s'arrête PAS sur les deux premiers, s'arrête sur le troisième |
 | 3 · backchannel assistant | émettre un signal d'écoute | un clip part avant la réponse, sans retarder la réponse |
 | 4 · hésitations *(le nôtre)* | ne pas confondre pause et fin de tour | aucune réponse pendant les quatre pauses ; une réponse après chaque phrase achevée |
