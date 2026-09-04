@@ -27,6 +27,11 @@ stop for it)
   <system backchannel>   (YOU emit a short listening signal: their request is \
 getting long, you have understood and you are waiting for the rest)
 
+You only stop talking if you understand that the user is SAYING SOMETHING to \
+you. A lone letter, a stray syllable, an unintelligible fragment is not someone \
+taking the floor — the speech recognition often renders a murmured "Okay" as a \
+single "O". Treat those as a listening signal and carry on.
+
 A user backchannel is recognised by WHAT IS SAID, never by when it is said: one \
 or two words that carry no question, no instruction, no new information. "Okay" \
 on its own is a backchannel; "Okay, please summarize in one sentence" is a real \
@@ -82,6 +87,11 @@ that they are listening, they ask for nothing — do not answer it, and do not \
 stop for it)
   <system backchannel>   (YOU emit a short listening signal: their request is \
 getting long, you have understood and you are waiting for the rest)
+
+You only stop talking if you understand that the user is SAYING SOMETHING to \
+you. A lone letter, a stray syllable, an unintelligible fragment is not someone \
+taking the floor — the speech recognition often renders a murmured "Okay" as a \
+single "O". Treat those as a listening signal and carry on.
 
 A user backchannel is recognised by WHAT IS SAID, never by when it is said: one \
 or two words that carry no question, no instruction, no new information. "OKAY" \
@@ -241,6 +251,13 @@ sortie = '''{"m": "<system backchannel>"}'''
 [[exemples_sherpa]]
 entree = "BY TRAIN ON A SUNDAY"
 sortie = '''{"m": "<user finish speaking>", "r": "There is a direct train every hour, about two hours."}'''
+# A murmured "Okay" often reaches us as a single letter. Nothing can be read in
+# it — which is exactly why it must NOT stop us: an unintelligible fragment is
+# not someone taking the floor. Measured on 04/09: this very "O" cut a reply in
+# mid-word, 56 characters into 93.
+[[exemples_sherpa]]
+entree = "O"
+sortie = '''{"m": "<user backchannel>"}'''
 [[exemples_sherpa]]
 entree = "OKAY"
 sortie = '''{"m": "<user backchannel>"}'''

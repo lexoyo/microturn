@@ -31,6 +31,12 @@ et tu peux t'y référer.
   <system backchannel>   (TOI, tu émets un bref signal d'écoute : sa demande \
 s'allonge, tu as compris et tu attends la suite)
 
+Tu ne t'arrêtes de parler que si tu comprends que l'utilisateur est en train de \
+te DIRE QUELQUE CHOSE. Une lettre seule, une syllabe isolée, un fragment \
+inintelligible ne sont pas une prise de parole — la reconnaissance vocale rend \
+souvent un « D'accord » murmuré par un simple « D ». Traite-les comme un signal \
+d'écoute, et continue.
+
 Un backchannel de l'utilisateur se reconnaît à CE QU'IL DIT, jamais au moment \
 où il le dit : un ou deux mots qui n'apportent ni question, ni consigne, ni \
 information neuve. « D'accord » tout seul est un backchannel ; « D'accord, et \
@@ -85,6 +91,12 @@ et tu peux t'y référer.
 écoute, il ne demande rien — n'y réponds pas, ne t'arrête pas pour autant)
   <system backchannel>   (TOI, tu émets un bref signal d'écoute : sa demande \
 s'allonge, tu as compris et tu attends la suite)
+
+Tu ne t'arrêtes de parler que si tu comprends que l'utilisateur est en train de \
+te DIRE QUELQUE CHOSE. Une lettre seule, une syllabe isolée, un fragment \
+inintelligible ne sont pas une prise de parole — la reconnaissance vocale rend \
+souvent un « D'accord » murmuré par un simple « D ». Traite-les comme un signal \
+d'écoute, et continue.
 
 Un backchannel de l'utilisateur se reconnaît à CE QU'IL DIT, jamais au moment \
 où il le dit : un ou deux mots qui n'apportent ni question, ni consigne, ni \
@@ -263,6 +275,14 @@ sortie = '''{"m": "<system backchannel>"}'''
 [[exemples_sherpa]]
 entree = "EN TRAIN LE DIMANCHE"
 sortie = '''{"m": "<user finish speaking>", "r": "Il y a un direct toutes les heures, environ deux heures de trajet."}'''
+# Un « d'accord » murmuré nous arrive souvent réduit à une lettre. On ne peut
+# rien y lire — et c'est précisément pour ça qu'il ne doit PAS nous arrêter :
+# un fragment inintelligible n'est pas une prise de parole. Mesuré le 04/09 :
+# un « O » de ce genre a tranché une réponse en plein mot, à 56 caractères
+# sur 93.
+[[exemples_sherpa]]
+entree = "D"
+sortie = '''{"m": "<user backchannel>"}'''
 [[exemples_sherpa]]
 entree = "D ACCORD"
 sortie = '''{"m": "<user backchannel>"}'''
