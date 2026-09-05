@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Sert le visualiseur de traces et expose le `session.jsonl` en flux.
+"""Sert le visualiseur et diffuse `session.jsonl` au fil de son écriture.
 
-CONSOMMATEUR EN LECTURE SEULE. Rien ici n'est importé par le pipeline, et rien
-ici n'ouvre un fichier en écriture : on peut lancer ce serveur sur la trace
-d'une session EN COURS sans risquer de la corrompre, et la CLI reste l'outil de
-débogage de référence. C'est la contrainte qui a dicté toute la forme du
-dossier `visu/` : zéro ligne ajoutée au chemin critique de l'audio.
+CONSOMMATEUR EN LECTURE SEULE, et rien d'autre. Ce serveur n'importe aucun
+module du pipeline, n'ouvre aucun fichier en écriture et n'exécute aucun
+processus : on peut le lancer sur la trace d'une session EN COURS sans risquer
+de la corrompre, et `pipeline.py` ne sait pas qu'il existe. Deux terminaux :
 
-Le suivi en direct se fait à l'OCTET, pas à la ligne : `journal.py` ne flushe
-que quand sa queue se vide, donc la dernière ligne du fichier est régulièrement
-incomplète. On ne rend que les lignes terminées par \n et on renvoie l'offset
-juste après la dernière — le client redemande à partir de là. Un `tail -f` naïf
-sur les lignes rendrait un JSON tronqué toutes les quelques secondes.
+    python3 pipeline.py --trace sessions --langue en     # dans l'un
+    python3 visu/serveur.py sessions                     # dans l'autre
 
-    python3 visu/serveur.py <dossier-de-trace> [--port 8731]
+Le suivi se fait à l'OCTET, pas à la ligne : `journal.py` ne flushe que quand sa
+queue se vide, donc la dernière ligne du fichier est régulièrement incomplète.
+On ne rend que les lignes terminées par \n et on renvoie l'offset juste après la
+dernière — le client redemande à partir de là. Un `tail -f` naïf sur les lignes
+rendrait un JSON tronqué toutes les quelques secondes.
 """
-import argparse, http.server, json, os, sys, urllib.parse
+import argparse, http.server, json, os, re, sys, urllib.parse
 
-RACINE = os.path.dirname(os.path.abspath(__file__))
-LOCALES = os.path.join(os.path.dirname(RACINE), "locales")
+VISU = os.path.dirname(os.path.abspath(__file__))
+LOCALES = os.path.join(os.path.dirname(VISU), "locales")
 
 
 def resoudre(srv):
@@ -31,17 +31,17 @@ def resoudre(srv):
     visualiseur AVANT le pipeline, et le voir s'accrocher quand il démarre."""
     if srv.resolu:
         return srv.resolu
-    dossier = srv.trace
-    if os.path.exists(os.path.join(dossier, "session.jsonl")):
-        srv.resolu = dossier
-        return dossier
+    if os.path.exists(os.path.join(srv.trace, "session.jsonl")):
+        srv.resolu = srv.trace
+        return srv.resolu
     jsonl = lambda d: os.path.join(d, "session.jsonl")
-    sous = [os.path.join(dossier, d) for d in os.listdir(dossier)]
+    sous = [os.path.join(srv.trace, d) for d in os.listdir(srv.trace)] \
+        if os.path.isdir(srv.trace) else []
     sous = [d for d in sous if os.path.exists(jsonl(d))]
     if not sous:
-        return dossier          # session à peine lancée : le fichier arrivera
-    # mtime du FICHIER, pas du dossier : c'est lui qu'on suit, et c'est lui
-    # que le pipeline touche à chaque flush.
+        return srv.trace           # session à peine lancée : le fichier arrivera
+    # mtime du FICHIER, pas du dossier : c'est lui qu'on suit, et c'est lui que
+    # le pipeline touche à chaque flush.
     srv.resolu = max(sous, key=lambda d: os.path.getmtime(jsonl(d)))
     return srv.resolu
 
@@ -50,8 +50,8 @@ def jetons(langue):
     """Les marqueurs viennent de `locales/<langue>.toml`, JAMAIS d'une copie.
 
     Les noms exacts ont bougé le 04/09/2026 (alignement sur le papier § 3.2) :
-    une liste recopiée ici aurait menti dès ce jour-là. Le fallback ne lit que
-    les deux sections utiles, au cas où le TOML deviendrait illisible."""
+    une liste recopiée ici aurait menti dès ce jour-là. Le repli ne lit que les
+    trois sections utiles, au cas où le TOML deviendrait illisible."""
     chemin = os.path.join(LOCALES, "%s.toml" % os.path.basename(langue or "fr"))
     if not os.path.exists(chemin):
         return {}
@@ -62,7 +62,6 @@ def jetons(langue):
         return {"jetons": d.get("jetons", {}), "divers": d.get("divers", {}),
                 "backchannels": d.get("backchannels", {})}
     except Exception:
-        import re
         out, sect = {"jetons": {}, "divers": {}, "backchannels": {}}, None
         for ligne in open(chemin, encoding="utf-8"):
             if ligne.startswith("["):
@@ -87,10 +86,11 @@ class Poste(http.server.BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path in ("/", "/index.html"):
-            with open(os.path.join(RACINE, "index.html"), "rb") as f:
+            with open(os.path.join(VISU, "index.html"), "rb") as f:
                 return self._envoi(f.read(), "text/html")
         if u.path == "/locale":
-            return self._envoi(json.dumps(jetons(q.get("langue", ["fr"])[0])).encode())
+            corps = json.dumps(jetons(q.get("langue", ["fr"])[0]), ensure_ascii=False)
+            return self._envoi(corps.encode())
         if u.path == "/evenements":
             dos = resoudre(self.server)
             jsonl, lignes = os.path.join(dos, "session.jsonl"), []
@@ -109,8 +109,9 @@ class Poste(http.server.BaseHTTPRequestHandler):
                     meta = json.load(open(mj, encoding="utf-8"))
                 except Exception:
                     pass                           # écriture en cours, on repassera
-            return self._envoi(json.dumps({"depuis": depuis, "lignes": lignes,
-                                           "meta": meta, "dossier": dos}).encode())
+            corps = json.dumps({"depuis": depuis, "lignes": lignes,
+                                "meta": meta, "dossier": dos}, ensure_ascii=False)
+            return self._envoi(corps.encode())
         self.send_error(404)
 
     def log_message(self, *a):
@@ -119,7 +120,7 @@ class Poste(http.server.BaseHTTPRequestHandler):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("trace", help="dossier contenant session.jsonl")
+    p.add_argument("trace", help="dossier de trace à suivre (celui de --trace)")
     p.add_argument("--port", type=int, default=8731)
     a = p.parse_args()
     if not os.path.isdir(a.trace):

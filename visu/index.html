@@ -1,54 +1,68 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>microturn — visualiseur de trace</title>
+<title>microturn — session viewer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%232f7d4f'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%23fff'%3E%E2%9C%93%3C/text%3E%3C/svg%3E">
 <!--
-  Visualiseur de trace de microturn — LECTURE SEULE.
+  Visualiseur de session de microturn — LECTURE SEULE sur la trace.
 
   Le pari de cette page : le problème que traite microturn (« quand la personne
   a-t-elle fini de parler ? ») n'a pas besoin d'être expliqué si on l'affiche
   dans le vocabulaire d'une messagerie, que tout le monde a déjà dans les mains.
-  La décision d'endpointing devient un GESTE : la phrase en cours de saisie part
-  toute seule. Les ✓✓ deviennent le jeton de contrôle rendu par le LLM. Une
-  interruption est une bulle coupée en plein milieu. C'est plus lisible que les
-  chronogrammes du papier, et ça se filme.
+  LA BULLE EST LE TEXTE VIVANT, dans les deux sens : celle de l'utilisateur
+  apparaît au premier `partial` et se réécrit sur place — les révisions de
+  sherpa comprises, qui sont invisibles dans la CLI — jusqu'à ce que le modèle
+  tranche `<user finish speaking>` ; à ce moment elle se fige et prend ses ✓✓.
+  Celle du système se déroule au fil de sa parole, et une interruption s'y voit
+  d'elle-même : la phrase s'arrête en plein mot, la suite reste en fantôme.
+
+  ⚠️ L'INTERFACE EST EN ANGLAIS, les commentaires restent en français comme le
+  reste du dépôt. `visu/` est destiné à être publié : c'est le morceau qui
+  explique le mécanisme du papier à quelqu'un qui n'a pas lu le papier.
 
   Zéro dépendance, zéro CDN, zéro build : la page doit s'ouvrir dans dix ans sur
   une trace archivée. Tout vient de `session.jsonl` — pas de WAV, pas de forme
   d'onde. Ça supprime le problème d'alignement des horloges (le jsonl est
   horodaté depuis le lancement du process, un WAV depuis la première trame
-  ALSA) et ça rend visualisables les sessions déjà archivées, qui sont la
-  matière des démos.
+  ALSA) et ça rend visualisables les sessions déjà archivées.
 -->
 <style>
 /* Palette en tokens : le thème sombre ne redéfinit QUE ces variables. */
 :root{
   --fond:#e9e4dc; --panneau:#f7f5f2; --barre:#f0eee9; --trait:#00000018;
   --texte:#1c1b19; --gris:#6b6862; --lui:#ffffff; --moi:#d6f0c8;
-  --accent:#2f7d4f; --coche:#2b7fd4; --alerte:#b4451f; --code:#00000008;
-  --ombre:0 1px 1px #0000001f;
+  --accent:#2f7d4f; --coche:#2b7fd4; --alerte:#c0451a; --code:#00000008;
+  --neuf:#ffd97a; --ombre:0 1px 1px #0000001f;
+  /* Un ton par état du modèle. Ils vont par paires de sens : vert = la
+     personne tient la parole, bleu = elle l'a rendue, ambre = un signal
+     d'écoute qui ne prend rien, gris = rien ne se passe, rouge = anomalie. */
+  --e-parle:#2f7d4f; --e-fini:#2b7fd4; --e-calme:#8d8a84;
+  --e-bc:#c98a12;    --e-mal:#c0451a;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
   --fond:#0d1418; --panneau:#151d22; --barre:#1a2428; --trait:#ffffff14;
   --texte:#e6e3de; --gris:#9aa3a6; --lui:#1f2c33; --moi:#12433a;
-  --accent:#65c08a; --coche:#54a9ee; --alerte:#e8845c; --code:#ffffff0a;
-  --ombre:0 1px 1px #00000040;
+  --accent:#65c08a; --coche:#54a9ee; --alerte:#f08a5f; --code:#ffffff0a;
+  --neuf:#8a6d1f; --ombre:0 1px 1px #00000040;
+  --e-parle:#65c08a; --e-fini:#54a9ee; --e-calme:#77807f;
+  --e-bc:#e0a83c;    --e-mal:#f08a5f;
 }}
 :root[data-theme=dark]{
   --fond:#0d1418; --panneau:#151d22; --barre:#1a2428; --trait:#ffffff14;
   --texte:#e6e3de; --gris:#9aa3a6; --lui:#1f2c33; --moi:#12433a;
-  --accent:#65c08a; --coche:#54a9ee; --alerte:#e8845c; --code:#ffffff0a;
-  --ombre:0 1px 1px #00000040;
+  --accent:#65c08a; --coche:#54a9ee; --alerte:#f08a5f; --code:#ffffff0a;
+  --neuf:#8a6d1f; --ombre:0 1px 1px #00000040;
+  --e-parle:#65c08a; --e-fini:#54a9ee; --e-calme:#77807f;
+  --e-bc:#e0a83c;    --e-mal:#f08a5f;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--fond);color:var(--texte);
   font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-#app{display:flex;flex-direction:column;height:100vh;max-width:820px;margin:0 auto;
+#app{display:flex;flex-direction:column;height:100vh;max-width:860px;margin:0 auto;
   background:var(--fond);box-shadow:0 0 40px #0000001a}
 
-/* ---- barre du contact : l'équivalent du « en ligne / est en train d'écrire… » ---- */
+/* ---- barre du contact : l'équivalent du « online / typing… » ---- */
 .barre{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--barre);
   border-bottom:1px solid var(--trait);flex:0 0 auto}
 .avatar{width:40px;height:40px;border-radius:50%;background:var(--accent);color:#fff;
@@ -62,13 +76,23 @@ body{margin:0;background:var(--fond);color:var(--texte);
   animation:pt 1.2s infinite ease-in-out}
 .pts i:nth-child(2){animation-delay:.2s} .pts i:nth-child(3){animation-delay:.4s}
 @keyframes pt{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
-.outils{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.outils{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .badge{font-size:11px;color:var(--gris);background:var(--code);padding:3px 7px;
   border-radius:10px;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
 button{font:inherit;font-size:12px;color:var(--texte);background:var(--code);
   border:1px solid var(--trait);border-radius:8px;padding:4px 9px;cursor:pointer}
 button:hover{background:var(--trait)}
 button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:transparent}
+
+/* ---- quelques chiffres, une ligne, jamais un tableau de bord ---- */
+.stats{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:3px 16px;padding:6px 16px;
+  background:var(--barre);border-bottom:1px solid var(--trait);
+  font-size:11.5px;color:var(--gris)}
+.stats b{color:var(--texte);font-weight:600;font-variant-numeric:tabular-nums}
+.stats .rouge b{color:var(--alerte)}
+.legende{display:none;gap:4px 16px}
+.legende.on{display:flex}
+.legende span{display:inline-flex;align-items:center;gap:5px}
 
 /* ---- le fil ---- */
 #fil{flex:1;overflow-y:auto;padding:14px 16px 6px;display:flex;flex-direction:column;gap:2px}
@@ -79,51 +103,69 @@ button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:trans
 .rang{display:flex;margin-top:8px;position:relative}
 .rang.moi{justify-content:flex-end}
 .bulle{max-width:76%;background:var(--lui);border-radius:12px;padding:7px 10px 5px;
-  box-shadow:var(--ombre);cursor:pointer;position:relative;
-  animation:pousse .18s ease-out}
+  box-shadow:var(--ombre);cursor:pointer;position:relative}
 .rang.moi .bulle{background:var(--moi)}
 .bulle:hover{outline:1px solid var(--accent)}
-@keyframes pousse{from{opacity:0;transform:translateY(6px) scale(.97)}}
+/* La bulle VIVANTE : c'est elle le texte en direct. */
+.bulle.vive{outline:1px dashed var(--accent);outline-offset:1px}
 .txt{white-space:pre-wrap;overflow-wrap:anywhere}
-/* Une interruption n'a pas besoin d'être expliquée : la bulle s'arrête net. */
-.coupe{display:inline-block;border-left:2px solid var(--alerte);margin-left:3px;
-  padding-left:5px;color:var(--alerte);font-size:11px;vertical-align:2px}
-.pied{display:flex;align-items:center;justify-content:flex-end;gap:5px;
-  font-size:11px;color:var(--gris);margin-top:2px;user-select:none}
+/* Sherpa ne fait pas qu'allonger son hypothèse, il la RÉÉCRIT : SUM → SUMMARI
+   → SUMMARISE (stt.py, règle 3 des endpoints ; mesuré le 03/09/2026 — un
+   « SUMMARISE » gelé en plein mot avait donné « PLEASE SUM ARISE OUR
+   DIALOGUE »). C'est le phénomène central du projet et il est INVISIBLE dans la
+   CLI, qui n'affiche que le dernier état. Ici le fragment abandonné reste une
+   seconde en barré, ce qui le remplace s'allume. L'opacité est calculée en JS,
+   pas par une animation CSS : le fil se redessine plusieurs fois par seconde et
+   une animation CSS repartirait de zéro à chaque fois. */
+.avant{color:var(--alerte);text-decoration:line-through}
+.neuf{border-radius:3px}
+.curseur{display:inline-block;width:2px;height:1.05em;background:var(--accent);
+  vertical-align:-2px;margin-left:1px;animation:bat 1s steps(2) infinite}
+@keyframes bat{50%{opacity:0}}
+/* Une interruption n'a pas besoin d'être expliquée : la phrase s'arrête en
+   plein mot, et ce qu'il restait à dire demeure là, en fantôme. Deux sens
+   opposés ne doivent pas avoir la même apparence — le barré dirait « effacé »,
+   or ces mots n'ont jamais été prononcés. */
+.mur{display:inline-block;width:3px;height:1.05em;background:var(--alerte);
+  vertical-align:-2px;margin:0 3px;border-radius:1px}
+.fantome{opacity:.3}
+.coupure{align-self:center;display:flex;align-items:center;gap:6px;font-size:11px;
+  color:var(--alerte);background:color-mix(in srgb,var(--alerte) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--alerte) 35%,transparent);
+  border-radius:12px;padding:3px 11px;margin:6px 0 0;cursor:pointer}
+.pied{display:flex;align-items:center;justify-content:flex-end;gap:6px;
+  font-size:11px;color:var(--gris);margin-top:3px;user-select:none}
+.rail{display:block;flex:0 0 auto;opacity:.92}
 .vv{letter-spacing:-3px;font-size:13px}
 .vv.fini{color:var(--coche)}
+.ciseaux{color:var(--alerte)}
 /* Les backchannels ne sont PAS des messages : ce sont des réactions collées à
-   la bulle, comme un emoji sous un message. C'est exactement leur statut dans
-   le papier — un signal d'écoute qui ne prend pas le tour de parole. */
+   la bulle, comme un emoji sous un message. C'est leur statut dans le papier —
+   un signal d'écoute qui ne prend pas le tour de parole. */
 .reacs{display:flex;gap:4px;flex-wrap:wrap;margin:-6px 0 0;padding-left:8px}
 .rang.moi + .reacs{justify-content:flex-end;padding:0 8px 0 0}
 .reac{display:inline-flex;align-items:center;gap:4px;font-size:11px;
   background:var(--barre);border:1px solid var(--trait);border-radius:11px;
-  padding:2px 8px;box-shadow:var(--ombre);cursor:default;position:relative;z-index:1}
+  padding:2px 8px;box-shadow:var(--ombre);position:relative;z-index:1}
+.reac b{font-weight:600;color:var(--e-bc)}
 .reac .muet{color:var(--gris);font-size:9px;letter-spacing:.4px}
-.reac b{font-weight:600;color:var(--accent)}
-.avert{align-self:center;font-size:11px;color:var(--alerte);margin:6px 0}
 
-/* ---- la barre de saisie : c'est ICI que se joue le sujet du projet ---- */
-.saisie{flex:0 0 auto;display:flex;align-items:flex-end;gap:8px;padding:8px 16px 14px;
-  background:var(--fond)}
-.champ{flex:1;min-height:40px;background:var(--lui);border-radius:20px;padding:9px 14px;
-  box-shadow:var(--ombre);color:var(--texte);display:flex;align-items:center;gap:8px}
-.champ.vide{color:var(--gris);font-style:italic}
-.champ .val{flex:1;overflow-wrap:anywhere}
-.champ .cochev{font-size:12px;color:var(--gris);letter-spacing:-3px;flex:0 0 auto}
-.curseur{display:inline-block;width:2px;height:1.05em;background:var(--accent);
-  vertical-align:-2px;animation:bat 1s steps(2) infinite}
-@keyframes bat{50%{opacity:0}}
+/* ---- pied : l'allure d'une messagerie, et rien qu'on lise deux fois ---- */
+.saisie{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:8px 16px 14px}
+.source{flex:1;font-size:12px;color:var(--gris);background:var(--lui);border-radius:20px;
+  padding:10px 16px;box-shadow:var(--ombre);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
 .micro{width:40px;height:40px;border-radius:50%;background:var(--accent);color:#fff;
-  display:grid;place-items:center;flex:0 0 auto;font-size:17px;transition:transform .15s}
-.micro.chaud{transform:scale(1.08)}
+  display:grid;place-items:center;flex:0 0 auto;font-size:17px;
+  transition:transform .15s,box-shadow .15s}
+.micro.chaud{transform:scale(1.1);
+  box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 25%,transparent)}
 
-/* ---- panneau « infos du message » ---- */
+/* ---- panneau « message info » / « raw trace » ---- */
 #voile{position:fixed;inset:0;background:#0006;opacity:0;pointer-events:none;
   transition:opacity .18s}
 #voile.on{opacity:1;pointer-events:auto}
-#panneau{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);
+#panneau{position:fixed;top:0;right:0;bottom:0;width:min(620px,100%);
   background:var(--panneau);border-left:1px solid var(--trait);
   transform:translateX(100%);transition:transform .2s ease-out;
   display:flex;flex-direction:column;z-index:2}
@@ -134,10 +176,10 @@ button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:trans
 .ptete .badge{max-width:none}
 #pcorps{overflow-y:auto;padding:12px 16px 40px}
 .tick{border:1px solid var(--trait);border-radius:10px;margin-bottom:8px;background:var(--fond)}
-.ttete{display:flex;gap:8px;align-items:baseline;padding:8px 10px;flex-wrap:wrap}
+.ttete{display:flex;gap:8px;align-items:center;padding:8px 10px;flex-wrap:wrap}
 .t{font-variant-numeric:tabular-nums;color:var(--gris);font-size:12px;flex:0 0 auto}
 .jeton{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
-  color:var(--accent);background:var(--code);border-radius:5px;padding:1px 5px}
+  border-radius:5px;padding:1px 5px;background:var(--code)}
 .tr{font-family:ui-monospace,monospace;font-size:12px;flex:1;min-width:120px;
   overflow-wrap:anywhere}
 .tr.rien{color:var(--gris)}
@@ -150,6 +192,9 @@ pre{margin:0;padding:8px 10px;background:var(--code);font-size:11.5px;line-heigh
   color:var(--gris)}
 .chiffres b{color:var(--texte);font-weight:600;font-variant-numeric:tabular-nums}
 .role{color:var(--accent);font-weight:600}
+.cru{font-family:ui-monospace,monospace;font-size:11.5px;display:flex;gap:8px;
+  padding:2px 0;border-bottom:1px solid var(--trait);overflow-wrap:anywhere}
+.cru .ty{color:var(--accent);flex:0 0 132px}
 </style>
 
 <div id="app">
@@ -160,21 +205,25 @@ pre{margin:0;padding:8px 10px;background:var(--code);font-size:11.5px;line-heigh
       <div class="etat" id="etat"></div>
     </div>
     <div class="outils">
-      <button id="brejeu" title="Rejoue la session depuis t=0 à sa vitesse réelle">Rejouer</button>
-      <button id="btheme" title="Thème clair / sombre">◐</button>
+      <button id="blegende" title="What the marks under each turn mean">Key</button>
+      <button id="bcru" title="Every event in the trace, including the types the thread does not show">Raw</button>
+      <button id="brejeu" title="Replay the session from t=0 at its real speed">Replay</button>
+      <button id="btheme" title="Light / dark theme">◐</button>
       <span class="badge" id="binfo"></span>
     </div>
   </header>
+  <div class="stats" id="stats"></div>
+  <div class="stats legende" id="legende"></div>
   <main id="fil"></main>
   <footer class="saisie">
-    <div class="champ vide" id="champ"><span class="val"></span><span class="cochev"></span></div>
+    <div class="source" id="lasource">waiting for the trace…</div>
     <div class="micro" id="micro">🎙</div>
   </footer>
 </div>
 <div id="voile"></div>
 <aside id="panneau">
   <div class="ptete">
-    <button id="pfermer">✕</button><h2 id="ptitre">Infos du message</h2>
+    <button id="pfermer">✕</button><h2 id="ptitre">Message info</h2>
     <span class="badge" id="pbadge"></span>
   </div>
   <div id="pcorps"></div>
@@ -183,48 +232,72 @@ pre{margin:0;padding:8px 10px;background:var(--code);font-size:11.5px;line-heigh
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-const fil = $("#fil"), champ = $("#champ");
+const fil = $("#fil");
 
 /* ------------------------------------------------------------------ état */
 // L'état est reconstruit ENTIÈREMENT par rejeu des événements : `reduire()` est
-// une fonction pure du flux. C'est ce qui permet de brancher le visualiseur au
-// milieu d'une session (on rejoue le passé, puis on suit) et de faire marcher
-// le bouton « Rejouer » sans un second chemin de code.
+// une fonction du flux et de rien d'autre. C'est ce qui permet de brancher la
+// page au milieu d'une session (on rejoue le passé, puis on suit) et de faire
+// marcher « Replay » sans un second chemin de code.
 let S, jetons = {}, silence = "<no voice>", clips = [], debit = 13.5;
 let brut = [], offset = 0, langue = null, meta = null, rejeu = null;
+let idSuivant = 0, prompts = [];
+
+// Une session au micro peut durer des heures. Trois plafonds, chacun sur la
+// grandeur qui gonfle vraiment :
+const PROMPTS = 250;   // llm_appel dont on garde `messages` (~2,5 Mo : un seul
+                       // prompt pèse 9 Ko, 86 appels faisaient 816 Ko de trace)
+const EVTS = 40000;    // événements gardés pour « Replay » et la vue brute
+const NOEUDS = 400;    // bulles réellement dans le DOM ; le fil est une vue,
+                       // le fichier reste la source
 
 function neuf(){
-  return {items:[], compo:null, sep:null, parlant:null, aRepondre:false,
-          enVol:false, horloge:0, nb:0};
+  return {items:[], parId:new Map(), vive:null, sep:null, parlant:null,
+          aRepondre:false, enVol:false, horloge:0, nb:0, sacrifiesVus:0,
+          tours:0, coupes:0, latences:[], reprises:[], relances:[],
+          derCoupe:null};
 }
 
 /* Les marqueurs viennent de `locales/*.toml` via le serveur. Les recopier ici
    serait faux depuis le 04/09/2026, jour où les cinq noms ont été réalignés sur
    ceux du papier (§ 3.2). `action` est le nom INTERNE (parle/parler/…), `jeton`
-   ce que le modèle a réellement écrit. */
-const RUBRIQUE = {                     // nom interne -> libellé + coche affichée
-  parle:      {lib:"parle",     vv:"✓"},
-  parler:     {lib:"a fini",    vv:"✓✓", fini:true},
-  reflechit:  {lib:"hésite",    vv:"✓·"},
-  backchannel:{lib:"fait signe",vv:"✓"},
-  mhm:        {lib:"signal d’écoute", vv:"✓"},
-  parler_sans_texte:{lib:"a fini, sans réponse", vv:"✓✓", fini:true},
-  format:     {lib:"format invalide", vv:"⚠"},
-  error:      {lib:"panne réseau",    vv:"⚠"},
+   ce que le modèle a réellement écrit.
+
+   ⚠️ Le libellé est ce qui s'AFFICHE : il dit l'état de l'UTILISATEUR, comme
+   les jetons du papier, pas celui du système. La forme et la couleur vont par
+   paires de sens — plein/vert : il tient la parole ; losange/bleu : il l'a
+   rendue ; triangle/ambre : un signal d'écoute, montant s'il vient de lui,
+   descendant s'il vient du système ; point gris : rien ne bouge ; carré rouge :
+   la réponse n'était pas exploitable. On lit la SÉQUENCE sans lire les mots. */
+const ETATS = {
+  parle:      {lib:"user speaking",     vv:"✓",  f:"cercle",  c:"--e-parle"},
+  parler:     {lib:"user finished",     vv:"✓✓", f:"losange", c:"--e-fini", fini:true},
+  reflechit:  {lib:"user thinking",     vv:"✓·", f:"point",   c:"--e-calme"},
+  backchannel:{lib:"user backchannel",  vv:"✓",  f:"haut",    c:"--e-bc"},
+  mhm:        {lib:"system backchannel",vv:"✓",  f:"bas",     c:"--e-bc"},
+  parler_sans_texte:{lib:"user finished, no reply", vv:"✓✓", f:"losange",
+                     c:"--e-fini", fini:true},
+  format:     {lib:"malformed reply",   vv:"⚠",  f:"carre",   c:"--e-mal"},
+  error:      {lib:"network failure",   vv:"⚠",  f:"carre",   c:"--e-mal"},
 };
 /* `parler_sans_texte`, `format` et `error` ne viennent PAS du modèle : ils sont
-   produits par le parseur (llm.py `lire_controle`) quand la réponse est
-   conforme mais vide, hors format, ou quand l'appel a échoué. Ils n'ont donc
-   pas de jeton — `jeton()` rend alors le nom interne entre chevrons, ce qui
-   dit exactement ce qu'il en est plutôt que d'inventer un marqueur. */
+   produits par le parseur (`llm.lire_controle`) quand la réponse est conforme
+   mais vide, hors format, ou quand l'appel a échoué. Ils n'ont donc pas de
+   jeton — `jeton()` rend alors le nom interne entre chevrons, ce qui dit
+   exactement ce qu'il en est plutôt que d'inventer un marqueur. */
 const jeton = a => (jetons[a] || "<" + a + ">");
+// Ce que le fil ne montre pas mais que la trace porte : porte anti-écho,
+// niveaux audio, recalibrage, réponse retenue. Ils n'ont aucun sens en bulle,
+// mais « toute la trace » veut dire toute — ils sont rattachés à l'élément du
+// fil qui leur est contemporain, et listés dans la vue brute.
+const HORS_FIL = new Set(["porte", "niveaux", "recalibrage", "retenue"]);
 
-/* Raboute deux vues du MÊME flux de parole, qui ne se recouvrent pas de la
-   même façon selon l'endroit : le `partial` du STT est cumulatif depuis le
-   dernier endpoint sherpa, l'acquis est la somme des deltas réellement envoyés
-   au LLM (`_delta`, ancré sur le préfixe). Trois cas, dans cet ordre — ils ont
-   tous été trouvés sur les seize traces de démo, pas imaginés. Sans eux la
-   saisie écrivait « SUMMAR SUMMARIZE » ou la phrase deux fois de suite. */
+/* Raboute deux vues du MÊME flux de parole, qui ne se recouvrent pas de la même
+   façon selon l'endroit : le `partial` du STT est cumulatif depuis le dernier
+   endpoint sherpa, l'acquis est la somme des deltas réellement envoyés au LLM
+   (`_delta`, ancré sur le préfixe). Trois cas, dans cet ordre — ils ont tous été
+   trouvés sur les seize traces de démo, pas imaginés. Sans eux la bulle écrivait
+   « SUMMAR SUMMARIZE » ou la phrase deux fois de suite. */
 function fusionner(acquis, ajout){
   const a = (acquis || "").trim(), b = (ajout || "").trim();
   if(!b) return a;
@@ -241,7 +314,12 @@ function fusionner(acquis, ajout){
   // 2. Presque tout le début est commun : le STT a RÉVISÉ son segment courant
   //    (« ...MOUNTAIN P » → « ...MOUNTAIN ON EARTH »), il ne l'a pas prolongé.
   let c = 0; while(c < a.length && c < b.length && a[c] === b[c]) c++;
-  c = a.lastIndexOf(" ", c) + 1;                    // recalé sur un mot entier
+  // Le recalage sur un mot entier ne vaut que si la divergence tombe AU MILIEU
+  // de l'acquis. Quand l'acquis est un préfixe entier du partiel — « WHE » puis
+  // « WHETHER YOU », le cas le plus fréquent d'une révision de sherpa —, il n'y
+  // a rien à recaler : l'appliquer quand même ramenait c à 0 et écrivait
+  // « WHE WHETHER YOU », puis la phrase entière une deuxième fois.
+  if(c < a.length) c = a.lastIndexOf(" ", c) + 1;
   if(c >= a.length * .6) return b;
   // 3. Sinon les deux se chevauchent par le bord — au CARACTÈRE, parce que
   //    `_delta` ancre sur le préfixe et rend « K PLEASE SUMMAR » puis
@@ -253,13 +331,21 @@ function fusionner(acquis, ajout){
   return a + " " + b;
 }
 
-/* Débit de parole du TTS, en caractères par seconde, mesuré sur les répliques
-   NON coupées de cette session-là. Il ne sert qu'à placer le point de coupure
-   d'une bulle interrompue : la trace donne l'instant de la `coupure` mais pas
-   ce qui avait déjà été prononcé, et le WAV est hors sujet ici (cf. l'en-tête).
-   C'est donc une ESTIMATION, dite comme telle dans le panneau d'infos. */
+const mediane = l => {
+  if(!l.length) return null;
+  const t = [...l].sort((x, y) => x - y), m = t.length >> 1;
+  return t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2;
+};
+
+/* Débit de parole du TTS, en caractères par seconde, médiane des répliques NON
+   coupées de cette session-là. Il sert à deux choses, et c'est la MÊME
+   estimation dans les deux cas, donc elles restent cohérentes : dérouler la
+   bulle du système au rythme où elle est prononcée, et placer le point de
+   coupure d'une bulle interrompue. La trace donne l'instant de la `coupure`
+   mais jamais où le TTS en était, et le WAV est hors sujet ici (cf. l'en-tête) :
+   c'est une ESTIMATION, dite comme telle dans le panneau d'infos. */
 function estimerDebit(evs){
-  let deb = null, ech = [];
+  let deb = null; const ech = [];
   for(const e of evs){
     if(e.type === "parole_debut") deb = e;
     else if(e.type === "coupure") deb = null;
@@ -269,48 +355,98 @@ function estimerDebit(evs){
       deb = null;
     }
   }
-  if(!ech.length) return debit;
-  ech.sort((x, y) => x - y);
-  return ech[ech.length >> 1];                 // médiane : une réplique coupée
-}                                              // en fin de session fausserait la moyenne
+  return ech.length ? mediane(ech) : debit;
+}
 
-/* ------------------------------------------------------- réducteur */
-function nouvItem(o){ o.id = S.items.length; S.items.push(o); return o; }
-
-function compo(){
-  if(!S.compo) S.compo = {type:"compo", acquis:"", partiel:"", marque:null,
-                          reacs:[], ticks:[]};
-  S.sep = null;
-  return S.compo;
+/* ------------------------------------------------------------- réducteur */
+function nouvItem(o){
+  o.id = ++idSuivant; S.items.push(o); S.parId.set(o.id, o);
+  if(S.items.length > EVTS) S.parId.delete(S.items.shift().id);
+  return o;
+}
+function retirer(it){
+  const i = S.items.indexOf(it);
+  if(i >= 0) S.items.splice(i, 1);
+  S.parId.delete(it.id);
+}
+/* La bulle vivante est un item comme un autre : ainsi elle est DANS le fil, à
+   sa place chronologique, et elle se fige sans changer de nature ni de nœud —
+   elle prend juste ses ✓✓. C'est là que se lit le texte en direct. */
+function vive(){
+  if(!S.vive){
+    S.vive = nouvItem({type:"bulle", cote:"moi", texte:"", acquis:"", partiel:"",
+                       t:S.horloge, vivante:true, marque:null, reacs:[],
+                       ticks:[], autres:[], attente:0, sacrifies:0, cout:0});
+    S.sep = null;
+  }
+  return S.vive;
 }
 function separateur(){
   // Un `partial` isolé (bruit que le STT rend, que le modèle classe en
-  // <no voice>) rouvrait une saisie vide et coupait la plage de silence en
-  // deux pastilles collées, qu'on lit comme un bug. Deux silences que rien ne
-  // sépare sont UN silence.
+  // <no voice>) rouvrait une bulle vide et coupait la plage de silence en deux
+  // pastilles collées, qu'on lit comme un bug. Deux silences que rien ne sépare
+  // sont UN silence.
   const der = S.items[S.items.length - 1];
   if(!S.sep && der && der.type === "sep") S.sep = der;
-  if(!S.sep) S.sep = nouvItem({type:"sep", ticks:[], reacs:[], t0:S.horloge});
+  if(!S.sep) S.sep = nouvItem({type:"sep", ticks:[], reacs:[], autres:[],
+                               t0:S.horloge});
   return S.sep;
 }
-/* Le fil ne montre que ce qui s'est passé ; le reste des micro-tours est replié
-   dans un séparateur cliquable. Sans lui, 705 décisions `reflechit` sur 995
-   disparaîtraient du panneau d'infos — or c'est justement là qu'on va voir
-   pourquoi le modèle n'a pas repris la parole. */
+const courant = () => S.vive || S.parlant || S.items[S.items.length - 1] || separateur();
+
+/* Enregistre une réécriture pour la montrer : ce que le STT abandonne reste une
+   seconde en barré, ce qu'il met à la place s'allume. `depuis` est l'indice du
+   premier caractère qui change, recalé sur un début de mot. */
+function noterRevision(it, avant, apres){
+  let c = 0; while(c < avant.length && c < apres.length && avant[c] === apres[c]) c++;
+  c = Math.max(0, avant.lastIndexOf(" ", c) + 1);
+  const perdu = avant.slice(c).trim();
+  it.revision = {depuis:c, avant:perdu, mur:performance.now()};
+  if(perdu) it.revisions = (it.revisions || 0) + 1;
+}
 
 function reduire(e){
   S.horloge = e.t;
+  if(HORS_FIL.has(e.type)){ courant().autres.push(e); S.nb++; return; }
   switch(e.type){
-  case "llm_appel":  S.appel = e; S.enVol = true;  break;
-  case "llm_reponse": S.rep = e;   S.enVol = false; break;
+  case "llm_appel":
+    S.appel = e; S.enVol = true;
+    if(e.messages){
+      prompts.push(e);
+      // Le prompt entier part dans la trace à CHAQUE appel (llm.py : « la seule
+      // façon de comprendre APRÈS COUP pourquoi le modèle a mal tranché »).
+      // C'est aussi ce qui pèse : on ne garde en mémoire que les derniers, les
+      // autres restent lisibles dans `session.jsonl`.
+      while(prompts.length > PROMPTS){
+        const v = prompts.shift();
+        v.messages_ecartes = v.messages.length; delete v.messages;
+      }
+    }
+    break;
+  case "llm_reponse":
+    S.rep = e; S.enVol = false;
+    if(typeof e.latence === "number") S.latences.push(e.latence);
+    break;
   case "final":                          // whisper ; sherpa n'en émet pas
-  case "partial":
+  case "partial": {
     // Un rejeu déterministe réémet des `partial` réduits à `texte` seul
     // (pipeline.py) : ne jamais supposer `cout`/`attente`/`sacrifies`.
-    if(e.texte){ const c = compo(); c.partiel = e.texte;
-      c.attente = Math.max(c.attente || 0, e.attente || 0);
-      if(e.sacrifies) c.sacrifies = e.sacrifies; }
-    break;
+    if(!e.texte) break;
+    const c = vive(), avant = c.texte;
+    c.partiel = e.texte; c.tPartiel = e.t;
+    c.texte = fusionner(c.acquis, c.partiel);
+    if(avant && c.texte !== avant) noterRevision(c, avant, c.texte);
+    c.attente = Math.max(c.attente, e.attente || 0);
+    c.cout = Math.max(c.cout, e.cout || 0);
+    // `sacrifies` est un compteur CUMULÉ de session : ce qui compte pour ce
+    // tour-ci, c'est ce qu'il a pris DEPUIS. Des blocs jetés veulent dire que
+    // le décodeur était distancé — des mots manquent, et il faut le savoir
+    // avant d'accuser le modèle.
+    if(e.sacrifies){
+      c.sacrifies += Math.max(0, e.sacrifies - S.sacrifiesVus);
+      S.sacrifiesVus = e.sacrifies;
+    }
+    break; }
   case "decision": {
     const tick = {t:e.t, action:e.action, jeton:jeton(e.action), dec:e,
                   appel:S.appel, rep:S.rep};
@@ -318,52 +454,66 @@ function reduire(e){
     const dit = (e.transcript || "").trim();
     const muet = !dit || dit === silence;
     if(e.action === "parler" || e.action === "parler_sans_texte"){
-      const c = compo();
+      const c = vive(), avant = c.texte;
       c.acquis = fusionner(c.acquis, muet ? "" : dit);
+      c.texte = fusionner(c.acquis, c.partiel);
+      if(avant && c.texte !== avant) noterRevision(c, avant, c.texte);
       c.ticks.push(tick);
-      // LE geste : la saisie part toute seule. C'est la décision d'endpointing,
+      if(!muet) c.tDernierMot = e.t;
+      // Faute d'un micro-tour qui ait porté de la parole, on retombe sur le
+      // dernier `partial` : c'est le dernier instant où le STT a rendu du
+      // texte neuf. Moins bon, mais mesuré — jamais inventé.
+      if(c.tDernierMot === undefined) c.tDernierMot = c.tPartiel;
+      S.vive = null;
+      // LE geste : la bulle se fige et prend ses ✓✓. La décision d'endpointing,
       // rendue visible sans un mot d'explication.
-      // Le dernier `partial` est plus frais que le dernier delta : le STT a
-      // pu finir le mot que le tick n'a pas encore transmis.
-      const plein = fusionner(c.acquis, c.partiel);
-      S.compo = null;
       // Le modèle répond parfois à un SILENCE — « I'm sorry, I didn't hear
-      // anything » tombe sur un `<no voice>`, tour de parole compris. Retomber
-      // sur `transcript` ferait alors dire « <no voice> » à l'utilisateur : une
-      // phrase qu'il n'a pas prononcée, affichée comme s'il l'avait dite.
-      const b = plein ? nouvItem({type:"bulle", cote:"moi", texte:plein, t:e.t,
-                          marque:e.action, reacs:c.reacs, ticks:c.ticks,
-                          attente:c.attente, sacrifies:c.sacrifies, avert:c.avert})
-                      : null;
+      // anything » tombe sur un `<no voice>`. Afficher `transcript` ferait
+      // alors dire « <no voice> » à l'utilisateur : une phrase qu'il n'a pas
+      // prononcée, affichée comme s'il l'avait dite.
+      if(c.texte){
+        c.vivante = false; c.marque = e.action; c.t = e.t;
+        delete c.revision; S.tours++;
+      } else retirer(c);
       if(e.texte) nouvItem({type:"bulle", cote:"lui", texte:e.texte, t:e.t,
-                            marque:null, reacs:b ? [] : c.reacs,
-                            ticks:b ? [tick] : c.ticks, reponseA:b && b.id});
+                            marque:null, reacs:c.texte ? [] : c.reacs,
+                            ticks:c.texte ? [tick] : c.ticks, autres:[],
+                            repondA:c.texte ? c : null});
       S.aRepondre = true;
     } else if(e.action === "backchannel"){
-      // Backchannel de l'UTILISATEUR : il fait signe qu'il écoute pendant que le
-      // système parle. Ça se colle à la bulle du système, pas au fil.
+      // Backchannel de l'UTILISATEUR : il fait signe qu'il écoute pendant que
+      // le système parle. Ça se colle à la bulle du système, pas au fil.
       const cible = S.parlant || S.items[S.items.length - 1] || separateur();
       cible.reacs.push({txt:dit, jeton:jeton("backchannel"), t:e.t, cote:"moi"});
-      (cible.ticks || separateur().ticks).push(tick);
+      cible.ticks.push(tick);
     } else if(e.action === "mhm"){
       // Backchannel du SYSTÈME : il glisse un « mhm » sans prendre le tour. Le
       // delta de ce tick-là, lui, est de la vraie parole — il tombe justement
       // pendant que la demande s'allonge. L'oublier amputait la bulle de sa
       // fin : « ...EXPLAIN WHAT » au lieu de « ...WHAT STEPS ARE NEEDED ».
-      const c = compo();
+      const c = vive();
       c.acquis = fusionner(c.acquis, muet ? "" : dit);
+      c.texte = fusionner(c.acquis, c.partiel);
       c.reacs.push({txt:"", jeton:jeton("mhm"), t:e.t, cote:"lui", attente:true});
       c.ticks.push(tick);
+      if(!muet) c.tDernierMot = e.t;
     } else if(e.action === "parle" && !muet){
-      const c = compo();
+      const c = vive(), avant = c.texte;
       c.acquis = fusionner(c.acquis, dit);
-      c.marque = "parle"; c.ticks.push(tick);
-    } else if(S.compo && S.compo.acquis){
-      // Silence AU MILIEU d'un tour : la personne hésite, la saisie reste en place.
-      S.compo.marque = "reflechit"; S.compo.ticks.push(tick);
+      c.texte = fusionner(c.acquis, c.partiel);
+      if(avant && c.texte !== avant) noterRevision(c, avant, c.texte);
+      c.marque = "parle"; c.ticks.push(tick); c.tDernierMot = e.t;
+    } else if(S.vive && S.vive.texte && S.vive.tDernierMot !== undefined){
+      // Silence AU MILIEU d'un tour : la personne hésite, la bulle reste là.
+      S.vive.marque = "reflechit"; S.vive.ticks.push(tick);
     } else {
+      // Une bulle ouverte par un `partial` que le modèle a ensuite classé
+      // <no voice> n'est pas un tour de parole : c'est du bruit que le STT a
+      // rendu. Sans ce test, un « ING YES » resté du tour précédent rouvrait
+      // une bulle qui avalait ensuite douze micro-tours de silence — le fil
+      // affichait un tour de 17 s là où il ne s'était rien passé.
+      if(S.vive){ retirer(S.vive); S.vive = null; }
       separateur().ticks.push(tick);
-      S.compo = null;
     }
     if(e.action !== "parler") S.aRepondre = S.aRepondre && !dit;
     break; }
@@ -374,8 +524,27 @@ function reduire(e){
          && !S.items[i].parole){ b = S.items[i]; break; }
     if(!b || b.texte !== e.texte)
       b = nouvItem({type:"bulle", cote:"lui", texte:e.texte, t:e.t, marque:null,
-                    reacs:[], ticks:[]});
-    b.parole = {debut:e.t, attaque:e.attaque};
+                    reacs:[], ticks:[], autres:[]});
+    // `mur` ancre le déroulé de la bulle sur l'horloge du navigateur : c'est le
+    // seul temps qui avance entre deux événements, et la parole dure quinze
+    // secondes pendant lesquelles la trace ne dit rien d'autre.
+    b.parole = {debut:e.t, attaque:e.attaque, mur:performance.now()};
+    // Latence de prise de tour : du dernier micro-tour qui portait de la parole
+    // neuve, jusqu'au moment où le système ouvre la bouche. C'est l'analogue
+    // mesurable de leur « Smooth Turn Taking Latency » (1,724 s, papier § 4) —
+    // analogue, PAS le même protocole : eux mesurent sur de l'audio annoté,
+    // nous sur les horodatages de la trace. Le dire, ou le chiffre ment.
+    if(b.repondA && b.repondA.tDernierMot !== undefined){
+      b.reprise = e.t - b.repondA.tDernierMot;
+      S.reprises.push(b.reprise);
+    }
+    // Et après une interruption, le temps qu'il met à reprendre la parole —
+    // leur « User Interruption Latency » vaut 1,225 s.
+    if(S.derCoupe && S.derCoupe.relance === undefined){
+      S.derCoupe.relance = e.t - S.derCoupe.t;
+      S.relances.push(S.derCoupe.relance);
+      S.derCoupe = null;
+    }
     S.parlant = b; S.aRepondre = false; S.sep = null;
     break; }
   case "coupure": {
@@ -384,12 +553,12 @@ function reduire(e){
     // <user is interrupting> a été retiré, 0 émission sur 897 décisions.
     const b = S.parlant;
     if(b){
-      const ecoule = e.t - b.parole.debut;
-      const total = b.texte.length / debit;
+      const ecoule = e.t - b.parole.debut, total = b.texte.length / debit;
       let n = Math.max(1, Math.round(b.texte.length * Math.min(1, ecoule / total)));
       const esp = b.texte.lastIndexOf(" ", n);   // on coupe sur un mot : au
       if(esp > n * .6) n = esp;                  // caractère, ça se lit mal
       b.coupe = {t:e.t, origine:e.origine, n, ecoule, estime:total};
+      S.derCoupe = b.coupe; S.coupes++;
     }
     break; }
   case "parole_fin":
@@ -399,192 +568,365 @@ function reduire(e){
   case "backchannel": {
     // Enrichit la réaction posée par la décision `mhm` avec le clip réellement
     // tiré (WAV pré-synthétisé, jamais du TTS à la volée — papier § 3.2).
-    const nom = (e.clip || "").split("/").pop();
-    const i = parseInt(nom, 10);
+    const nom = (e.clip || "").split("/").pop(), i = parseInt(nom, 10);
     const mot = (clips[i] !== undefined) ? clips[i] : nom;
-    const hote = S.compo || S.items[S.items.length - 1] || separateur();
+    const hote = courant();
     const r = (hote.reacs || []).filter(x => x.attente).pop();
     if(r){ r.txt = mot; r.joue = e.joue; r.clip = e.clip; delete r.attente; }
-    else (hote.reacs || []).push({txt:mot, jeton:jeton("mhm"), t:e.t,
-                                  cote:"lui", joue:e.joue, clip:e.clip});
+    else hote.reacs.push({txt:mot, jeton:jeton("mhm"), t:e.t, cote:"lui",
+                          joue:e.joue, clip:e.clip});
     break; }
   case "format_invalide": {
     // Émis ENTRE `llm_reponse` et `decision` : la décision qui suit porte
     // action "format". On l'accroche au même endroit qu'elle ira.
-    const h = (S.compo && S.compo.acquis) ? S.compo : separateur();
+    const h = (S.vive && S.vive.texte) ? S.vive : separateur();
     h.avert = (h.avert || []).concat([e]);
     break; }
+  default:
+    courant().autres.push(e);            // un type qu'on ne connaît pas encore
   }
   S.nb++;
 }
 
-/* --------------------------------------------------------------- rendu */
-function coche(marque, gros){
-  const r = RUBRIQUE[marque]; if(!r) return "";
-  return `<span class="vv${r.fini ? " fini" : ""}" title="${jeton(marque)}">${r.vv}</span>`
-       + (gros ? ` <span>${r.lib}</span>` : "");
-}
+/* ---------------------------------------------------------------- rendu */
 function ech(s){ return (s + "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 /* Le « + » n'est pas décoratif : `t` compte les secondes depuis le lancement du
-   PROCESS, chargement des modèles compris (`meta.charge_stt_s` vaut 3,3 s sur
-   ces traces). Affiché « 0:13 » tout court, ça se lit comme une heure — et
+   PROCESS, chargement des modèles compris (`charge_stt_s` vaut 3,3 s sur ces
+   traces). Affiché « 0:13 » tout court, ça se lit comme une heure — et
    confondre les deux a déjà coûté un faux diagnostic le 04/09/2026. */
 function hms(t){ const m = Math.floor(t / 60);
-  return `+${m}:${String(Math.floor(t % 60)).padStart(2,"0")}`; }
+  return `+${m}:${String(Math.floor(t % 60)).padStart(2, "0")}`; }
+const enDirect = () => rejeu || !meta;
 
+/* Une marque par micro-tour, sur un rail de 7 px de pas. C'est LA réponse au
+   problème du bruit : sur 995 décisions d'une session, 705 sont `reflechit` —
+   étiqueter chaque bulle avec son état noierait tout. Ici les ticks ennuyeux
+   sont des points gris minuscules qui forment un trait plat, et chaque
+   changement d'état est une encoche qu'on voit sans lire. Le mot en toutes
+   lettres reste au survol et dans le panneau. */
+function forme(a, x, y){
+  const e = ETATS[a] || ETATS.reflechit, c = `var(${e.c})`;
+  switch(e.f){
+  case "point":   return `<circle cx="${x}" cy="${y}" r="1.5" fill="${c}" opacity=".5"/>`;
+  case "cercle":  return `<circle cx="${x}" cy="${y}" r="2.6" fill="${c}"/>`;
+  case "losange": return `<rect x="${x - 2.9}" y="${y - 2.9}" width="5.8" height="5.8"`
+                       + ` fill="${c}" transform="rotate(45 ${x} ${y})"/>`;
+  case "haut":    return `<path d="M${x} ${y - 3.1}L${x + 3} ${y + 2.4}L${x - 3} ${y + 2.4}Z" fill="${c}"/>`;
+  case "bas":     return `<path d="M${x} ${y + 3.1}L${x + 3} ${y - 2.4}L${x - 3} ${y - 2.4}Z"`
+                       + ` fill="none" stroke="${c}" stroke-width="1.3"/>`;
+  default:        return `<rect x="${x - 2.5}" y="${y - 2.5}" width="5" height="5" fill="${c}"/>`;
+  }
+}
+function rail(ticks){
+  const P = 7, H = 12, w = Math.max(P, ticks.length * P);
+  return `<svg class="rail" width="${w}" height="${H}" viewBox="0 0 ${w} ${H}">`
+    + ticks.map((k, i) => `<g><title>${ech(k.jeton)} — ${(ETATS[k.action] || {}).lib || k.action}`
+        + `\n${k.t.toFixed(3)} s</title>${forme(k.action, i * P + P / 2, H / 2)}</g>`).join("")
+    + `</svg>`;
+}
+function coche(marque){
+  const r = ETATS[marque]; if(!r) return "";
+  return `<span class="vv${r.fini ? " fini" : ""}"`
+       + ` title="${ech(jeton(marque))} — ${r.lib}">${r.vv}</span>`;
+}
+
+/* Le corps d'une bulle. Trois écritures, une par situation : la révision en
+   cours côté utilisateur, le déroulé côté système, et le texte figé quand plus
+   rien ne bouge. */
+const REVISION_MS = 1100;
+function corps(it){
+  if(it.cote === "moi"){
+    const r = it.revision, age = r ? performance.now() - r.mur : 1e9;
+    if(r && age < REVISION_MS){
+      const o = 1 - age / REVISION_MS;
+      const del = r.avant ? `<span class="avant" style="opacity:${(o * .6).toFixed(2)}">`
+                          + `${ech(r.avant)}</span> ` : "";
+      return ech(it.texte.slice(0, r.depuis)) + del
+        + `<span class="neuf" style="background:color-mix(in srgb,var(--neuf) `
+        + `${Math.round(o * 100)}%,transparent)">${ech(it.texte.slice(r.depuis))}</span>`
+        + (it.vivante ? '<span class="curseur"></span>' : "");
+    }
+    return ech(it.texte) + (it.vivante ? '<span class="curseur"></span>' : "");
+  }
+  if(it.coupe)
+    // Ce qui restait à dire demeure, en fantôme : c'est ce que l'interruption a
+    // coûté, et on le voit d'un coup d'œil.
+    return ech(it.texte.slice(0, it.coupe.n)) + `<span class="mur"></span>`
+         + `<span class="fantome" title="never spoken — cut off here">`
+         + `${ech(it.texte.slice(it.coupe.n).trim())}</span>`;
+  const p = it.parole;
+  if(p && p.fin === undefined && enDirect()){
+    // La trace ne dit pas où en est le TTS — elle ne porte que le début et la
+    // fin. On déroule au débit médian de la session : c'est la même estimation
+    // qui place le point de coupure, donc une interruption s'arrête pile où le
+    // texte en était.
+    const n = Math.round(debit * (performance.now() - p.mur) / 1000);
+    if(n < it.texte.length)
+      return ech(it.texte.slice(0, n)) + '<span class="curseur"></span>';
+  }
+  return ech(it.texte);
+}
+
+function html(it){
+  if(it.type === "sep"){
+    const n = it.ticks.length, av = (it.avert || []).length;
+    const d = n > 1 ? it.ticks[n - 1].t - it.ticks[0].t : 0;
+    return `<div class="sep" data-id="${it.id}">${n} quiet micro-turn${n > 1 ? "s" : ""}`
+         + `${d ? " · " + d.toFixed(1) + " s" : ""}${av ? " · ⚠ " + av : ""}`
+         + `${it.autres.length ? " · " + it.autres.length + " events" : ""}</div>`;
+  }
+  // `joue:false` ne veut PAS dire « raté » : `tts.Clips` tire le clip même
+  // quand la sortie est muette (mesure, rendu au format du banc) pour que la
+  // trace dise ce qui AURAIT été joué et que deux sessions restent comparables.
+  // Le barrer en rouge en ferait lire une panne — c'est le cas NORMAL des seize
+  // traces de démo.
+  const r = (it.reacs || []).map(x =>
+    `<span class="reac" title="${ech(x.jeton)}${x.clip ? " — " + ech(x.clip) : ""}`
+    + `${x.joue === false ? " (drawn but not audible: silent output)" : ""}">`
+    + `<b>${x.cote === "lui" ? "◕" : "🙂"}</b>${ech(x.txt || "mhm")}`
+    + `${x.joue === false ? '<span class="muet">SILENT</span>' : ""}</span>`).join("");
+  // Signe discret : des blocs audio sacrifiés veulent dire que des MOTS
+  // manquent dans ce tour-là. Un chiffre dans le pied, le détail au clic.
+  const cis = it.sacrifies ? `<span class="ciseaux" title="${it.sacrifies} audio blocks`
+      + ` dropped during this turn: the decoder fell behind, words are missing">`
+      + `✂${it.sacrifies}</span>` : "";
+  const c = it.coupe;
+  return `<div class="rang ${it.cote}"><div class="bulle${it.vivante ? " vive" : ""}"`
+    + ` data-id="${it.id}"><div class="txt">${corps(it)}</div>`
+    + `<div class="pied">${cis}`
+    + `${it.cote === "moi" && it.ticks.length ? rail(it.ticks) : ""}`
+    + `${hms(it.t)}${it.cote === "moi" ? " " + coche(it.marque) : ""}</div>`
+    + `</div></div>`
+    + (r ? `<div class="reacs">${r}</div>` : "")
+    // L'interruption est la vedette : elle a sa propre ligne, et elle porte le
+    // seul chiffre que l'article compare vraiment aux leurs.
+    + (c ? `<div class="coupure" data-id="${it.id}">✂ interrupted after `
+         + `${c.ecoule.toFixed(2)} s — ${c.n} of ${it.texte.length} characters spoken`
+         + `${c.relance !== undefined ? ` · spoke again ${c.relance.toFixed(2)} s later` : ""}`
+         + `</div>` : "");
+}
+
+/* Rendu INCRÉMENTAL, par signature. Redessiner tout le fil dix fois par seconde
+   coûtait O(n) et relançait chaque animation — sur une session au micro d'une
+   heure, intenable. Ici un nœud n'est retouché que si sa signature a changé. */
+const noeuds = new Map();
 function rendre(){
   const bas = fil.scrollHeight - fil.scrollTop - fil.clientHeight < 60;
-  fil.innerHTML = S.items.map(it => {
-    if(it.type === "sep"){
-      const n = it.ticks.length, av = (it.avert || []).length;
-      const d = n > 1 ? it.ticks[n - 1].t - it.ticks[0].t : 0;
-      return `<div class="sep" data-id="${it.id}">${n} micro-tour${n > 1 ? "s" : ""}`
-           + ` sans reprise de parole${d ? " · " + d.toFixed(1) + " s" : ""}`
-           + `${av ? " · ⚠ " + av : ""}</div>`;
+  const vus = S.items.slice(-NOEUDS), attendus = new Set(vus.map(it => it.id));
+  for(const [id, n] of noeuds)
+    if(!attendus.has(id)){ n.remove(); noeuds.delete(id); }
+  let prec = null;
+  for(const it of vus){
+    let n = noeuds.get(it.id);
+    const sig = html(it);
+    if(!n){
+      n = document.createElement("div");
+      n.style.display = "contents";
+      noeuds.set(it.id, n);
+      prec ? prec.after(n) : fil.prepend(n);
     }
-    let txt = ech(it.texte), fin = "";
-    if(it.coupe){
-      txt = ech(it.texte.slice(0, it.coupe.n));
-      fin = `<span class="coupe">coupé</span>`;
-    }
-    // `joue:false` ne veut PAS dire « raté » : `tts.Clips` tire le clip même
-    // quand la sortie est muette (mesure, rendu au format du banc) pour que la
-    // trace dise ce qui AURAIT été joué et que deux sessions restent
-    // comparables. Le barrer en rouge en ferait lire une panne — c'est le cas
-    // NORMAL des seize traces de démo.
-    const r = (it.reacs || []).map(x =>
-      `<span class="reac" title="${ech(x.jeton)}${x.clip ? " — " + ech(x.clip) : ""}`
-      + `${x.joue === false ? " (tiré mais non audible : sortie muette)" : ""}">`
-      + `<b>${x.cote === "lui" ? "◕" : "🙂"}</b>${ech(x.txt || "mhm")}`
-      + `${x.joue === false ? '<span class="muet">MUET</span>' : ""}</span>`).join("");
-    return `<div class="rang ${it.cote}"><div class="bulle" data-id="${it.id}">`
-         + `<div class="txt">${txt}${fin}</div>`
-         + `<div class="pied">${hms(it.t)}${it.cote === "moi" ? " " + coche(it.marque) : ""}</div>`
-         + `</div></div>` + (r ? `<div class="reacs">${r}</div>` : "");
-  }).join("");
+    if(n.dataset.sig !== sig){ n.dataset.sig = sig; n.innerHTML = sig; }
+    prec = n;
+  }
   if(bas) fil.scrollTop = fil.scrollHeight;
 
-  const c = S.compo;
-  champ.classList.toggle("vide", !(c && (c.acquis || c.partiel)));
-  const val = c ? fusionner(c.acquis, c.partiel) : "";
-  champ.querySelector(".val").innerHTML = val
-    ? ech(val) + '<span class="curseur"></span>'
-    : (meta && !rejeu ? "fin de la trace" : "en écoute…");
-  champ.querySelector(".cochev").innerHTML = c ? coche(c.marque) : "";
-  $("#micro").classList.toggle("chaud", !!val);
-
-  // L'état du contact, dans les mots d'une messagerie.
   const et = $("#etat");
   // Une session close pendant la parole laisse un `parole_debut` sans son
-  // `parole_fin` (le compte des deux diffère alors de 1). Sans ce test, la
-  // ligne d'état d'une trace ARCHIVÉE resterait « parle » indéfiniment.
-  const fini = meta && meta.duree_s !== undefined && !rejeu;
-  if(fini && !rejeu){
+  // `parole_fin`. Sans ce test, la ligne d'état d'une trace ARCHIVÉE resterait
+  // « speaking » indéfiniment.
+  if(meta && meta.duree_s !== undefined && !rejeu){
     et.className = "etat";
-    et.textContent = "session terminée · " + hms(meta.duree_s)
-      + (S.parlant ? " (close pendant la parole)" : "");
+    et.textContent = "session ended · " + hms(meta.duree_s)
+      + (S.parlant ? " (ended mid-speech)" : "");
   } else if(S.parlant){
     et.className = "etat parle";
-    et.innerHTML = 'parle<span class="pts"><i></i><i></i><i></i></span>';
+    et.innerHTML = 'speaking<span class="pts"><i></i><i></i><i></i></span>';
   } else {
-    // « réfléchit » n'est pas une figure de style : c'est un appel RÉELLEMENT
-    // en vol (llm_appel sans son llm_reponse), 0,44 s en médiane sur ces
-    // traces. On ne l'affiche que si la personne a dit quelque chose ce
-    // tour-ci — sinon les appels de veille, un toutes les 1,2 s sur du
-    // silence, feraient clignoter la ligne d'état sans rien signifier.
+    // « thinking » n'est pas une figure de style : c'est un appel RÉELLEMENT en
+    // vol (llm_appel sans son llm_reponse), 0,44 s en médiane sur ces traces. On
+    // ne l'affiche que si la personne a dit quelque chose ce tour-ci — sinon les
+    // appels de veille, un toutes les 1,2 s sur du silence, feraient clignoter
+    // la ligne d'état sans rien signifier.
     et.className = "etat";
-    const pense = S.aRepondre || (S.enVol && S.compo && S.compo.acquis);
-    et.textContent = pense ? "réfléchit…"
-      : (rejeu ? "écoute · " + hms(S.horloge) : "écoute");
+    et.textContent = (S.aRepondre || (S.enVol && S.vive && S.vive.texte))
+      ? "thinking…" : "listening" + (rejeu ? " · " + hms(S.horloge) : "");
   }
+  $("#micro").classList.toggle("chaud", !!(S.vive && S.vive.texte));
+  chiffres();
+
   const perdus = meta && meta.evenements_perdus;
   const b = $("#binfo");
-  b.textContent = (meta ? meta.llm + " · " : "") + S.nb + " évts · " + hms(S.horloge)
-    + (perdus ? " · ⚠ " + perdus + " perdus" : "");
+  b.textContent = (meta ? meta.llm + " · " : "") + S.nb + " events"
+    + (perdus ? " · ⚠ " + perdus + " lost" : "");
   // La queue du journal est bornée à 1024 : au-delà, des événements sont
   // SILENCIEUSEMENT jetés. Le dire, sinon on lit un trou comme un silence.
   b.style.color = perdus ? "var(--alerte)" : "";
-  b.title = meta ? `${meta.stt} / ${(meta.reglages_stt||{}).modele || meta.modele_stt}`
-                 + ` · ${meta.tts} · ${meta.langue} · tick ${(meta.parametres||{}).TICK_S} s`
-                 + (perdus ? ` · ${perdus} événements perdus (queue saturée)` : "")
-                 : "meta.json n’est écrit qu’à la fin de la session";
+  b.title = meta ? `${meta.stt} / ${(meta.reglages_stt || {}).modele || meta.modele_stt}`
+                 + ` · ${meta.tts} · ${meta.langue} · tick ${(meta.parametres || {}).TICK_S} s`
+                 + (perdus ? ` · ${perdus} events lost (queue full)` : "")
+                 : "meta.json is only written when the session ends";
+  $("#lasource").textContent = meta
+    ? (meta.source ? "file · " + meta.source.split("/").pop() : "microphone")
+      + " · " + meta.langue + " · " + meta.llm
+    : (S.nb ? "live · following session.jsonl" : "waiting for the trace…");
 }
 
-/* ------------------------------------------- panneau « infos du message » */
+/* Quatre chiffres, pas un de plus, et chacun avec sa définition au survol.
+   Deux d'entre eux sont ceux que l'article compare au papier — et ils ne se
+   mesurent pas de la même façon que les leurs, ce qui doit être écrit là où on
+   les lit, pas dans une note de bas de page. */
+function chiffres(){
+  const lat = mediane(S.latences), rep = mediane(S.reprises), rel = mediane(S.relances);
+  const n = x => x === null || x === undefined ? "—" : x.toFixed(2) + " s";
+  $("#stats").innerHTML =
+      `<span title="user turns the model closed with &lt;user finish speaking&gt;">`
+    + `<b>${S.tours}</b> turns</span>`
+    + `<span class="${S.coupes ? "rouge" : ""}" title="the host cut the reply because a `
+    + `&lt;user is speaking&gt; landed while it was talking — the model has no token for this">`
+    + `<b>${S.coupes}</b> interruptions</span>`
+    + `<span title="round trip to the decision model, median over the session">`
+    + `LLM <b>${n(lat)}</b></span>`
+    + `<span title="from the last micro-turn carrying new speech to the reply starting to play. `
+    + `Our analogue of DuplexCascade's Smooth Turn Taking Latency (1.724 s) — analogue, not the `
+    + `same protocol: they measure on annotated audio, we read trace timestamps.">`
+    + `turn taking <b>${n(rep)}</b></span>`
+    + (S.coupes ? `<span title="from the cut to the system speaking again. `
+        + `DuplexCascade's User Interruption Latency is 1.225 s, measured differently.">`
+        + `recovery <b>${n(rel)}</b></span>` : "");
+}
+
+/* Une seule boucle d'animation, et seulement quand quelque chose bouge
+   VRAIMENT : une bulle du système en train de se dérouler, ou une révision du
+   STT à faire fondre. Hors de ces deux cas la page ne redessine rien. */
+let anim = null;
+function anime(){
+  if(anim) return;
+  anim = setInterval(() => {
+    const rev = S.vive && S.vive.revision
+      && performance.now() - S.vive.revision.mur < REVISION_MS;
+    const dit = S.parlant && S.parlant.parole && S.parlant.parole.fin === undefined
+      && enDirect();
+    if(!rev && !dit){ clearInterval(anim); anim = null; }
+    rendre();
+  }, 70);
+}
+
+/* ------------------------------------------- panneau « info » et vue brute */
 function ligneTick(k){
-  const a = k.appel, r = k.rep, d = k.dec;
+  const a = k.appel, r = k.rep, d = k.dec, e = ETATS[k.action] || {};
   const dit = (d.transcript || "").trim();
   return `<div class="tick"><div class="ttete">
       <span class="t">${k.t.toFixed(3)} s</span>
-      <span class="jeton">${ech(k.jeton)}</span>
+      ${rail([k])}
+      <span class="jeton" style="color:var(${e.c || "--gris"})">${ech(k.jeton)}</span>
       <span class="tr ${dit && dit !== silence ? "" : "rien"}">${ech(dit || "—")}</span>
     </div>
-    ${d.texte ? `<div class="chiffres">réponse : <b>${ech(d.texte)}</b></div>` : ""}
+    ${d.texte ? `<div class="chiffres">reply: <b>${ech(d.texte)}</b></div>` : ""}
     <div class="chiffres">
-      <span>latence <b>${r ? r.latence.toFixed(3) + " s" : "—"}</b></span>
-      <span>entrée <b>${r ? r.tokens_entree : "—"}</b></span>
-      <span>cachés <b>${r ? r.tokens_caches : "—"}</b></span>
-      <span>sortie <b>${r ? r.tokens_sortie : "—"}</b></span>
-      <span>fin <b>${r ? ech(r.fin) : "—"}</b></span>
+      <span>latency <b>${r && r.latence !== undefined ? r.latence.toFixed(3) + " s" : "—"}</b></span>
+      <span>input <b>${r ? r.tokens_entree : "—"}</b></span>
+      <span>cached <b>${r ? r.tokens_caches : "—"}</b></span>
+      <span>output <b>${r ? r.tokens_sortie : "—"}</b></span>
+      <span>finish <b>${r ? ech(r.fin) : "—"}</b></span>
       <span>source <b>${ech(d.source || "—")}</b></span>
     </div>
-    ${r ? `<details><summary>réponse brute du modèle</summary><pre>${ech(r.brut)}</pre></details>` : ""}
-    ${a ? `<details><summary>prompt envoyé — ${a.messages.length} messages, ${ech(a.modele)}`
-        + `${a.contraint ? ", sortie contrainte" : ""}</summary><pre>`
-        + a.messages.map(m => `<span class="role">${ech(m.role)} :</span> ${ech(m.content)}`).join("\n\n")
-        + `</pre></details>` : ""}
+    ${r ? `<details><summary>raw model reply</summary><pre>`
+        + ech(r.brut !== undefined ? r.brut : JSON.stringify(r)) + `</pre></details>` : ""}
+    ${a && a.messages ? `<details><summary>prompt sent — ${a.messages.length} messages, `
+        + `${ech(a.modele)}${a.contraint ? ", constrained output" : ""}</summary><pre>`
+        + a.messages.map(m => `<span class="role">${ech(m.role)}:</span> ${ech(m.content)}`).join("\n\n")
+        + `</pre></details>`
+      : a ? `<div class="chiffres">prompt of ${a.messages_ecartes} messages dropped from`
+        + ` page memory (long session) — it is in session.jsonl at t=${a.t}</div>` : ""}
   </div>`;
 }
+function ligneCrue(e){
+  const {t, type, ...reste} = e;
+  return `<div class="cru"><span class="t">${t.toFixed(3)}</span>`
+       + `<span class="ty">${ech(type)}</span>`
+       + `<span>${ech(JSON.stringify(reste).slice(0, 400))}</span></div>`;
+}
 function ouvrir(it){
-  const t = it.type === "sep" ? "Silence" : (it.cote === "moi" ? "Tour de parole"
-                                                               : "Réponse du système");
-  $("#ptitre").textContent = t + " — infos";
-  $("#pbadge").textContent = it.ticks.length
-    + " micro-tour" + (it.ticks.length > 1 ? "s" : "");
+  $("#ptitre").textContent = (it.type === "sep" ? "Quiet stretch"
+    : it.cote === "moi" ? "User turn" : "System reply") + " — info";
+  $("#pbadge").textContent = it.ticks.length + " micro-turn" + (it.ticks.length > 1 ? "s" : "");
   let h = "";
   if(it.type === "bulle"){
     h += `<div class="tick"><div class="chiffres" style="padding:10px">
       <span>t <b>${it.t.toFixed(3)} s</b></span>
-      <span>caractères <b>${it.texte.length}</b></span>`;
-    if(it.attente !== undefined || it.sacrifies)
+      <span>characters <b>${it.texte.length}</b></span>`;
+    if(it.cote === "moi")
       // `attente` = profondeur de la file d'audio non décodé (blocs de 125 ms,
-      // plafond 16) ; `sacrifies` = compteur CUMULÉ de blocs jetés parce que le
-      // décodeur était distancé. Non nuls = le STT décroche, et la trace de ce
-      // tour-là est incomplète — à savoir avant d'accuser le modèle.
-      h += `<span>file STT max <b>${it.attente || 0}</b></span>
-            <span>blocs sacrifiés <b>${it.sacrifies || 0}</b></span>`;
-    if(it.parole) h += `<span>attaque <b>${it.parole.attaque} s</b></span>
-      <span>parole <b>${it.parole.fin !== undefined
-        ? (it.parole.fin - it.parole.debut).toFixed(2) + " s" : "en cours"}</b></span>
+      // plafond 16) ; `cout` = durée du décodage d'un bloc de 300 ms ; les deux
+      // disent si le STT tenait le temps réel. `sacrifies` compte les blocs
+      // JETÉS faute de pouvoir suivre : à ce moment-là, des mots manquent.
+      h += `<span>STT queue peak <b>${it.attente || 0}</b></span>
+            <span>decode peak <b>${(it.cout || 0).toFixed(3)} s</b></span>
+            <span>blocks dropped <b>${it.sacrifies || 0}</b></span>
+            <span>STT rewrites <b>${it.revisions || 0}</b></span>`;
+    if(it.reprise !== undefined)
+      h += `<span>turn-taking latency <b>${it.reprise.toFixed(3)} s</b></span>`;
+    if(it.parole) h += `<span>attack <b>${it.parole.attaque} s</b></span>
+      <span>speech <b>${it.parole.fin !== undefined
+        ? (it.parole.fin - it.parole.debut).toFixed(2) + " s" : "in progress"}</b></span>
       <span>audio_s <b>${it.parole.audio_s === null || it.parole.audio_s === undefined
         ? "—" : it.parole.audio_s}</b></span>`;
     h += `</div>`;
     if(it.coupe) h += `<div class="chiffres" style="color:var(--alerte);padding:0 10px 10px">
-      ⚠ interrompue à <b>${it.coupe.t.toFixed(3)} s</b> par <b>${ech(it.coupe.origine)}</b>,
-      après <b>${it.coupe.ecoule.toFixed(2)} s</b> sur <b>~${it.coupe.estime.toFixed(1)} s</b>
-      estimées — le point de coupure affiché est une estimation au débit médian
-      (${debit.toFixed(1)} car/s), la trace ne dit pas où le TTS en était.</div>
-      <details><summary>texte complet, avant coupure</summary><pre>${ech(it.texte)}</pre></details>`;
+      ⚠ interrupted at <b>${it.coupe.t.toFixed(3)} s</b> by <b>${ech(it.coupe.origine)}</b>,
+      after <b>${it.coupe.ecoule.toFixed(2)} s</b> of an estimated
+      <b>~${it.coupe.estime.toFixed(1)} s</b>${it.coupe.relance !== undefined
+        ? `, spoke again <b>${it.coupe.relance.toFixed(2)} s</b> later` : ""}.
+      The cut point shown is an estimate at the session's median speech rate
+      (${debit.toFixed(1)} chars/s): the trace records when the cut happened, never
+      how far the TTS had got.</div>
+      <details><summary>full text, before the cut</summary><pre>${ech(it.texte)}</pre></details>`;
     h += `</div>`;
   }
   h += it.ticks.map(ligneTick).join("");
   for(const a of (it.avert || []))
     h += `<div class="tick"><div class="ttete"><span class="t">${a.t.toFixed(3)} s</span>
-      <span class="jeton" style="color:var(--alerte)">format invalide — ${ech(a.motif)}</span>
-      <span class="tr">niveau ${ech(a.niveau)}, ${a.total} au total</span></div>
+      <span class="jeton" style="color:var(--e-mal)">malformed — ${ech(a.motif)}</span>
+      <span class="tr">level ${ech(a.niveau)}, ${a.total} in total</span></div>
       <pre>${ech(a.brut)}</pre></div>`;
-  if(!it.ticks.length && !(it.avert || []).length)
-    h += `<div class="chiffres">Aucun appel LLM rattaché à ce message.</div>`;
-  $("#pcorps").innerHTML = h;
-  $("#pcorps").scrollTop = 0;
+  if(it.autres && it.autres.length)
+    // Ces types-là n'ont aucun sens en bulle, mais « toute la trace » veut dire
+    // toute : ils sont ici, rattachés à ce qui leur est contemporain.
+    h += `<details open><summary>${it.autres.length} events not shown in the thread`
+       + ` (gate, levels, recalibration…)</summary><div style="padding:6px 10px">`
+       + it.autres.map(ligneCrue).join("") + `</div></details>`;
+  if(!it.ticks.length && !(it.avert || []).length && !(it.autres || []).length)
+    h += `<div class="chiffres">No LLM call attached to this message.</div>`;
+  montrer(h);
+}
+function vueCrue(){
+  $("#ptitre").textContent = "Raw trace";
+  $("#pbadge").textContent = brut.length + " events";
+  const n = Math.min(brut.length, 4000);
+  montrer((brut.length > n ? `<div class="chiffres">last ${n} of ${brut.length}`
+      + ` — the whole file is in session.jsonl</div>` : "")
+    + brut.slice(-n).map(ligneCrue).join(""));
+}
+function montrer(h){
+  $("#pcorps").innerHTML = h; $("#pcorps").scrollTop = 0;
   $("#panneau").classList.add("on"); $("#voile").classList.add("on");
 }
 function fermer(){ $("#panneau").classList.remove("on"); $("#voile").classList.remove("on"); }
 $("#pfermer").onclick = fermer; $("#voile").onclick = fermer;
+$("#bcru").onclick = vueCrue;
 document.onkeydown = e => { if(e.key === "Escape") fermer(); };
 fil.onclick = e => {
   const n = e.target.closest("[data-id]");
-  if(n) ouvrir(S.items[+n.dataset.id]);
+  if(n && S.parId.has(+n.dataset.id)) ouvrir(S.parId.get(+n.dataset.id));
+};
+// La légende est repliée par défaut : à la vidéo elle encombre, au débogage
+// elle manque. Un bouton, et les marques prennent leur nom.
+$("#legende").innerHTML = Object.keys(ETATS)
+  .filter(k => k !== "parler_sans_texte" && k !== "error")
+  .map(k => `<span>${rail([{action:k, jeton:jeton(k), t:0}])} ${ETATS[k].lib}</span>`).join("");
+$("#blegende").onclick = e => {
+  const on = $("#legende").classList.toggle("on");
+  e.currentTarget.setAttribute("aria-pressed", on);
 };
 
 /* --------------------------------------------------- lecture de la trace */
@@ -592,50 +934,59 @@ fil.onclick = e => {
 // milieu d'une session et voir tout ce qui précède. L'offset en octets rend le
 // suivi indépendant du nombre de lignes déjà rendues.
 async function tirer(){
-  const r = await fetch("/evenements?depuis=" + offset);
-  const d = await r.json();
+  let d;
+  try{ d = await (await fetch("/evenements?depuis=" + offset)).json(); }
+  catch(_){ return; }                       // serveur arrêté : on repassera
+  if(d.meta && !meta) meta = d.meta;
   offset = d.depuis;
-  if(d.meta && !meta){ meta = d.meta; }
-  if(!d.lignes.length) return false;
+  if(!d.lignes.length){ if(d.meta) rendre(); return; }
   const evs = [];
   for(const l of d.lignes){ try{ evs.push(JSON.parse(l)); }catch(_){} }
   brut = brut.concat(evs);
+  if(brut.length > EVTS) brut = brut.slice(-EVTS);
   if(!langue){
-    const a = brut.find(e => e.type === "llm_appel");
     // La langue vient de `llm_appel`, PAS de meta.json : meta.json n'est écrit
     // qu'à la FIN de la session, or c'est en direct qu'on en a besoin.
+    const a = brut.find(e => e.type === "llm_appel");
     langue = (meta && meta.langue) || (a && a.langue);
     if(langue) await charger(langue);
   }
   debit = estimerDebit(brut);
-  if(!rejeu){ for(const e of evs) reduire(e); rendre(); }
-  return true;
+  if(!rejeu){ for(const e of evs) reduire(e); rendre(); anime(); }
 }
 async function charger(l){
   const d = await (await fetch("/locale?langue=" + encodeURIComponent(l))).json();
   jetons = d.jetons || {};
   silence = (d.divers || {}).silence || silence;
   clips = (d.backchannels || {}).clips || [];
-  if(S.items.length){ S = neuf(); for(const e of brut) reduire(e); }  // re-rendu
+  $("#legende").innerHTML = Object.keys(ETATS)
+    .filter(k => k !== "parler_sans_texte" && k !== "error")
+    .map(k => `<span>${rail([{action:k, jeton:jeton(k), t:0}])} ${ETATS[k].lib}</span>`).join("");
+  if(S.items.length) refaire();
+}
+function refaire(){                       // rejoue tout l'état depuis zéro
+  S = neuf(); noeuds.clear(); fil.innerHTML = "";
+  for(const e of brut) reduire(e);
 }
 
-/* Rejeu à vitesse réelle : le fil se remplit comme il s'est rempli. Une page
-   instantanément pleine ne se filme pas, et la démo EST une des deux raisons
-   d'être de cette interface. Même réducteur, aucune branche en plus. */
+/* Rejeu à vitesse réelle, pour l'article et les captures : le fil se remplit
+   comme il s'est rempli. Le mode normal, c'est le direct — deux CLI, l'une qui
+   écrit `session.jsonl`, l'autre qui le diffuse. Même réducteur ici, aucune
+   branche en plus. */
 function basculerRejeu(){
-  if(rejeu){ rejeu = null; $("#brejeu").setAttribute("aria-pressed","false");
-             S = neuf(); for(const e of brut) reduire(e); rendre(); return; }
+  if(rejeu){ rejeu = null; $("#brejeu").setAttribute("aria-pressed", "false");
+             refaire(); rendre(); return; }
   rejeu = {i:0, t0:performance.now()};
-  $("#brejeu").setAttribute("aria-pressed","true");
-  S = neuf(); rendre();
+  $("#brejeu").setAttribute("aria-pressed", "true");
+  S = neuf(); noeuds.clear(); fil.innerHTML = ""; rendre();
   (function pas(){
     if(!rejeu) return;
     const h = (performance.now() - rejeu.t0) / 1000;
     let bouge = false;
     while(rejeu.i < brut.length && brut[rejeu.i].t <= h){ reduire(brut[rejeu.i++]); bouge = true; }
-    if(bouge) rendre();
+    if(bouge){ rendre(); anime(); }
     if(rejeu.i < brut.length) requestAnimationFrame(pas);
-    else { rejeu = null; $("#brejeu").setAttribute("aria-pressed","false"); }
+    else { rejeu = null; $("#brejeu").setAttribute("aria-pressed", "false"); }
   })();
 }
 $("#brejeu").onclick = basculerRejeu;

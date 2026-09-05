@@ -239,6 +239,47 @@ fait varier. Sans ça, on comparerait deux bruits.
 Le protocole complet est dans [`PROTOCOLE.md`](PROTOCOLE.md), et les pistes non
 tranchées dans [`IDEES.md`](IDEES.md).
 
+## Voir la session pendant qu'elle tourne
+
+`visu/` diffuse `session.jsonl` dans une interface de messagerie. Deux terminaux,
+et rien d'autre à installer :
+
+```bash
+.venv/bin/python pipeline.py --trace sessions --langue en   # dans l'un
+python3 visu/serveur.py sessions                            # dans l'autre
+```
+
+Puis <http://127.0.0.1:8731/>. La page lit le fichier **depuis le début** avant de
+le suivre : on peut l'ouvrir au milieu d'une session et voir tout ce qui précède,
+et elle marche aussi bien sur une session archivée. Elle n'écrit rien, n'est
+importée par personne, et `pipeline.py` ne sait pas qu'elle existe.
+
+Le pari : ce que fait ce projet n'a pas besoin d'être expliqué si on l'affiche dans
+un vocabulaire que tout le monde a déjà dans les mains. **La bulle est le texte
+vivant, dans les deux sens.** Celle de l'utilisateur se réécrit sur place — les
+révisions de sherpa comprises, `SUM` → `SUMMARI` → `SUMMARISE`, qu'on ne voit nulle
+part ailleurs — puis part toute seule quand le modèle tranche `<user finish
+speaking>` : la décision d'endpointing devient un geste. Celle du système se
+déroule au fil de sa parole, et une interruption s'y lit d'elle-même, la phrase
+arrêtée en plein mot et la suite restée en fantôme. Sous chaque tour, une marque
+par micro-tour donne la **séquence des décisions du modèle** sans qu'on ait à lire
+un mot ; le clic ouvre le prompt entier, la réponse brute, les latences et les
+jetons.
+
+Tout vient du seul `session.jsonl` : **pas de WAV, pas de forme d'onde.** Ça
+supprime le problème d'alignement des horloges — la trace part du lancement du
+process, un WAV de la première trame ALSA, et les confondre a coûté un faux
+diagnostic le 04/09/2026 — et ça rend visualisables les sessions déjà archivées.
+Zéro dépendance, zéro CDN, zéro étape de compilation ; l'interface est en anglais,
+le code commenté en français comme le reste du dépôt.
+
+⚠️ Deux chiffres y sont **des analogues, pas les grandeurs du papier** : la latence
+de prise de tour et celle de reprise après interruption sont lues sur les
+horodatages de la trace, là où les chercheurs mesurent sur de l'audio annoté. Elles
+sont affichées avec leur définition au survol. Et le point de coupure d'une bulle
+interrompue est une estimation au débit médian de la session : la trace dit *quand*
+la coupure est tombée, jamais où le TTS en était.
+
 ## État
 
 Prototype qui tourne, pas un produit. Ce qui marche : la boucle complète, la
