@@ -241,44 +241,46 @@ tranchées dans [`IDEES.md`](IDEES.md).
 
 ## Voir la session pendant qu'elle tourne
 
-`visu/` diffuse `session.jsonl` dans une interface de messagerie. Deux terminaux,
-et rien d'autre à installer :
+`visu/` diffuse `session.jsonl` en le lisant au fil de l'écriture. Deux
+terminaux, et rien à installer :
 
 ```bash
 .venv/bin/python pipeline.py --trace sessions --langue en   # dans l'un
 python3 visu/serveur.py sessions                            # dans l'autre
 ```
 
-Puis <http://127.0.0.1:8731/>. La page lit le fichier **depuis le début** avant de
-le suivre : on peut l'ouvrir au milieu d'une session et voir tout ce qui précède,
-et elle marche aussi bien sur une session archivée. Elle n'écrit rien, n'est
-importée par personne, et `pipeline.py` ne sait pas qu'elle existe.
+Puis <http://127.0.0.1:8731/>. La page lit le fichier **depuis le début** avant
+de le suivre : on peut l'ouvrir au milieu d'une session et voir tout ce qui
+précède, et elle marche telle quelle sur une session archivée. Elle n'écrit
+rien, n'est importée par personne, et `pipeline.py` ne sait pas qu'elle existe.
 
-Le pari : ce que fait ce projet n'a pas besoin d'être expliqué si on l'affiche dans
-un vocabulaire que tout le monde a déjà dans les mains. **La bulle est le texte
-vivant, dans les deux sens.** Celle de l'utilisateur se réécrit sur place — les
-révisions de sherpa comprises, `SUM` → `SUMMARI` → `SUMMARISE`, qu'on ne voit nulle
-part ailleurs — puis part toute seule quand le modèle tranche `<user finish
-speaking>` : la décision d'endpointing devient un geste. Celle du système se
-déroule au fil de sa parole, et une interruption s'y lit d'elle-même, la phrase
-arrêtée en plein mot et la suite restée en fantôme. Sous chaque tour, une marque
-par micro-tour donne la **séquence des décisions du modèle** sans qu'on ait à lire
-un mot ; le clic ouvre le prompt entier, la réponse brute, les latences et les
-jetons.
+Le pari : ce que fait ce projet n'a pas besoin d'être expliqué si on le montre
+comme une conversation. La page n'affiche donc **que** la conversation. Le tour
+de l'utilisateur naît au premier `partial` et se réécrit sur place — les
+révisions de sherpa comprises, `SUM` → `SUMMARI` → `SUMMARISE`, que la CLI ne
+montre pas puisqu'elle n'affiche que le dernier état — puis se fige quand le
+modèle tranche `<user finish speaking>`. Le tour du système se déroule au fil
+de sa parole. **Un seul signe dans toute la page** : le trait qui marque
+l'endroit où la phrase s'est arrêtée parce que l'utilisateur a repris la
+parole. Tout le reste — jeton décidé, prompt, réponse brute, latence, tokens,
+blocs audio sacrifiés, et jusqu'aux types d'événements qui n'ont pas leur place
+dans une conversation — est **à un clic**, dans le panneau : sur un tour, sur un
+filet de silence, ou sur le titre pour la configuration et la trace brute. La
+touche `R` rejoue la session depuis `t=0` à sa vitesse réelle, pour filmer.
 
 Tout vient du seul `session.jsonl` : **pas de WAV, pas de forme d'onde.** Ça
 supprime le problème d'alignement des horloges — la trace part du lancement du
 process, un WAV de la première trame ALSA, et les confondre a coûté un faux
-diagnostic le 04/09/2026 — et ça rend visualisables les sessions déjà archivées.
-Zéro dépendance, zéro CDN, zéro étape de compilation ; l'interface est en anglais,
-le code commenté en français comme le reste du dépôt.
+diagnostic le 04/09/2026 — et ça rend visualisables les sessions déjà
+archivées. Zéro dépendance, zéro CDN, zéro étape de compilation ; l'interface
+est en anglais, le code commenté en français comme le reste du dépôt.
 
-⚠️ Deux chiffres y sont **des analogues, pas les grandeurs du papier** : la latence
-de prise de tour et celle de reprise après interruption sont lues sur les
-horodatages de la trace, là où les chercheurs mesurent sur de l'audio annoté. Elles
-sont affichées avec leur définition au survol. Et le point de coupure d'une bulle
-interrompue est une estimation au débit médian de la session : la trace dit *quand*
-la coupure est tombée, jamais où le TTS en était.
+⚠️ Deux chiffres du panneau sont **des analogues, pas les grandeurs du papier** :
+la latence de prise de tour et celle de reprise après interruption sont lues sur
+les horodatages de la trace, là où les chercheurs mesurent sur de l'audio
+annoté. C'est écrit à côté d'eux. Et l'endroit où la phrase s'arrête est une
+estimation au débit médian de la session : la trace dit *quand* la coupure est
+tombée, jamais où le TTS en était.
 
 ## État
 
