@@ -114,6 +114,17 @@ suite.
 Rien de ce qui suit ne se cite en public avant d'avoir été mesuré **après le
 gel** du banc.
 
+> **Priorité posée par Alex le 05/09, à appliquer partout dans ce qui suit :**
+> ce qui l'intéresse le plus, c'est de mesurer avec **le même modèle que les
+> chercheurs — Qwen2.5-7B-Instruct, et non fine-tuné**. C'est la seule
+> configuration où la comparaison porte sur leur contribution propre : même
+> modèle de base, même conversation, leur LoRA en moins. `gemini-2.5-flash-lite`
+> reste utile comme témoin de ce qu'un bon modèle sait faire, mais c'est Qwen
+> qui doit être mesuré en premier et cité dans l'article.
+>
+> Ce que ça change concrètement : quand une passe ne peut se faire qu'une fois
+> — coût, temps machine, CPU occupé — c'est **Qwen** qui la prend, pas gemini.
+
 1. **Full-Duplex-Bench : produire la ligne « nous » du Tableau 1.** *Passé en
    tête le 05/09 — c'est le trou principal du dossier.* La comparaison au papier
    se fait sur **les chiffres qu'ils annoncent** (position d'Alex), pas sur des
