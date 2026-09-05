@@ -366,8 +366,13 @@ class Session:
         cap = getattr(getattr(self, "eng", None), "cap", None)
         return cap is not None and cap.crete <= SEUIL_VOIX
 
-    def _delta(self):
+    def _delta(self, courant=None):
         """Ce qui est arrivé DEPUIS le tick précédent, ou SILENCE.
+
+        `courant` est le transcript à considérer. L'appelant DOIT le lire une
+        seule fois et passer la même valeur ici puis à `self.vu` — sinon les
+        mots qui arrivent entre les deux lectures sont marqués « déjà vus »
+        sans avoir jamais été envoyés (cf. le commentaire du site d'appel).
 
         Le modèle a besoin de la dynamique (« ce qui vient de se dire »), pas de
         l'état (« voilà tout le tour »). Whisper re-transcrit toute la fenêtre et
@@ -383,7 +388,7 @@ class Session:
         décodeur."""
         if self._muet_mesure():
             return self.silence
-        mc = self.transcript.split()
+        mc = (self.transcript if courant is None else courant).split()
         mv = self.vu.split()
         if not mc:
             return self._rien()
@@ -539,7 +544,21 @@ class Session:
                 self.en_vol = False
             else:
                 return              # un seul appel en vol ; le texte s'accumule
-        delta = self._delta()
+        # UNE SEULE lecture de `transcript`, et c'est elle qui sert au delta
+        # ET à `vu`. Le fil du STT écrit en continu : avec deux lectures, tout
+        # ce qui arrive entre les deux est marqué « déjà vu » sans jamais avoir
+        # été transmis au décideur.
+        #
+        # Mesuré le 05/09 sur le banc en voix humaine, scénario `3-voyage` :
+        # l'appel part à 9,40 s avec « HALLO HOW YE », le STT écrit « DO TO »
+        # à 9,43 s puis « DAY » à 9,55 s — et ces trois mots ne sont jamais
+        # partis. Le décideur n'a donc jamais vu « Hello, how are you doing
+        # today? » en entier, a refusé de conclure sur une phrase inachevée —
+        # ce qui est exactement la règle qu'on lui a donnée — et le tour est
+        # resté sans réponse. Le défaut ressemblait à une troncature de l'ASR ;
+        # sherpa avait le texte complet depuis le début.
+        courant = self.transcript
+        delta = self._delta(courant)
         cap = getattr(getattr(self, "eng", None), "cap", None)
         if cap is not None:
             cap.crete = 0
@@ -587,7 +606,7 @@ class Session:
             delta = e["vient"] + " " + delta
         else:
             delta = e["muet"] + " " + delta
-        self.vu = self.transcript
+        self.vu = courant
         self.en_vol = True
         self.t_vol = time.time()
         self.seq += 1

@@ -88,6 +88,61 @@ CAS = [
 ]
 
 
+# Piege 3 — la COURSE entre le calcul du delta et la mise a jour de `vu`.
+# `tick()` lisait `self.transcript` DEUX fois : une pour le delta, une pour
+# `self.vu`. Le fil du STT ecrit entre les deux, et ces mots-la etaient marques
+# « deja vus » sans avoir jamais ete envoyes au decideur.
+#
+# Mesure le 05/09, banc en voix humaine, `3-voyage` : l'appel part a 9,40 s avec
+# « HALLO HOW YE », le STT ecrit « DO TO » a 9,43 s puis « DAY » a 9,55 s, et ces
+# trois mots ne sont jamais partis. Le decideur n'a jamais vu la phrase entiere,
+# a refusé de conclure — la regle qu'on lui a donnee — et le tour est reste sans
+# reponse. Ca ressemblait a une troncature de l'ASR ; sherpa avait tout.
+#
+# Le contrat verifie ici n'est PAS l'egalite : quand un mot se complete,
+# `_delta` le renvoie entier, donc « HARRY PO » puis « POTTER » laisse un
+# doublon dans la concatenation. C'est assume et c'est ecrit dans `_delta` —
+# un doublon se relit, un mot manquant ne se devine pas.
+#
+# Le contrat est donc : tout mot du transcript final DOIT apparaitre, dans
+# l'ordre, dans la suite des deltas. Un mot saute est une surdite.
+COURSE = [
+    (["HALLO", "HALLO HOW YE", "HALLO HOW YE DO TO", "HALLO HOW YE DO TO DAY"],
+     "l'ASR ecrit plus vite que les ticks"),
+    (["WHO WROTE", "WHO WROTE HARRY PO", "WHO WROTE HARRY POTTER"],
+     "le dernier mot se complete pendant que le tick tourne"),
+    (["WHAT IS THE CAPITAL", "WHAT IS THE CAPITAL OF", "WHAT IS THE CAPITAL OF FRANCE"],
+     "trois ticks d'affilee, rien ne doit tomber"),
+]
+
+
+def course(s):
+    """Rejoue une suite de transcripts en respectant le contrat d'appel :
+    UNE lecture, qui sert au delta ET a `vu`."""
+    echecs = 0
+    for etapes, pourquoi in COURSE:
+        s.vu = ""
+        recu = []
+        for courant in etapes:
+            d = s._delta(courant)      # une seule lecture...
+            s.vu = courant             # ...et c'est elle qui fait foi
+            if d != s.silence:
+                recu.append(d)
+        obtenu = " ".join(recu).split()
+        reste, manque = list(obtenu), []
+        for mot in etapes[-1].split():
+            if mot in reste:
+                reste = reste[reste.index(mot) + 1:]
+            else:
+                manque.append(mot)
+        if manque:
+            echecs += 1
+            print(f"  ECHEC  {pourquoi}")
+            print(f"         jamais transmis : {' '.join(manque)}")
+            print(f"         deltas : {' | '.join(recu)}")
+    return echecs
+
+
 def main():
     s, echecs = Faux(), 0
     for vu, courant, attendu, pourquoi in CAS:
@@ -99,7 +154,9 @@ def main():
             print(f"         vu={vu!r} courant={courant!r}")
             print(f"         attendu {attendu!r}, obtenu {obtenu!r}")
     print(f"  delta : {len(CAS) - echecs}/{len(CAS)}")
-    return 1 if echecs else 0
+    ec = course(s)
+    print(f"  course tick/STT : {len(COURSE) - ec}/{len(COURSE)}")
+    return 1 if (echecs or ec) else 0
 
 
 if __name__ == "__main__":
