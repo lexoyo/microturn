@@ -149,6 +149,26 @@ pas « ne rien inventer », il est plus utile : *un écart au design de référe
 est une hypothèse, donc il se mesure comme telle, et il ne se mesure jamais en
 même temps qu'un autre.*
 
+### 12. Un défaut qui ressemble à l'ASR peut être dans notre code
+
+Mesuré le 05/09 sur le banc en voix humaine. Le décideur ne voyait que des
+phrases inachevées — `HALLO HOW YE` pour « Hello, how are you doing today? » —
+et refusait de conclure, ce qui était **la bonne réponse à ce qu'il voyait**. Le
+transcript de sherpa, lui, était complet depuis le début : `tick()` lisait
+`self.transcript` deux fois, et tout ce que le fil du STT écrivait entre les deux
+lectures était marqué « déjà vu » sans jamais partir. Correctif `1df836d`, une
+seule lecture. **Même son gelé, un seul diff dans la chaîne mesurée :
+`gemini-2.5-flash-lite` passe de 10/16 à 15/16 fins de tour.**
+
+Deux choses à en tirer, et la seconde est la plus utile :
+
+- **C'est la trace qui a tranché, pas l'intuition.** Le diagnostic « l'ASR
+  tronque » avait été annoncé avant vérification, et il était faux.
+- **Le même correctif ne change pas le total de `qwen2.5-7b-instruct`** (9/16
+  avant comme après, avec une fin de tour déplacée d'un scénario à l'autre) : le
+  bug masquait le décideur chez l'un, l'autre décroche de lui-même. Développé en
+  fin de partie IV.
+
 ## Chiffres de référence
 
 | | justesse | fins de tour | pauses ratées | latence |
@@ -2652,6 +2672,254 @@ résumé, quatre vérifications et un tournage :
    mp3 avec les deux voix**, les traces, et le texte horodaté des réponses,
    archivés par modèle hors dépôt (workspace d'idea-lab). Il n'y a pas de session
    à rejouer pour tourner, il y a un montage à faire.
+
+### Le banc a une voix humaine, et le défaut qui ressemblait à l'ASR était le nôtre — 05/09
+
+La journée porte un résultat, deux fautes de méthode, et un trou qu'il faut
+nommer avant d'écrire quoi que ce soit en public. Tout est gardé ici, chiffres,
+sons et échecs compris.
+
+#### Une amie d'Alex a enregistré les quatre scénarios — il y a maintenant deux bancs
+
+Quatre notes vocales WhatsApp, le 05/09 vers 00 h 35, par une anglophone. Motif :
+l'accent français d'Alex rendait la transcription inexploitable, au point qu'il
+avait fallu **supprimer ses prises** et les exemples qui en venaient. Les quatre
+`.ogg` originaux, non retouchés, sont versionnés hors dépôt (workspace
+d'idea-lab, `ideas/demos-audio/voix-humaine/`) avec un README qui documente le
+découpage, les seuils et ce que l'ASR en fait.
+
+**Il y a désormais deux bancs — synthèse et voix humaine — et leurs scores ne se
+comparent qu'à l'intérieur de chacun.** Deux voix, deux difficultés. C'est la
+même règle que « le banc a bougé sous la mesure », prise à l'endroit où elle est
+encore réparable : on ne remplace pas une piste, on ouvre un second banc.
+
+**Ce que la voix humaine apporte, et qui vaut à soi seul d'être écrit : « Okay »
+ressort de l'ASR en `O K`, en `COOKIE` et en `FOUQUET` selon la prise.** C'est le
+mot des backchannels — celui sur lequel se joue toute l'itération 2 du prompt du
+04/09. Aucune règle portant sur la **forme** du texte n'y survivrait : ni un
+seuil de longueur, ni une liste de chaînes, ni une expression régulière. C'est un
+argument de plus, et il est empirique, pour laisser le décideur juger sur le
+**contexte** — exactement ce que le refus du garde-fou `COUPURE_MIN_CAR` avait
+tranché la veille sur un raisonnement.
+
+#### Le résultat principal : un bug de course, pas un défaut d'ASR
+
+Sur le banc humain, `gemini-2.5-flash-lite` plafonnait à **10/16** fins de tour.
+Le diagnostic évident était que sherpa tronquait la fin des énoncés :
+« What is the capital of France? » arrivait en `WHAT IS THE CAPITAL OF`,
+« Hello, how are you doing today? » en `HALLO HOW YE`. **Je l'ai d'ailleurs
+annoncé comme tel à Alex.**
+
+**C'était faux, et c'est le point le plus intéressant de la journée.** Le
+transcript de sherpa était complet et juste depuis le début — vérifié dans les
+événements `partial` de la trace. Ce qui était tronqué, ce sont les **deltas
+envoyés au décideur**.
+
+La cause, dans `pipeline.py` : `tick()` lisait `self.transcript` **deux fois**,
+une fois pour calculer le delta et une fois pour affecter `self.vu`. Le fil du
+STT écrit entre les deux, et ces mots-là étaient marqués « déjà vus » sans avoir
+jamais été transmis. Mesuré sur `3-voyage` : l'appel part à **9,40 s** avec
+`HALLO HOW YE`, sherpa écrit `DO TO` à **9,43 s** et `DAY` à **9,55 s**, et ces
+trois mots ne partent jamais.
+
+**Le décideur, lui, se comportait correctement.** Il refusait de conclure sur une
+phrase inachevée — ce qui est exactement la règle qu'on lui a donnée à
+l'itération 1 du 04/09. Le symptôme se lisait sur lui ; la faute était deux
+étages en amont.
+
+Correctif au commit **`1df836d`** (non poussé) : une seule lecture, qui sert au
+delta **et** à `vu`. ⚠️ *Le hash annoncé en séance était `8049782`, puis
+`ec90847` : trois amendements du même commit, dont les traces gardent la marque.
+Le seul état présent dans l'historique est `1df836d`, et c'est lui qu'il faut
+citer ; l'écart entre `ec90847` et lui ne porte que sur quatre lignes de
+`tests/delta.py`.*
+
+Le test de course ajouté à `tests/delta.py` échoue **0/3** sur l'ancien
+comportement — en perdant exactement `HOW YE DO TO DAY` — et passe **3/3** avec
+le correctif. Il ne vérifie pas l'égalité mais **l'absence de manque** : un mot
+complété est renvoyé entier, donc un doublon est normal ; un mot sauté est une
+surdité. C'est la bonne formulation de l'invariant, et elle mérite d'entrer dans
+l'article : *sur un flux qui se corrige lui-même, la propriété à tester n'est pas
+« c'est exact », c'est « rien n'a été perdu ».*
+
+**Effet mesuré, même son gelé : `gemini-2.5-flash-lite` passe de 10/16 à 15/16.**
+
+| scénario | fins avant (`9c9b134`) | fins après (`1df836d`) | latence médiane avant → après |
+|---|---|---|---|
+| `1-questions` | 5/6 | **6/6** | 3,74 → **2,80 s** |
+| `2-interruption` | 1/2 | **2/2** | 1,06 → 4,78 s |
+| `3-voyage` | 1/4 | **4/4** | 5,92 → **2,18 s** |
+| `4-hesitations` | 3/4 | 3/4 | 2,70 → 2,16 s |
+
+**Un seul changement dans la chaîne mesurée, et c'est vérifiable** : entre les
+deux exécutions, `pipeline.py` n'a qu'un diff, celui du correctif
+(`git log 9c9b134..ec90847 -- pipeline.py` ne rend qu'un commit). Les deux autres
+commits de l'intervalle ne touchent que `visu/index.html` et `README.md`, qui ne
+sont pas dans la chaîne. C'est la première comparaison du projet où le « avant »
+et le « après » ne portent **ni sur deux sons différents, ni sur trois états du
+dépôt** — le reproche exact du 04/09.
+
+⚠️ **La ligne de latence de `2-interruption` va dans l'autre sens, et il ne faut
+pas la lisser** : 1,06 → 4,78 s. Elle n'est pas comparable — c'est une médiane
+sur *une* fin de tour détectée avant, sur *deux* après. Une médiane dont
+l'échantillon change de taille ne mesure pas la même chose. Les deux lignes qui
+tiennent sont `1-questions` et `3-voyage`.
+
+#### Les scores, banc humain gelé du 05/09
+
+| | fins de tour | pauses tenues | latence médiane, par scénario |
+|---|---|---|---|
+| `gemini-2.5-flash-lite` (configuration retenue) | **15/16** | 4/4 | 2,80 · 4,78 · 2,18 · 2,16 s |
+| `qwen2.5-7b-instruct`, **non fine-tuné** | **9/16** | 4/4 | 2,12 · 1,68 · 2,14 · 2,90 s |
+
+Détail par scénario — gemini **6/6 · 2/2 · 4/4 · 3/4** ; qwen **4/6 · 2/2 ·
+1/4 · 2/4**.
+
+Trois précautions qui font partie de ces chiffres :
+
+- **Les quatre pauses sont toutes dans `4-hesitations`.** Les trois autres
+  scénarios n'en contiennent aucune : leur « 0/0 » ne dit rien, et « 4/4 pauses
+  tenues » est le score d'**un** scénario, pas de quatre.
+- **Une exécution par modèle, pas de passes multiples.** Sur 16 fins de tour,
+  l'écart d'un cas est dans le bruit — la réserve du 04/09 vaut mot pour mot.
+  Ce qui sort du bruit ici, c'est 15 contre 9.
+- **Les huit exécutions portent le même code**, `sources_sha256`
+  `3525844f0b54462f` dans les huit `meta.json`. Contrairement au 04/09, la
+  comparaison entre les deux modèles est propre.
+
+Pour mémoire, **banc de synthèse gelé du 04/09** (commit `1310533`, huit
+exécutions, même code) : gemini **14/16 · 3/4**, qwen **10/16 · 4/4**. Deux
+bancs, deux voix : ces lignes ne se soustraient pas aux précédentes.
+
+#### Ce que ces deux lignes disent du fine-tuning — et c'est le résultat pour l'article
+
+**Le correctif n'a rien changé au total de qwen : 9/16 avant, 9/16 après.** Le
+bug masquait le décideur chez gemini ; chez qwen, c'est le modèle lui-même qui
+décroche.
+
+⚠️ **Et « 9/16 avant comme après » est un total qui cache un déplacement** :
+avant, 3/6 · 2/2 · 2/4 · 2/4 ; après, 4/6 · 2/2 · **1/4** · 2/4. Une fin de tour
+gagnée sur `1-questions`, une perdue sur `3-voyage`. C'est, une fois de plus, le
+motif du résultat n° 9 : *l'agrégat ne bouge pas là où la répartition bouge.* La
+lecture honnête n'est pas « le correctif est sans effet sur qwen », c'est « son
+total est le même, et à ce nombre de cas on ne sait pas distinguer un effet nul
+d'une compensation ».
+
+Ce qui reste, et qui est solide : c'est le **même modèle de base que le leur**,
+sans leur LoRA. Il **tient les pauses aussi bien** (4/4, comme gemini) et **perd
+plus de la moitié des fins de tour**. La formulation que l'article peut porter :
+*leur fine-tuning n'améliore pas un modèle déjà bon — il rend utilisable un
+modèle qui ne l'est pas.*
+
+⚠️ Deux réserves à transporter avec cette phrase, déjà écrites en partie II et
+qui n'ont pas bougé : **notre prompt a été réglé sur gemini**, donc une part
+inconnue de l'écart est du réglage que qwen n'a jamais reçu ; et **ils ont
+fine-tuné Qwen2 quand nous mesurons Qwen2.5**. Elles jouent en sens inverse
+l'une de l'autre.
+
+#### Le trou principal du dossier : aucune ligne « nous » en face de leur Tableau 1
+
+Position d'Alex, explicite et à tenir : **la comparaison au papier se fait sur
+les chiffres qu'ils annoncent**, pas sur des relevés qu'on referait de leur
+système. Les lectures de formes d'onde de leurs vidéos servent à caler notre
+banc et à illustrer ; elles ne sont pas une mesure de leur système et ne doivent
+jamais être présentées comme telle.
+
+Conséquence : **il n'existe aujourd'hui aucune ligne « nous » en face de leur
+Tableau 1.** Or tout est là — Full-Duplex-Bench est en local (`~/_/fdbench`,
+`~/_/fdbench-data`, **3 921 fichiers audio, 1,4 Gio**) et le harnais existe
+(`bench/mesurer.py`, cinq tâches qui correspondent exactement à leurs colonnes).
+La seule mesure qu'on en ait date du **29/08**, sur une seule tâche, avec du code
+depuis longtemps périmé, et elle servait à mesurer le bruit du banc, pas à
+produire un résultat.
+
+Les colonnes à remplir, dans l'ordre du Tableau 1 (`PAPIER.md` § 5.1), avec en
+face leur valeur et le sens favorable :
+
+| colonne | DuplexCascade | nous |
+|---|---|---|
+| Pause Handling — Synthetic TOR ↓ | 0,058 | — |
+| Pause Handling — Candor TOR ↓ | 0,222 | — |
+| Backchannel — TOR ↓ | 0,218 | — |
+| Smooth Turn Taking — Candor TOR ↑ | 0,832 | — |
+| Smooth Turn Taking — Latency ↓ | 1,724 s | — |
+| User Interruption — TOR ↑ | 0,955 | — |
+| User Interruption — Latency ↓ | 1,225 s | — |
+| Averaged Turn-Taking Accuracy | 0,858 | — |
+
+⚠️ **Le 0,955 de ce tableau est leur User Interruption TOR** et rien d'autre :
+c'est la colonne qui a produit les chiffres faux du dépôt (`PAPIER.md` § 5.2).
+Il ne se met jamais en face d'une fin de tour.
+
+⚠️ **Et la réserve de `PROTOCOLE.md` fait partie du résultat, pas de l'annexe** :
+leur chaîne aligne avec `nvidia/parakeet-tdt-0.6b-v2` sous NeMo, qui exige CUDA ;
+cette machine n'a pas de GPU, on aligne donc avec whisper `small`. Nos chiffres
+seront comparables **entre nos versions**, et seulement indicativement aux leurs.
+À écrire dans la même page que le tableau, pas trois sections plus loin.
+
+C'est le point n° 1 de `PLAN-REPRO.md` depuis aujourd'hui.
+
+#### Deux fautes de méthode, à assumer telles quelles
+
+**a) J'ai encore changé le banc pendant que je mesurais.** C'est le reproche
+d'Alex du 04/09, refait le lendemain. La normalisation de crête abaissait
+`3-voyage` de **4,7 dB**, ce qui déplaçait le seuil de découpe et raccourcissait
+les pistes d'environ une seconde : **une première série de scores — dont un
+15/16 annoncé à Alex — portait sur des sons déjà remplacés.** Le chiffre final
+est le même, ce qui ne rachète rien : il aurait pu ne pas l'être, et personne ne
+l'aurait su.
+
+⚠️ **Ce qui a été fait depuis est une consigne, pas encore un garde-fou.** Les
+pistes sont déclarées gelées et les quatre `.ogg` sources sont versionnés — mais
+**il n'existe aujourd'hui aucune vérification d'empreinte dans le code** :
+`fabriquer.py`, `remonter.py` et `noter.py` ne comparent aucun MD5 et rien ne
+refuse de démarrer si une piste a bougé (vérifié par grep sur les deux dépôts).
+Les WAV sont d'ailleurs hors versionnement. **Tant que ce contrôle n'est pas
+écrit, le gel repose sur la discipline — c'est-à-dire précisément sur ce qui a
+lâché deux jours de suite.** C'est un travail à commander à la session de tests.
+
+**b) J'ai abîmé le son en croyant le réparer.** Alex a entendu des bips dans les
+prises. J'ai normalisé sur la crête — **qui était le bip lui-même** — et fait
+perdre **2,7 à 4,2 dB à la voix** sur trois prises, puis passé au filtre
+passe-bas **117 ms de parole**. Il a entendu le remède plus que le mal.
+Corrigé par un **limiteur qui n'écrase que ce qui dépasse −1 dBFS**, appliqué
+**après** le rééchantillonnage (l'interpolation crée son propre dépassement :
+limiter avant laissait revenir jusqu'à 55 échantillons saturés), plus un fondu
+de **8 ms** à chaque coupe. Résultat mesuré : niveau de voix à ±0,1 dB de
+l'original, zéro échantillon saturé. **Les deux bips restent dans les prises,
+documentés, non filtrés** — ils tombent sur l'attaque d'un tour, et recouper ne
+déplacerait la frontière du segment que de 80 ms.
+
+**La leçon est commune aux deux, et c'est la même que le 29/08 et le 03/09 :
+l'oreille d'Alex a trouvé ce que mes mesures ne montraient pas.** Le motif a
+maintenant assez d'occurrences pour être écrit comme une propriété du dispositif
+et non comme une série d'anecdotes : *nos mesures portent sur des grandeurs que
+nous avons choisies ; l'écoute porte sur le signal entier.* Une crête est une
+mesure — elle ne dit pas que la crête est un parasite.
+
+#### Les sons à garder pour l'article
+
+Tous archivés hors dépôt, dans `ideas/demos-audio/` du workspace d'idea-lab :
+
+- **`voix-humaine/*.ogg`** — les quatre originaux non retouchés. C'est la source :
+  tout le reste s'en régénère.
+- **`resultats/2026-09-05-<modèle>-humain/<scénario>-humain.mp3`** — la
+  conversation complète, les deux voix mélangées, pour les deux modèles. Avec la
+  trace, les scores et le texte horodaté des réponses.
+- **`resultats/2026-09-04-*`** — le banc de synthèse, dont les archives
+  `-avant-gel`, qui **ne valent plus comme mesure** mais expliquent l'histoire.
+- **`resultats/comparaisons/*.png`** — nos formes d'onde en regard des leurs.
+
+**Le clip à citer en premier : `2-interruption` chez gemini.** Le système déroule
+sa liste, encaisse « Okay » à 0:17 et « Yes » à 0:23 **sans se laisser couper**,
+puis s'arrête **0,24 s** après la vraie interruption à 0:28 et repart avec la
+version condensée. C'est le comportement de leur démo, sur une voix humaine, sans
+entraînement.
+
+*Et l'état d'avant le correctif ne s'est pas perdu* : les scores et les traces du
+10/16 sont dans l'historique du workspace d'idea-lab, au commit `8a10f4ea`, que
+`84bb1dd9` a remplacé sur place. Le « avant » de la ligne 10/16 → 15/16 est donc
+auditable, ce qui n'était pas le cas du « 13/16 » du 04/09.
 
 ## Angle d'article en réserve : « fine-tuning vs prompting »
 

@@ -13,6 +13,47 @@ bibliothèque, et il suppose un système qui marche.
 
 ---
 
+## L'état au 05/09 : deux bancs, et un bug de course corrigé
+
+**Le banc a une voix humaine.** Quatre `.ogg` enregistrés le 05/09 vers 00 h 35,
+versionnés non retouchés hors dépôt (`ideas/demos-audio/voix-humaine/`). Ils
+existent parce que l'accent français d'Alex rendait la transcription
+inexploitable ; ils apportent en retour l'hésitation, la respiration et le débit
+irrégulier qu'aucun TTS ne produit. **Deux bancs désormais — synthèse et voix
+humaine — dont les scores ne se comparent qu'à l'intérieur de chacun.**
+
+**Le plafond à 10/16 n'était pas l'ASR.** `tick()` lisait `self.transcript` deux
+fois — une fois pour le delta, une fois pour `self.vu` — et tout ce que le fil
+du STT écrivait entre les deux partait en « déjà vu » sans avoir été transmis.
+Le transcript de sherpa était complet depuis le début ; c'est le **delta envoyé
+au décideur** qui était tronqué, et le décideur refusait à juste titre de
+conclure sur une phrase inachevée. Correctif `1df836d`, une seule lecture ; test
+de course dans `tests/delta.py`, 0/3 avant, 3/3 après.
+
+**Même son gelé, un seul diff dans la chaîne mesurée** (`pipeline.py` n'a qu'un
+commit entre les deux exécutions) :
+
+| | fins de tour | pauses tenues |
+|---|---|---|
+| `gemini-2.5-flash-lite`, avant `1df836d` | 10/16 | 4/4 |
+| `gemini-2.5-flash-lite`, **après** | **15/16** | 4/4 |
+| `qwen2.5-7b-instruct` non fine-tuné, avant | 9/16 | 4/4 |
+| `qwen2.5-7b-instruct` non fine-tuné, **après** | **9/16** | 4/4 |
+
+⚠️ **Une exécution par modèle**, pas de passes multiples : sur 16 fins de tour,
+l'écart d'un cas est dans le bruit. ⚠️ **Le total inchangé de qwen cache un
+déplacement** (3/6·2/2·2/4·2/4 avant, 4/6·2/2·1/4·2/4 après) : à ce nombre de
+cas, on ne sait pas distinguer un effet nul d'une compensation. ⚠️ **Les quatre
+pauses sont toutes dans `4-hesitations`** — « 4/4 » est le score d'un scénario,
+pas de quatre.
+
+**Ce qui reste vrai du 04/09** : le banc de synthèse gelé (commit `1310533`)
+donne gemini **14/16 · 3/4** et qwen **10/16 · 4/4**. Ces lignes ne se
+soustraient pas à celles du banc humain.
+
+Le récit complet — la voix humaine, le bug de course, et les deux fautes de
+méthode de la journée — est dans `ARTICLE-NOTES.md`, fin de partie IV.
+
 ## L'état au 04/09 au soir : les démos passent, la vérification reste
 
 **Constat d'Alex en clôture de session, et c'est un changement de phase :**
@@ -56,16 +97,60 @@ tant que la baseline de l'étape 2 n'est pas prise. Si une modification devient
 nécessaire, elle **invalide tout ce qui a été mesuré avant elle** et se déclare
 comme telle dans le journal.
 
-## La suite immédiate — cinq points, dans cet ordre
+⚠️ **Et la consigne a été rompue le 05/09, sur le banc humain.** Une
+normalisation de crête abaissait `3-voyage` de 4,7 dB, déplaçait le seuil de
+découpe et raccourcissait les pistes d'environ une seconde : **une première
+série de scores portait sur des sons déjà remplacés.** Le chiffre final s'est
+trouvé être le même, ce qui ne rachète rien.
+
+**Le gel n'est aujourd'hui qu'une consigne** : ni `fabriquer.py`, ni
+`remonter.py`, ni `noter.py` ne vérifient une empreinte, et rien ne refuse de
+démarrer si une piste a bougé (les WAV sont hors versionnement). Écrire ce
+contrôle est un travail à commander — la discipline seule a lâché deux jours de
+suite.
+
+## La suite immédiate — six points, dans cet ordre
 
 Rien de ce qui suit ne se cite en public avant d'avoir été mesuré **après le
 gel** du banc.
 
-1. **La baseline propre des quatre scénarios sur le banc gelé** (étape 2). C'est
+1. **Full-Duplex-Bench : produire la ligne « nous » du Tableau 1.** *Passé en
+   tête le 05/09 — c'est le trou principal du dossier.* La comparaison au papier
+   se fait sur **les chiffres qu'ils annoncent** (position d'Alex), pas sur des
+   relevés qu'on referait de leur système ; or **aucune ligne « nous » n'existe
+   en face de leur Tableau 1**. Le corpus est en local (`~/_/fdbench`,
+   `~/_/fdbench-data`, 3 921 fichiers audio, 1,4 Gio) et le harnais existe
+   (`bench/mesurer.py`, cinq tâches qui correspondent exactement à leurs
+   colonnes). La seule mesure qu'on en ait date du **29/08**, sur une seule
+   tâche, avec du code périmé, et elle servait à mesurer le bruit.
+
+   Les huit colonnes à remplir, avec leur valeur chez eux et le sens favorable
+   (`PAPIER.md` § 5.1) :
+
+   | colonne | DuplexCascade | nous |
+   |---|---|---|
+   | Pause Handling — Synthetic TOR ↓ | 0,058 | — |
+   | Pause Handling — Candor TOR ↓ | 0,222 | — |
+   | Backchannel — TOR ↓ | 0,218 | — |
+   | Smooth Turn Taking — Candor TOR ↑ | 0,832 | — |
+   | Smooth Turn Taking — Latency ↓ | 1,724 s | — |
+   | User Interruption — TOR ↑ | 0,955 | — |
+   | User Interruption — Latency ↓ | 1,225 s | — |
+   | Averaged Turn-Taking Accuracy | 0,858 | — |
+
+   ⚠️ **0,955 est leur User Interruption TOR**, jamais une fin de tour : c'est la
+   confusion qui a produit les chiffres faux du dépôt (`PAPIER.md` § 5.2).
+   ⚠️ **Réserve à publier avec le tableau, pas en annexe** (`PROTOCOLE.md`) : ils
+   alignent avec `nvidia/parakeet-tdt-0.6b-v2` sous NeMo, qui exige CUDA ; cette
+   machine n'a pas de GPU, **on aligne avec whisper `small`**. Nos chiffres sont
+   comparables entre nos versions, et seulement indicativement aux leurs.
+2. **La baseline propre des quatre scénarios sur le banc gelé** (étape 2). C'est
    la référence de tout ce qui suit : sans elle, aucune des corrections de la
    journée n'a de « avant » auquel se comparer, et les runs archivés du 04/09 ne
    peuvent pas en tenir lieu — ils portent trois états du dépôt différents.
-2. **Mesurer le retrait du « short »** dans le prompt anglais (`74e655e`). Le
+   *(Le banc en voix humaine a, lui, sa baseline depuis le 05/09 — voir plus
+   bas.)*
+3. **Mesurer le retrait du « short »** dans le prompt anglais (`74e655e`). Le
    commit qui retirait la consigne de brièveté n'avait touché que `fr.toml`,
    alors que tout le banc tourne en anglais. **L'effet n'a jamais été mesuré.**
    Ce qu'on sait est l'écart de **durée de parole** qui l'a fait découvrir, sur
@@ -74,20 +159,23 @@ gel** du banc.
    les backchannels calés sur leur vidéo tombent une fois qu'on a fini de parler.
    Nos réponses devraient s'allonger ; reste à voir ce que ça coûte aux fins de
    tour et aux pauses.
-3. **Vérifier la démo 3**, la moins vérifiée des quatre. `<system backchannel>`
+4. **Vérifier la démo 3**, la moins vérifiée des quatre. `<system backchannel>`
    sort bien et les clips existent, mais **personne n'a vérifié qu'il tombe au
    bon moment** — c'est le critère de réussite du § 1.2, et il ne se lit pas dans
    un score de fins de tour. Rappel du prix chez eux : 0,858 → 0,748 et un TOR de
    pauses multiplié par près de six.
-4. **Intégrer l'enregistrement humain** quand il arrivera, avec
-   `ideas/demos-audio/remonter.py` (côté idea-lab) : il découpe la prise et la
-   remonte aux durées du banc, silences compris. La voix de synthèse est là parce
-   que **l'accent français d'Alex passe mal à l'ASR** et ferait mesurer l'accent
-   au lieu de la détection de fin de tour ; la prise humaine apporte en retour
-   l'hésitation et le débit irrégulier qu'aucun TTS ne produit. Les deux pistes
-   se gardent, elles ne se remplacent pas. ⚠️ **Remonter une nouvelle piste, c'est
-   modifier le banc** : ça se fait après la baseline du point 1, et ça se déclare.
-5. **Écrire l'article et faire la vidéo**, une fois les quatre points passés.
+5. ~~**Intégrer l'enregistrement humain**~~ — **fait le 05/09**, et ça a créé un
+   **second banc** plutôt qu'une piste de plus. Quatre notes vocales d'une amie
+   anglophone d'Alex, découpées et remontées aux durées du banc par
+   `ideas/demos-audio/remonter.py` (côté idea-lab). La voix de synthèse reste :
+   **deux voix, deux bancs, et les scores ne se comparent qu'à l'intérieur de
+   chacun.** Baseline du banc humain, une exécution par modèle, même code
+   (`sources_sha256` `3525844f0b54462f`) : `gemini-2.5-flash-lite` **15/16 fins
+   de tour · 4/4 pauses tenues**, `qwen2.5-7b-instruct` non fine-tuné **9/16 ·
+   4/4**. Reste à faire : **la vérification d'empreinte des pistes**, qui
+   n'existe pas — le gel est une consigne, aucun script ne refuse de démarrer si
+   un son a bougé, et c'est exactement ce qui a lâché deux jours de suite.
+6. **Écrire l'article et faire la vidéo**, une fois les quatre points passés.
    C'est l'ordre posé par Alex — *« si ça marche on écrit l'article et on fait
    une vidéo »* — et le matériel de tournage existe déjà : les conversations
    complètes en mp3 avec les deux voix, les traces et les réponses horodatées,
@@ -348,3 +436,12 @@ nécessaires pour cette raison.
 anglais, ferait mesurer l'accent au lieu de la détection (§ 1.1). On échange donc
 un biais sans correctif contre un biais qui en a un — les sessions réelles au
 banc, en non-régression. Le raisonnement complet est dans `ARTICLE-NOTES.md`.
+
+**Partiellement levé le 05/09** : une locutrice anglophone a enregistré les
+quatre scénarios, sans accent à mesurer et avec l'hésitation qu'aucun TTS ne
+produit. Le banc humain est plus dur que celui de synthèse — les fautes qui
+restent sont celles du moteur, et l'une d'elles vaut mieux qu'un argument :
+**« Okay » ressort de l'ASR en `O K`, en `COOKIE` et en `FOUQUET` selon la
+prise.** C'est le mot des backchannels ; aucune règle sur la forme du texte n'y
+survivrait. La réserve ne disparaît pas pour autant — deux locutrices, quatre
+scénarios, ce n'est toujours pas la vie.
