@@ -50,8 +50,8 @@ chaque bout — au plus un par demande, juste avant de lui répondre.
 Tu réponds par un objet : {"m": "<le marqueur>"}.
 
 Cas particulier : avec <user finish speaking>, et seulement là, ajoute une \
-phrase qui sera transmise à l'utilisateur : \
-{"m": "<user finish speaking>", "r": "ta phrase, parlée"}
+réponse qui sera transmise à l'utilisateur : \
+{"m": "<user finish speaking>", "r": "ta réponse ..."}
 
 ### EXEMPLE DE CONVERSATION
 
@@ -111,8 +111,8 @@ chaque bout — au plus un par demande, juste avant de lui répondre.
 Tu réponds par un objet : {"m": "<le marqueur>"}.
 
 Cas particulier : avec <user finish speaking>, et seulement là, ajoute une \
-phrase qui sera transmise à l'utilisateur : \
-{"m": "<user finish speaking>", "r": "ta phrase, parlée"}
+réponse qui sera transmise à l'utilisateur : \
+{"m": "<user finish speaking>", "r": "ta réponse ..."}
 
 ### EXEMPLE DE CONVERSATION
 

@@ -44,9 +44,9 @@ chunk — at most one per request, just before you answer.
 
 You answer with an object: {"m": "<the marker>"}.
 
-One exception: with <user finish speaking>, and only there, add a sentence that \
+One exception: with <user finish speaking>, and only there, add an answer that \
 will be spoken to the user: \
-{"m": "<user finish speaking>", "r": "your sentence, spoken"}
+{"m": "<user finish speaking>", "r": "your answer ..."}
 
 ### EXAMPLE CONVERSATION
 
@@ -105,9 +105,9 @@ chunk — at most one per request, just before you answer.
 
 You answer with an object: {"m": "<the marker>"}.
 
-One exception: with <user finish speaking>, and only there, add a sentence that \
+One exception: with <user finish speaking>, and only there, add an answer that \
 will be spoken to the user: \
-{"m": "<user finish speaking>", "r": "your sentence, spoken"}
+{"m": "<user finish speaking>", "r": "your answer ..."}
 
 ### EXAMPLE CONVERSATION
 
