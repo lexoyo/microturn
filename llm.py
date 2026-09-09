@@ -39,12 +39,39 @@ SANS_R = bool(os.environ.get("MICROTURN_SANS_R"))
 # conversation neuf ticks sur dix sont des silences : un modèle qui répond
 # toujours « ça parle encore » obtient donc mécaniquement un bon score global.
 # C'est pourquoi il faut mesurer les deux classes séparément.
-#   gemini-2.5-flash-lite  9/12, questions 4/5, 0,52 s  <- retenu
+#   gemini-2.5-flash-lite  9/12, questions 4/5, 0,52 s
 #   gpt-4o-mini           10/12, questions 4/5, 0,87 s  (trop lent pour le tick)
 #   nova-micro-v1          7/12, questions 1/5, 0,48 s
 #   llama-3.2-3b et 1b     7/12, questions 0/5
-MODEL = os.environ.get("MICROTURN_MODEL", "google/gemini-2.5-flash-lite")
+#
+# Le défaut distant n'est PAS le meilleur de cette liste, et c'est délibéré :
+# c'est le modèle de base des chercheurs, pour que la comparaison porte sur leur
+# contribution propre et pas sur le choix de modèle (décision du 05/09,
+# `PLAN-REPRO.md`). Qwen2-7B n'étant plus servi sur OpenRouter, c'est
+# `qwen/qwen-2.5-7b-instruct` — même famille, même taille (`ARTICLE-NOTES.md`).
+# gemini-2.5-flash-lite reste le témoin de ce qu'un bon modèle sait faire, et il
+# vaut mieux : 14/16 fins de tour contre 9/16 pour qwen non fine-tuné.
+MODEL = os.environ.get("MICROTURN_MODEL", "qwen/qwen-2.5-7b-instruct")
 HOST, PATH = "openrouter.ai", "/api/v1/chat/completions"
+
+# Le décideur par défaut du projet est LOCAL, et c'est le modèle de base des
+# chercheurs : Qwen2.5-7B-Instruct sans leur LoRA. C'est la seule configuration
+# où la comparaison porte sur leur contribution propre (décision du 05/09,
+# `PLAN-REPRO.md`). ⚠️ Il est quantifié en Q4_K_M pour tenir sur une machine
+# ordinaire, là où eux servent le modèle en pleine précision : la quantification
+# fait partie de l'écart mesuré, elle n'est pas neutre.
+#
+# Une clé OpenRouter reprend la main : si `.env` en contient une, le décideur
+# repasse distant sur le modèle désigné par MICROTURN_MODEL. MICROTURN_LOCAL
+# tranche explicitement dans les deux sens (1 = local même avec une clé,
+# 0 = distant, et l'absence de clé devient alors une erreur).
+MODELE_LOCAL = os.environ.get(
+    "MICROTURN_MODELE_LOCAL",
+    os.path.join(ICI, "models", "Qwen2.5-7B-Instruct-Q4_K_M.gguf"))
+CTX_LOCAL = int(os.environ.get("MICROTURN_CTX", "4096"))
+# 0 = tout sur le CPU. Sur un GPU de 4 Gio, Q4_K_M ne tient pas en entier ;
+# décharger une partie des couches reste gagnant, d'où le réglage explicite.
+COUCHES_GPU = int(os.environ.get("MICROTURN_GPU_LAYERS", "0"))
 TIMEOUT = float(os.environ.get("MICROTURN_TIMEOUT", "1.5"))
 # La longueur de la réponse est suggérée par le SCHÉMA, plus par `max_tokens`.
 #
@@ -274,10 +301,22 @@ def _key():
                     return ligne.split("=", 1)[1].strip()
     except FileNotFoundError:
         pass
-    raise SystemExit("pas de clé OpenRouter : mets OPENROUTER_API_KEY dans .env")
+    return None       # pas de clé : le décideur local prend le relais
 
 
 KEY = _key()          # lue une fois, pas à chaque décision
+
+
+def _local_par_defaut():
+    """Local ou distant, avant toute option de ligne de commande."""
+    choix = os.environ.get("MICROTURN_LOCAL")
+    if choix is not None:
+        return choix not in ("0", "", "non")
+    return KEY is None
+
+
+def modele_par_defaut():
+    return MODELE_LOCAL if _local_par_defaut() else MODEL
 
 
 # ---------------------------------------------------------------- décideur
@@ -308,11 +347,16 @@ class Simule:
     def __init__(self, model="simule", timeout=None, trace=None, langue="fr",
                  tick=1.2, moteur=None):
         self.model, self.trace, self.langue = model, trace, langue
+        self.local = False
         cat = catalogue(langue)
         self.jetons = cat["jetons"]
         self.silence = cat["divers"]["silence"]
         self.bruit = cat["divers"]["bruit_sans_texte"]
         self.etats = cat["etats"]
+
+
+    def resume(self):
+        return "simulé · aucun appel, décisions déterministes"
 
     def decide(self, transcript, history=None):
         t0 = time.time()
@@ -338,9 +382,15 @@ class Simule:
 class Decideur:
     """Une connexion HTTPS réutilisée, protégée par un verrou (un appel à la fois)."""
 
-    def __init__(self, model=MODEL, timeout=TIMEOUT, trace=None, langue="fr",
+    def __init__(self, model=None, timeout=TIMEOUT, trace=None, langue="fr",
                  tick=1.2, moteur=None):
-        self.model, self.timeout, self.trace = model, timeout, trace
+        self.model = model or modele_par_defaut()
+        # Un chemin de GGUF veut dire « en local ». Rien d'autre à décider :
+        # `--modele qwen/qwen2.5-7b-instruct` reste un appel distant, et
+        # `--modele models/…gguf` un appel local, sans option supplémentaire.
+        self.local = self.model.endswith(".gguf")
+        self.llama = None               # chargé à la première décision
+        self.timeout, self.trace = timeout, trace
         self.langue = langue
         self.systeme = systeme(langue, tick, moteur)
         self.exemples = catalogue(langue)["exemples"]
@@ -404,7 +454,50 @@ class Decideur:
         if self.trace is not None:
             self.trace.ev(type, **champs)
 
+    def resume(self):
+        """Ce qui s'affiche au démarrage. Le mode DOIT être lisible d'un coup
+        d'œil : la même commande décide en local ou chez OpenRouter selon qu'une
+        clé traîne dans `.env`, et une mesure attribuée au mauvais décideur ne
+        vaut rien."""
+        if self.local:
+            gpu = f", {COUCHES_GPU} couches GPU" if COUCHES_GPU else ", CPU seul"
+            return (f"local · {os.path.basename(self.model)} "
+                    f"(llama.cpp{gpu}, ctx {CTX_LOCAL})")
+        return f"openrouter · {self.model} (clé lue dans .env)"
+
+    def _charger(self):
+        """Charge le GGUF une fois pour toutes. ~10 s, et ~4,4 Gio de mémoire."""
+        if self.llama is None:
+            import llama_cpp        # importé ici : inutile en mode distant
+            self.llama = llama_cpp.Llama(
+                model_path=self.model, n_ctx=CTX_LOCAL,
+                n_gpu_layers=COUCHES_GPU, verbose=False, seed=0)
+        return self.llama
+
+    def _post_local(self, body):
+        """Même corps, même forme de réponse — le transport en moins.
+
+        llama.cpp ne connaît pas l'emballage `json_schema` d'OpenAI : il attend
+        le schéma directement sous `json_object`. C'est la seule différence, et
+        elle porte sur la contrainte de décodage, donc sur la seule chose qui
+        garantit qu'une décision n'est pas perdue.
+        """
+        corps = json.loads(body) if isinstance(body, str) else body
+        fmt = corps.get("response_format") or {}
+        if fmt.get("type") == "json_schema":
+            fmt = {"type": "json_object",
+                   "schema": fmt["json_schema"]["schema"]}
+        return self._charger().create_chat_completion(
+            messages=corps["messages"], temperature=corps.get("temperature", 0),
+            response_format=fmt or None)
+
     def _post(self, body):
+        if self.local:
+            return self._post_local(body)
+        if KEY is None:
+            raise SystemExit(
+                "décideur distant demandé sans clé : mets OPENROUTER_API_KEY "
+                "dans .env, ou laisse le défaut local")
         for essai in (1, 2):      # une reconnexion si le serveur a fermé
             try:
                 if self.conn is None:

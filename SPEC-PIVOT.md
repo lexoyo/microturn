@@ -1,11 +1,8 @@
 # Le pivot : d'un compagnon vocal à un observateur de tour de parole
 
-Décisions prises en discussion le 02/09/2026. Ce fichier enregistre **ce qui est
-tranché** et **ce qui reste ouvert**. Il ne décrit pas le code actuel (voir
-`README.md`), mais ce vers quoi il va.
+Décisions prises en discussion le 02/09/2026. Ce fichier enregistre **ce qui est tranché** et **ce qui reste ouvert**. Il ne décrit pas le code actuel (voir `README.md`), mais ce vers quoi il va.
 
-Le nom définitif du composant n'est pas arrêté — une recherche de terminologie
-est en cours. « Observateur » est employé ici comme nom de travail.
+Le nom définitif du composant n'est pas arrêté — une recherche de terminologie est en cours. « Observateur » est employé ici comme nom de travail.
 
 ---
 
@@ -13,82 +10,48 @@ est en cours. « Observateur » est employé ici comme nom de travail.
 
 **Un détecteur de fin de tour qui se fonde sur le sens, pas sur le son.**
 
-En un mot : une bibliothèque qui transforme un flux d'entrée en transitions
-d'état décrivant l'utilisateur.
+En un mot : une bibliothèque qui transforme un flux d'entrée en transitions d'état décrivant l'utilisateur.
 
 Ce qu'elle apporte, dans l'ordre où ça se défend :
 
-1. **Elle permet de faire du full-duplex à partir de n'importe quel modèle, sans
-   fine-tuning.** C'est ce que 0,816 contre 0,858 démontre — le prompt tient lieu
-   d'entraînement.
-2. Elle groupe détection et réponse en **un seul appel** quand on le lui demande,
-   pour un gain de latence important (cf. § 8).
-3. Elle gère le **backchannel dans les deux sens** : celui de l'utilisateur comme
-   observation, celui de l'agent comme conseil d'action sur un canal séparé.
-4. Elle ne touche jamais au signal : c'est ce qui la distingue de tous les
-   détecteurs existants, qui partent de l'audio (cf. § 7).
+1. **Elle permet de faire du full-duplex à partir de n'importe quel modèle, sans fine-tuning.** C'est ce que 0,816 contre 0,858 démontre — le prompt tient lieu d'entraînement.
+2. Elle groupe détection et réponse en **un seul appel** quand on le lui demande, pour un gain de latence important (cf. § 8).
+3. Elle gère le **backchannel dans les deux sens** : celui de l'utilisateur comme observation, celui de l'agent comme conseil d'action sur un canal séparé.
+4. Elle ne touche jamais au signal : c'est ce qui la distingue de tous les détecteurs existants, qui partent de l'audio (cf. § 7).
 
-Le comportement visé est celui d'un clavier : on reçoit la ligne quand
-l'utilisateur a appuyé sur Entrée. Pas de phrase à moitié faite.
+Le comportement visé est celui d'un clavier : on reçoit la ligne quand l'utilisateur a appuyé sur Entrée. Pas de phrase à moitié faite.
 
-Ce n'est **pas** un système full-duplex. Un full-duplex parle et écoute en même
-temps ; nous ne faisons que la moitié amont — l'observation du tour de
-l'utilisateur. Le développeur branche derrière le modèle de réponse qu'il veut.
+Ce n'est **pas** un système full-duplex. Un full-duplex parle et écoute en même temps ; nous ne faisons que la moitié amont — l'observation du tour de l'utilisateur. Le développeur branche derrière le modèle de réponse qu'il veut.
 
 ---
 
 ## 2. La règle qui commande tout : l'observateur ignore l'aval
 
-**La bibliothèque ne sait rien de ce qui vient après elle.** Elle ignore si un
-agent répond, s'il y a un TTS, quel modèle génère la réponse. Elle observe
-l'utilisateur, point. L'API est **unidirectionnelle** : entrée d'un côté,
-transitions d'état de l'autre.
+**La bibliothèque ne sait rien de ce qui vient après elle.** Elle ignore si un agent répond, s'il y a un TTS, quel modèle génère la réponse. Elle observe l'utilisateur, point. L'API est **unidirectionnelle** : entrée d'un côté, transitions d'état de l'autre.
 
-**Conséquence n° 1 — l'interruption n'est pas un état.** Une interruption, c'est
-un `speaking` reçu pendant que l'agent parle. La première moitié est une
-observation, la seconde n'est connue que de l'appelant : c'est donc à l'appelant
-de faire l'interprétation. Rien à ajouter dans la bibliothèque.
+**Conséquence n° 1 — l'interruption n'est pas un état.** Une interruption, c'est un `speaking` reçu pendant que l'agent parle. La première moitié est une observation, la seconde n'est connue que de l'appelant : c'est donc à l'appelant de faire l'interprétation. Rien à ajouter dans la bibliothèque.
 
-**Conséquence n° 2 — le backchannel n'est pas une action.** L'observateur signale
-qu'un signal d'écoute a été émis. Ce que l'hôte en fait — un son préenregistré,
-un « mhm » synthétisé, rien du tout — ne le regarde pas.
+**Conséquence n° 2 — le backchannel n'est pas une action.** L'observateur signale qu'un signal d'écoute a été émis. Ce que l'hôte en fait — un son préenregistré, un « mhm » synthétisé, rien du tout — ne le regarde pas.
 
-*Tranché le 02/09.* **La bibliothèque signale toujours le backchannel capté**
-— c'est une observation, elle entre dans les états du § 3. En revanche
-l'`assistant_backchannel` du papier (émettre un « mhm ») **n'est pas de son
-ressort** : c'est au second modèle, celui de l'hôte, de se débrouiller avec.
+*Tranché le 02/09.* **La bibliothèque signale toujours le backchannel capté** — c'est une observation, elle entre dans les états du § 3. En revanche l'`assistant_backchannel` du papier (émettre un « mhm ») **n'est pas de son ressort** : c'est au second modèle, celui de l'hôte, de se débrouiller avec.
 
-C'est cohérent avec la règle du § 2 : émettre un signal d'écoute suppose de
-savoir où en est la réponse — donc de connaître l'aval. La bibliothèque ne le
-sait pas et n'a pas à le savoir.
+C'est cohérent avec la règle du § 2 : émettre un signal d'écoute suppose de savoir où en est la réponse — donc de connaître l'aval. La bibliothèque ne le sait pas et n'a pas à le savoir.
 
-**Conséquence n° 3 — pas d'entrée `assistant_speaking()` dans l'API.** Une
-version antérieure de cette spec en prévoyait une ; elle est écartée. Elle
-faisait remonter dans la bibliothèque une information qui ne lui appartient pas,
-et rendait le rejeu déterministe dépendant d'un état externe.
+**Conséquence n° 3 — pas d'entrée `assistant_speaking()` dans l'API.** Une version antérieure de cette spec en prévoyait une ; elle est écartée. Elle faisait remonter dans la bibliothèque une information qui ne lui appartient pas, et rendait le rejeu déterministe dépendant d'un état externe.
 
-Ce que ça achète : un cœur testable en rejeu pur, sans audio, sans réseau et
-sans horloge réelle, et composable avec n'importe quel aval.
+Ce que ça achète : un cœur testable en rejeu pur, sans audio, sans réseau et sans horloge réelle, et composable avec n'importe quel aval.
 
 ### La réserve à ne pas oublier
 
-L'**écho** est le seul cas où l'aval remonte réellement : si le micro capte le
-haut-parleur, l'ASR transcrit l'agent et l'observateur voit un utilisateur qui
-parle. Ce problème se traite **en amont** (annulation d'écho, ou éloignement
-physique du micro — la solution qui a marché ici le 29/08), pas dans la machine
-à états.
+L'**écho** est le seul cas où l'aval remonte réellement : si le micro capte le haut-parleur, l'ASR transcrit l'agent et l'observateur voit un utilisateur qui parle. Ce problème se traite **en amont** (annulation d'écho, ou éloignement physique du micro — la solution qui a marché ici le 29/08), pas dans la machine à états.
 
-À noter que le code actuel s'en défend autrement : `_est_echo` compare le texte
-entendu au **texte prononcé** par l'agent. Cette défense-là exige de connaître
-l'aval et disparaît donc avec la règle ci-dessus. C'est un coût accepté, pas un
-oubli.
+À noter que le code actuel s'en défend autrement : `_est_echo` compare le texte entendu au **texte prononcé** par l'agent. Cette défense-là exige de connaître l'aval et disparaît donc avec la règle ci-dessus. C'est un coût accepté, pas un oubli.
 
 ---
 
 ## 3. Les états
 
-Deux natures, à ne pas confondre — c'est l'erreur qu'on vient précisément
-d'identifier côté détection/génération.
+Deux natures, à ne pas confondre — c'est l'erreur qu'on vient précisément d'identifier côté détection/génération.
 
 **Observations** (l'état courant) :
 
@@ -105,15 +68,9 @@ d'identifier côté détection/génération.
 |---|---|
 | `turn_end` | le texte complet de la phrase — le « Entrée » du clavier |
 
-Écartés explicitement : `interruption` (cf. § 2), et `assistant_backchannel` du
-papier DuplexCascade, qui n'est pas un état de l'utilisateur mais un conseil
-d'action à l'agent.
+Écartés explicitement : `interruption` (cf. § 2), et `assistant_backchannel` du papier DuplexCascade, qui n'est pas un état de l'utilisateur mais un conseil d'action à l'agent.
 
-**Encore ouverts** : un `partial` optionnel (texte en cours, pour l'affichage en
-direct et la génération spéculative — un hôte qui veut le comportement clavier
-l'ignore) ; un `departed` (long silence, l'utilisateur est parti, ce n'est pas
-`thinking`) ; et une valeur de confiance sur `turn_end`, pour que l'hôte règle
-son propre compromis latence/faux découpage.
+**Encore ouverts** : un `partial` optionnel (texte en cours, pour l'affichage en direct et la génération spéculative — un hôte qui veut le comportement clavier l'ignore) ; un `departed` (long silence, l'utilisateur est parti, ce n'est pas `thinking`) ; et une valeur de confiance sur `turn_end`, pour que l'hôte règle son propre compromis latence/faux découpage.
 
 ---
 
@@ -126,33 +83,19 @@ son propre compromis latence/faux découpage.
 | **ASR** | **dehors, point d'extension** | Décision du 02/09 : doit pouvoir être choisi selon le matériel disponible |
 | **Capture audio** | fournie à côté, jamais imposée | Micro, fichier et « push » (l'hôte injecte ses propres blocs — cas WebRTC et téléphonie) |
 
-L'ASR sorti, une question reste à trancher (§ 7) : la bibliothèque consomme-t-elle
-encore de l'audio, ou seulement du texte horodaté ?
+L'ASR sorti, une question reste à trancher (§ 7) : la bibliothèque consomme-t-elle encore de l'audio, ou seulement du texte horodaté ?
 
 ---
 
 ## 5. L'entrée : du texte horodaté, jamais du signal
 
-**Tranché le 02/09.** La bibliothèque ne consomme **que du texte horodaté**,
-éventuellement accompagné de contexte typé (musique, présence de voix, plusieurs
-locuteurs). Elle ne voit jamais un octet de son.
+**Tranché le 02/09.** La bibliothèque ne consomme **que du texte horodaté**, éventuellement accompagné de contexte typé (musique, présence de voix, plusieurs locuteurs). Elle ne voit jamais un octet de son.
 
-**Ce que ça règle** : toute la portabilité, d'un coup. Plus d'`arecord`, plus de
-PortAudio, plus de question Windows/macOS. Le cœur devient du Python pur,
-testable sans audio, sans réseau et sans horloge réelle.
+**Ce que ça règle** : toute la portabilité, d'un coup. Plus d'`arecord`, plus de PortAudio, plus de question Windows/macOS. Le cœur devient du Python pur, testable sans audio, sans réseau et sans horloge réelle.
 
-**Ce que ça ne coûte pas — vérifié.** On aurait pu croire qu'on perd
-l'information acoustique. C'est faux : elle **ne sert déjà plus**. Les trois cas
-— silence, silence répété, son sans transcription — produisent tous la même
-chaîne `<|no voice|>`, et le catalogue le dit noir sur blanc (`fr.toml:95-99`) :
-« la crête audio est toujours mesurée dans `audio.py` (seuil −40 dBFS) mais ne
-sert plus qu'en interne — le prompt n'a que leurs marqueurs ». C'était un choix
-délibéré, conforme au design des chercheurs, dont le code ne regarde que
-`delta_text.strip()`.
+**Ce que ça ne coûte pas — vérifié.** On aurait pu croire qu'on perd l'information acoustique. C'est faux : elle **ne sert déjà plus**. Les trois cas — silence, silence répété, son sans transcription — produisent tous la même chaîne `<|no voice|>`, et le catalogue le dit noir sur blanc (`fr.toml:95-99`) : « la crête audio est toujours mesurée dans `audio.py` (seuil −40 dBFS) mais ne sert plus qu'en interne — le prompt n'a que leurs marqueurs ». C'était un choix délibéré, conforme au design des chercheurs, dont le code ne regarde que `delta_text.strip()`.
 
-Le contexte typé rouvre donc cette porte **proprement** : en tant que champ
-déclaré, et non en tant que seuil caché dans le code (`SEUIL_VOIX = 328`, calibré
-sur un seul micro et jamais vérifié sur un autre).
+Le contexte typé rouvre donc cette porte **proprement** : en tant que champ déclaré, et non en tant que seuil caché dans le code (`SEUIL_VOIX = 328`, calibré sur un seul micro et jamais vérifié sur un autre).
 
 ---
 
@@ -160,15 +103,9 @@ sur un seul micro et jamais vérifié sur un autre).
 
 **Non pour le cœur, oui pour les modules déportés.**
 
-Un conteneur mettrait une couche entre lui et `/dev/snd`, c'est-à-dire
-exactement sur la zone la plus fragile du système — une journée entière a été
-passée sur ALSA (`aplay` sans `-D` qui échoue en silence, le HDMI, le tampon) —
-pour résoudre un problème d'installation qu'un script et un `requirements` figé
-règlent à 90 %.
+Un conteneur mettrait une couche entre lui et `/dev/snd`, c'est-à-dire exactement sur la zone la plus fragile du système — une journée entière a été passée sur ALSA (`aplay` sans `-D` qui échoue en silence, le HDMI, le tampon) — pour résoudre un problème d'installation qu'un script et un `requirements` figé règlent à 90 %.
 
-En revanche, les modules distants (vision, génération d'image, recherche) n'ont
-pas d'audio du tout : bons candidats. La ligne de partage est « ça touche au
-matériel ou pas ».
+En revanche, les modules distants (vision, génération d'image, recherche) n'ont pas d'audio du tout : bons candidats. La ligne de partage est « ça touche au matériel ou pas ».
 
 ---
 
@@ -176,29 +113,13 @@ matériel ou pas ».
 
 Recherche du 02/09, sources dans `ARTICLE-NOTES.md`.
 
-- **Smart Turn v3.2** (Pipecat/Daily) est très proche du produit visé : BSD-2,
-  audio → événement, **8 Mo**, 23 langues dont le français, **12,6 ms sur CPU et
-  59,8 ms sur un ARM à 1 vCPU**. Poids, données et script d'entraînement ouverts.
-  Il faut partir du principe qu'il existe et qu'il est gratuit.
-- **LiveKit Turn Detector** a les meilleurs chiffres publiés, mais sa licence
-  interdit noir sur blanc tout usage hors du framework LiveKit. **C'est le vrai
-  trou du marché.**
-- Ces outils rendent tous une **décision ou une probabilité binaire de fin de
-  tour**. Aucun ne produit la machine à états du § 3. C'est la seule
-  différenciation propre — reste à savoir si un développeur la paierait.
-- **MaAI** (Kyoto, MIT) est le concurrent le plus proche du périmètre :
-  turn-taking et backchannel en temps réel, autonome, **sans connaissance de
-  l'aval** — notre contrainte, déjà implémentée. Mais il rend des **prédictions
-  continues**, sans machine à états et sans le texte de la phrase. **Notre delta
-  face à lui est la couche d'états et le texte, pas le signal.**
-- **Notre 0,816 n'est comparable qu'à DuplexCascade**, dont la métrique est
-  propre à ce papier. Le terrain commun du domaine est
-  [eot-bench](https://github.com/livekit/eot-bench) : reproductible, données
-  publiques, 14 langues dont le français.
+- **Smart Turn v3.2** (Pipecat/Daily) est très proche du produit visé : BSD-2, audio → événement, **8 Mo**, 23 langues dont le français, **12,6 ms sur CPU et 59,8 ms sur un ARM à 1 vCPU**. Poids, données et script d'entraînement ouverts. Il faut partir du principe qu'il existe et qu'il est gratuit.
+- **LiveKit Turn Detector** a les meilleurs chiffres publiés, mais sa licence interdit noir sur blanc tout usage hors du framework LiveKit. **C'est le vrai trou du marché.**
+- Ces outils rendent tous une **décision ou une probabilité binaire de fin de tour**. Aucun ne produit la machine à états du § 3. C'est la seule différenciation propre — reste à savoir si un développeur la paierait.
+- **MaAI** (Kyoto, MIT) est le concurrent le plus proche du périmètre : turn-taking et backchannel en temps réel, autonome, **sans connaissance de l'aval** — notre contrainte, déjà implémentée. Mais il rend des **prédictions continues**, sans machine à états et sans le texte de la phrase. **Notre delta face à lui est la couche d'états et le texte, pas le signal.**
+- **Notre 0,816 n'est comparable qu'à DuplexCascade**, dont la métrique est propre à ce papier. Le terrain commun du domaine est [eot-bench](https://github.com/livekit/eot-bench) : reproductible, données publiques, 14 langues dont le français.
 
-**À faire avant d'écrire une ligne de la bibliothèque** : passer le prototype sur
-eot-bench en français. C'est le seul endroit où notre chiffre devient comparable
-à celui des autres.
+**À faire avant d'écrire une ligne de la bibliothèque** : passer le prototype sur eot-bench en français. C'est le seul endroit où notre chiffre devient comparable à celui des autres.
 
 ---
 
@@ -206,8 +127,7 @@ eot-bench en français. C'est le seul endroit où notre chiffre devient comparab
 
 ## 8. Le vocabulaire du domaine
 
-Recherche du 02/09. **À employer partout** : ces mots rendent le projet
-trouvable, et la plupart de nos états portent un nom depuis cinquante ans.
+Recherche du 02/09. **À employer partout** : ces mots rendent le projet trouvable, et la plupart de nos états portent un nom depuis cinquante ans.
 
 ### Trois niveaux à ne pas confondre
 
@@ -215,23 +135,15 @@ trouvable, et la plupart de nos états portent un nom depuis cinquante ans.
 endpointing  ⊂  end-of-turn detection (EOU)  ⊂  turn-taking prediction (PTTM)
 ```
 
-- **endpointing** — terme historique de l'ASR, décision binaire sur le signal
-  acoustique. C'est le mot de MRCPv2 (RFC 6787).
-- **end-of-turn detection / EOU** — même décision, mais avec des indices
-  sémantiques et pragmatiques. « Semantic end-of-turn detector » est le terme
-  précis (Aldeneh et al. 2018).
-- **turn-taking prediction / PTTM** — pas une décision mais une prévision
-  continue de l'activité vocale à venir des deux interlocuteurs. Famille
-  TurnGPT / VAP.
+- **endpointing** — terme historique de l'ASR, décision binaire sur le signal acoustique. C'est le mot de MRCPv2 (RFC 6787).
+- **end-of-turn detection / EOU** — même décision, mais avec des indices sémantiques et pragmatiques. « Semantic end-of-turn detector » est le terme précis (Aldeneh et al. 2018).
+- **turn-taking prediction / PTTM** — pas une décision mais une prévision continue de l'activité vocale à venir des deux interlocuteurs. Famille TurnGPT / VAP.
 
-**Nous ne sommes dans aucun des trois** : nous produisons une machine à états
-observée. Il n'existe pas de terme consacré pour ça — espace lexical libre, avec
-son revers : personne ne cherchera la bibliothèque par ce mot-clé.
+**Nous ne sommes dans aucun des trois** : nous produisons une machine à états observée. Il n'existe pas de terme consacré pour ça — espace lexical libre, avec son revers : personne ne cherchera la bibliothèque par ce mot-clé.
 
 ### Nos états ont des noms depuis 1974
 
-Sacks, Schegloff & Jefferson (1974) distinguent trois silences, et la
-distinction est exactement la nôtre :
+Sacks, Schegloff & Jefferson (1974) distinguent trois silences, et la distinction est exactement la nôtre :
 
 | terme du domaine | sens | notre état |
 |---|---|---|
@@ -239,58 +151,33 @@ distinction est exactement la nôtre :
 | **gap** | silence court **entre** deux tours, à un TRP | `thinking` (cf. ci-dessous) |
 | **lapse** | silence long, personne ne reprend | `departed` (encore ouvert) |
 
-⚠️ « pause » seul est ambigu hors analyse conversationnelle. Employer
-**intra-turn pause** ou **turn-holding pause**.
+⚠️ « pause » seul est ambigu hors analyse conversationnelle. Employer **intra-turn pause** ou **turn-holding pause**.
 
-**Ce que `thinking` veut dire chez nous — vérifié le 02/09.** Le prompt ne le
-tranche pas : il dit seulement « il se tait, mais il réfléchit », et **aucun
-exemple ne le montre**. Mais l'usage effectif penche pour le *gap* : le
-changement retenu (+0,025) remplaçait le `<|no voice|>` **qui suit une réponse de
-l'assistant** par `is thinking`.
+**Ce que `thinking` veut dire chez nous — vérifié le 02/09.** Le prompt ne le tranche pas : il dit seulement « il se tait, mais il réfléchit », et **aucun exemple ne le montre**. Mais l'usage effectif penche pour le *gap* : le changement retenu (+0,025) remplaçait le `<|no voice|>` **qui suit une réponse de l'assistant** par `is thinking`.
 
-**Conséquence : la pause intra-tour n'a aucun marqueur chez nous.** C'est
-`speaking` qui l'absorbe. C'est précisément la distinction qu'un VAD ne sait pas
-faire et que nous revendiquons — à décider si elle mérite son propre état.
+**Conséquence : la pause intra-tour n'a aucun marqueur chez nous.** C'est `speaking` qui l'absorbe. C'est précisément la distinction qu'un VAD ne sait pas faire et que nous revendiquons — à décider si elle mérite son propre état.
 
-Autres termes à reprendre tels quels : **TRP** (*transition-relevance place*, le
-moment où le tour peut changer), **the floor** (la ressource disputée),
-**backchannel** (Yngve, 1970 — en français, la littérature dit « régulateur »).
+Autres termes à reprendre tels quels : **TRP** (*transition-relevance place*, le moment où le tour peut changer), **the floor** (la ressource disputée), **backchannel** (Yngve, 1970 — en français, la littérature dit « régulateur »).
 
 ### Le précédent le plus proche : FSTTM
 
-Raux & Eskenazi, NAACL 2009, *A Finite-State Turn-Taking Model* : six états
-(`USER`, `SYSTEM`, `FREE_S`, `FREE_U`, `BOTH_S`, `BOTH_U`). Notre `thinking` est
-leur `FREE_U` ; « il commence à parler pendant que l'agent parle » est leur
-`BOTH_S`.
+Raux & Eskenazi, NAACL 2009, *A Finite-State Turn-Taking Model* : six états (`USER`, `SYSTEM`, `FREE_S`, `FREE_U`, `BOTH_S`, `BOTH_U`). Notre `thinking` est leur `FREE_U` ; « il commence à parler pendant que l'agent parle » est leur `BOTH_S`.
 
-**La différence est exactement notre parti pris** : le FSTTM modélise le floor
-*joint* et sert à **choisir une action**, donc il connaît l'aval. Ce que nous
-construisons est **la projection du FSTTM sur le seul axe utilisateur, en mode
-observation**. C'est la formule la plus juste du périmètre, et rien de tel n'a
-été trouvé dans la littérature ni dans le logiciel libre.
+**La différence est exactement notre parti pris** : le FSTTM modélise le floor *joint* et sert à **choisir une action**, donc il connaît l'aval. Ce que nous construisons est **la projection du FSTTM sur le seul axe utilisateur, en mode observation**. C'est la formule la plus juste du périmètre, et rien de tel n'a été trouvé dans la littérature ni dans le logiciel libre.
 
 ### Un cadre à connaître : IU (Incremental Units)
 
-Schlangen & Skantze, EACL 2009. Formalise le transport incrémental entre modules
-qui ne savent pas qui les consomme — notre principe d'indépendance de l'aval,
-déjà publié. Ses opérations `add` / `commit` / **`revoke`** décrivent la révision
-d'une hypothèse déjà émise : c'est précisément ce que gère notre `_delta` quand
-l'ASR se ravise. Implémentations : InproTK (Java), retico (Python, peu adopté).
+Schlangen & Skantze, EACL 2009. Formalise le transport incrémental entre modules qui ne savent pas qui les consomme — notre principe d'indépendance de l'aval, déjà publié. Ses opérations `add` / `commit` / **`revoke`** décrivent la révision d'une hypothèse déjà émise : c'est précisément ce que gère notre `_delta` quand l'ASR se ravise. Implémentations : InproTK (Java), retico (Python, peu adopté).
 
 IU donne le **transport**, pas le modèle du tour. Les deux sont complémentaires.
 
 ### Le nom
 
-**`microturn` est libre partout (PyPI, npm, crates.io) mais mauvais pour ce
-périmètre.** « micro-turn » n'existe pas dans la littérature, et pour quelqu'un
-du domaine un « tout petit tour de parole » *est* un backchannel — le nom pointe
-donc vers le plus mineur de nos états.
+**`microturn` est libre partout (PyPI, npm, crates.io) mais mauvais pour ce périmètre.** « micro-turn » n'existe pas dans la littérature, et pour quelqu'un du domaine un « tout petit tour de parole » *est* un backchannel — le nom pointe donc vers le plus mineur de nos états.
 
-Candidats libres et vérifiés : **turnstream** (aucune collision, nulle part),
-**floorstate** (le plus juste conceptuellement), **turnfsm** (exact, laid).
+Candidats libres et vérifiés : **turnstream** (aucune collision, nulle part), **floorstate** (le plus juste conceptuellement), **turnfsm** (exact, laid).
 
-Décision non prise. Si le nom reste, lui adosser une tagline descriptive et des
-mots-clés `turn-taking`, `end-of-turn`, `EOU`, `backchannel`, `endpointing`.
+Décision non prise. Si le nom reste, lui adosser une tagline descriptive et des mots-clés `turn-taking`, `end-of-turn`, `EOU`, `backchannel`, `endpointing`.
 
 ---
 
@@ -298,22 +185,16 @@ mots-clés `turn-taking`, `end-of-turn`, `EOU`, `backchannel`, `endpointing`.
 
 ### Décision du 02/09 — les trois modes sont une option, pas un choix de conception
 
-Le problème : aujourd'hui `Decideur.decide()` rend l'état **et** la réponse dans
-le même appel. Quand la personne s'arrête, la réponse est déjà prête. Séparer
-détecteur et répondeur supprime cette spéculation et rajoute un aller-retour.
-Mais faire faire la détection de fin de phrase par un gros modèle coûte cher.
+Le problème : aujourd'hui `Decideur.decide()` rend l'état **et** la réponse dans le même appel. Quand la personne s'arrête, la réponse est déjà prête. Séparer détecteur et répondeur supprime cette spéculation et rajoute un aller-retour. Mais faire faire la détection de fin de phrase par un gros modèle coûte cher.
 
-**Tranché : c'est une option offerte par la bibliothèque, pas une architecture
-imposée.** Et la forme retenue évite d'avoir deux produits — **un champ
-facultatif dans l'événement, pas deux API** :
+**Tranché : c'est une option offerte par la bibliothèque, pas une architecture imposée.** Et la forme retenue évite d'avoir deux produits — **un champ facultatif dans l'événement, pas deux API** :
 
 ```
 turn_end(text="...", draft=None)    # mode séparé  : l'hôte appelle son modèle
 turn_end(text="...", draft="...")   # mode fusionné : la réponse est déjà là
 ```
 
-Le protocole `Decider` reste unique, sa sortie porte une réponse facultative.
-Aucune branche dans le cœur ; changer de mode ne change pas le code de l'hôte.
+Le protocole `Decider` reste unique, sa sortie porte une réponse facultative. Aucune branche dans le cœur ; changer de mode ne change pas le code de l'hôte.
 
 **Les trois modes** :
 
@@ -323,25 +204,15 @@ Aucune branche dans le cœur ; changer de mode ne change pas le code de l'hôte.
 | **fusionné** | le gros modèle, à chaque tick | même appel que la détection | minimale | 159 appels pour 13 réponses (mesuré) |
 | **spéculatif** | petit modèle, local | déclenchée **en avance** quand la fin approche, en parallèle | ≈ fusionné | ~20-30 appels au lieu de 159 |
 
-**Le mode spéculatif est déclassé (02/09).** J'avais écrit qu'il donnait « la
-latence du fusionné pour cinq fois moins d'appels » : c'est faux. Lancer le gros
-modèle sur le même tick que le détecteur, sans attendre son verdict, fait gagner
-**le temps du détecteur — ~0,2 s — et rien de plus**.
+**Le mode spéculatif est déclassé (02/09).** J'avais écrit qu'il donnait « la latence du fusionné pour cinq fois moins d'appels » : c'est faux. Lancer le gros modèle sur le même tick que le détecteur, sans attendre son verdict, fait gagner **le temps du détecteur — ~0,2 s — et rien de plus**.
 
-Gagner davantage supposerait de lancer la génération plusieurs ticks avant la
-fin, donc sur une phrase incomplète (« la taille de la tour Eiffel… **de Pise** »)
-et de jeter dès que le texte change. Ça ne paie que si les derniers ticks
-n'apportent aucun mot. Aucun chiffre là-dessus.
+Gagner davantage supposerait de lancer la génération plusieurs ticks avant la fin, donc sur une phrase incomplète (« la taille de la tour Eiffel… **de Pise** ») et de jeter dès que le texte change. Ça ne paie que si les derniers ticks n'apportent aucun mot. Aucun chiffre là-dessus.
 
-Il reste dans l'API — même classe composite, chevauchement gratuit — mais comme
-**optimisation du mode séparé**, pas comme troisième voie. L'arbitrage réel est
-binaire : un modèle, ou deux.
+Il reste dans l'API — même classe composite, chevauchement gratuit — mais comme **optimisation du mode séparé**, pas comme troisième voie. L'arbitrage réel est binaire : un modèle, ou deux.
 
 ### Mesuré le 02/09 : le mode séparé coûte de la justesse, pas seulement de la latence
 
-On croyait que le prix de la séparation était la latence. **C'est faux : elle
-coûte d'abord de la détection.** Cinq passes sur les deux sessions de référence,
-les deux dimensions comptées séparément :
+On croyait que le prix de la séparation était la latence. **C'est faux : elle coûte d'abord de la détection.** Cinq passes sur les deux sessions de référence, les deux dimensions comptées séparément :
 
 | | TOR fins ↑ | justesse |
 |---|---|---|
@@ -351,133 +222,71 @@ les deux dimensions comptées séparément :
 
 **−0,165 de TOR fins**, soit près de trois fins de tour ratées sur dix-sept.
 
-**Mais l'essentiel du bénéfice ne vient pas de l'acte de générer** : retirer la
-génération seule coûte 0,067, retirer en plus les réponses des exemples coûte
-0,098 de plus. Autrement dit — **ce qui aide n'est pas de calculer la réponse,
-c'est de savoir à quoi elle ressemblerait.**
+**Mais l'essentiel du bénéfice ne vient pas de l'acte de générer** : retirer la génération seule coûte 0,067, retirer en plus les réponses des exemples coûte 0,098 de plus. Autrement dit — **ce qui aide n'est pas de calculer la réponse, c'est de savoir à quoi elle ressemblerait.**
 
-*Conséquence directe pour le mode séparé* : il est jouable, mais **pas** en
-retirant simplement la consigne. Son prompt doit garder des exemples montrant à
-quoi ressemble une fin de tour *répondable*. C'est gratuit, et ça récupère les
-deux tiers de l'écart.
+*Conséquence directe pour le mode séparé* : il est jouable, mais **pas** en retirant simplement la consigne. Son prompt doit garder des exemples montrant à quoi ressemble une fin de tour *répondable*. C'est gratuit, et ça récupère les deux tiers de l'écart.
 
-*Et l'agrégat ment ici, exactement comme redouté* : la variante intermédiaire
-rend 0,821 contre 0,816 pour la base — « aucun effet » — alors que sa détection
-est six points plus basse. Un système qui rate des fins de tour parle moins, donc
-intervient moins dans les pauses, et la seconde dimension le récompense d'avoir
-échoué sur la première. **Ne jamais juger sur l'agrégat.**
+*Et l'agrégat ment ici, exactement comme redouté* : la variante intermédiaire rend 0,821 contre 0,816 pour la base — « aucun effet » — alors que sa détection est six points plus basse. Un système qui rate des fins de tour parle moins, donc intervient moins dans les pauses, et la seconde dimension le récompense d'avoir échoué sur la première. **Ne jamais juger sur l'agrégat.**
 
 **Deux conséquences à assumer dans l'API** :
 
-- En mode fusionné, **détecteur et répondeur ne sont plus deux points d'extension
-  mais un seul**. Sans ça, un développeur croira pouvoir associer un petit
-  détecteur local à un gros répondeur, et découvrira que dans ce mode c'est le
-  même objet.
-- Le mode fusionné perd l'argument central du projet — pas de réseau dans la
-  boucle serrée. C'est pourtant **le seul qu'on ait mesuré** : les 0,816 en
-  viennent. Les chiffres des deux autres modes n'existent pas encore.
+- En mode fusionné, **détecteur et répondeur ne sont plus deux points d'extension mais un seul**. Sans ça, un développeur croira pouvoir associer un petit détecteur local à un gros répondeur, et découvrira que dans ce mode c'est le même objet.
+- Le mode fusionné perd l'argument central du projet — pas de réseau dans la boucle serrée. C'est pourtant **le seul qu'on ait mesuré** : les 0,816 en viennent. Les chiffres des deux autres modes n'existent pas encore.
 
 ---
 
 ## 10. Questions ouvertes, par ordre d'importance
 
-1. **Le prompt dépend de l'ASR.** Mesuré : la phrase décrivant la casse de
-   l'entrée vaut **+0,063 quand elle est vraie et −0,103 quand elle est fausse**.
-   Si l'ASR est branchable, le prompt du détecteur doit l'être aussi et lui être
-   apparié. Le catalogue le fait déjà sans que ce soit assumé comme une décision
-   d'architecture (`systeme` contre `systeme_sherpa`).
-2. **Le tick appartient-il à la bibliothèque ou à l'hôte ?** `TICK_S = 1.2` porte
-   toute la logique de tour de parole. Le laisser régler par l'hôte, c'est
-   accepter qu'il puisse le mettre faux et ne plus rien détecter, sans message.
-3. **La pause intra-tour mérite-t-elle son propre état ?** Elle n'a aucun
-   marqueur aujourd'hui (§ 8) et c'est pourtant la distinction qu'un VAD ne sait
-   pas faire.
+1. **Le prompt dépend de l'ASR.** Mesuré : la phrase décrivant la casse de l'entrée vaut **+0,063 quand elle est vraie et −0,103 quand elle est fausse**. Si l'ASR est branchable, le prompt du détecteur doit l'être aussi et lui être apparié. Le catalogue le fait déjà sans que ce soit assumé comme une décision d'architecture (`systeme` contre `systeme_sherpa`).
+2. **Le tick appartient-il à la bibliothèque ou à l'hôte ?** `TICK_S = 1.2` porte toute la logique de tour de parole. Le laisser régler par l'hôte, c'est accepter qu'il puisse le mettre faux et ne plus rien détecter, sans message.
+3. **La pause intra-tour mérite-t-elle son propre état ?** Elle n'a aucun marqueur aujourd'hui (§ 8) et c'est pourtant la distinction qu'un VAD ne sait pas faire.
 
 ---
 
 ## 11. Le nom
 
-**Décision du 02/09 : on garde `microturn` pour l'instant.** Le § 8 explique
-pourquoi ce n'est pas le bon nom pour ce périmètre ; ce n'est pas bloquant, et le
-renommage peut attendre que le périmètre soit stabilisé. Candidats libres si on
-renomme : `turnstream`, `floorstate`, `turnfsm`.
+**Décision du 02/09 : on garde `microturn` pour l'instant.** Le § 8 explique pourquoi ce n'est pas le bon nom pour ce périmètre ; ce n'est pas bloquant, et le renommage peut attendre que le périmètre soit stabilisé. Candidats libres si on renomme : `turnstream`, `floorstate`, `turnfsm`.
 
 ---
 
 ## 12. Réflexions d'Alex, 03/09 — à reprendre, pas encore tranchées
 
-Notées telles quelles en fin de journée. **Certaines contredisent ce qui est
-écrit plus haut** ; les contradictions sont signalées, pas résolues.
+Notées telles quelles en fin de journée. **Certaines contredisent ce qui est écrit plus haut** ; les contradictions sont signalées, pas résolues.
 
 ### Le positionnement se déplace
 
-> *« Le projet devient en fait : transformer un LLM en full duplex. En entrée :
-> texte horodaté, en sortie : texte ou interruption. »*
+> *« Le projet devient en fait : transformer un LLM en full duplex. En entrée : texte horodaté, en sortie : texte ou interruption. »*
 
-C'est plus fort que le § 1, qui décrit « un détecteur de fin de tour fondé sur
-le sens ». Ce n'est plus un composant qui observe, c'est une **transformation
-appliquée à un modèle** : on prend n'importe quel LLM et on le rend capable de
-tenir une conversation en duplex.
+C'est plus fort que le § 1, qui décrit « un détecteur de fin de tour fondé sur le sens ». Ce n'est plus un composant qui observe, c'est une **transformation appliquée à un modèle** : on prend n'importe quel LLM et on le rend capable de tenir une conversation en duplex.
 
-Conséquence sur la sortie : elle n'est plus seulement une machine à états, elle
-porte **le texte de la réponse**. On revient à l'objet unique `texte ou
-interruption`.
+Conséquence sur la sortie : elle n'est plus seulement une machine à états, elle porte **le texte de la réponse**. On revient à l'objet unique `texte ou interruption`.
 
 ### La détection et la réponse restent dans le MÊME appel
 
-> *« Il faut commencer par avoir un agrégateur derrière le STT et ensuite
-> laisser la détection + réponse en un seul modèle / appel. »*
+> *« Il faut commencer par avoir un agrégateur derrière le STT et ensuite laisser la détection + réponse en un seul modèle / appel. »*
 
-⚠️ **Ceci renverse le § 9**, qui faisait des trois modes une option et
-présentait le mode séparé comme la voie de la modularité. Mais c'est cohérent
-avec la mesure du 02/09 : séparer coûte **−0,165 de TOR fins**, et l'essentiel
-du bénéfice vient des réponses présentes dans les exemples, pas de l'acte de
-générer. Le fusionné n'était pas un compromis, c'était le bon choix.
+⚠️ **Ceci renverse le § 9**, qui faisait des trois modes une option et présentait le mode séparé comme la voie de la modularité. Mais c'est cohérent avec la mesure du 02/09 : séparer coûte **−0,165 de TOR fins**, et l'essentiel du bénéfice vient des réponses présentes dans les exemples, pas de l'acte de générer. Le fusionné n'était pas un compromis, c'était le bon choix.
 
-Ce qui est neuf, c'est **l'agrégateur derrière le STT** : une couche qui
-recolle, stabilise et horodate avant que quoi que ce soit n'atteigne le modèle.
-C'est là que vivraient `_delta`, le recollage des segments, la révision — tout
-ce qui nous a coûté la journée du 03/09.
+Ce qui est neuf, c'est **l'agrégateur derrière le STT** : une couche qui recolle, stabilise et horodate avant que quoi que ce soit n'atteigne le modèle. C'est là que vivraient `_delta`, le recollage des segments, la révision — tout ce qui nous a coûté la journée du 03/09.
 
 ### Les backchannels, dans les deux sens, par le prompt
 
-> *« Dans le prompt il faut explicitement dire qu'il faut ignorer les
-> backchannels + en générer. »*
+> *« Dans le prompt il faut explicitement dire qu'il faut ignorer les backchannels + en générer. »*
 
-⚠️ **Ceci renverse aussi le § 2**, où l'`assistant_backchannel` avait été confié
-au second modèle au motif qu'émettre un « mhm » suppose de connaître l'aval.
-Si détection et réponse sont dans le même appel, l'objection tombe : le modèle
-qui répond est celui qui observe.
+⚠️ **Ceci renverse aussi le § 2**, où l'`assistant_backchannel` avait été confié au second modèle au motif qu'émettre un « mhm » suppose de connaître l'aval. Si détection et réponse sont dans le même appel, l'objection tombe : le modèle qui répond est celui qui observe.
 
-À noter que les deux jetons existent déjà dans l'enum du schéma, et qu'ils
-étaient **jetés** par le code jusqu'au 03/09 (`b5a6652`). Le prompt, lui, n'en
-dit toujours rien.
+À noter que les deux jetons existent déjà dans l'enum du schéma, et qu'ils étaient **jetés** par le code jusqu'au 03/09 (`b5a6652`). Le prompt, lui, n'en dit toujours rien.
 
 ### La structure du prompt, explicitée
 
-> ```
-> Instructions
-> Exemples de discussions
-> Historique de la discussion
-> Phrase en cours de dictée
-> ```
+> ``` Instructions Exemples de discussions Historique de la discussion Phrase en cours de dictée ```
 
-La nouveauté est la **quatrième section** : la phrase en cours, séparée de
-l'historique. Aujourd'hui le delta est noyé dans l'historique comme un
-micro-tour de plus ; là, il aurait sa place à lui.
+La nouveauté est la **quatrième section** : la phrase en cours, séparée de l'historique. Aujourd'hui le delta est noyé dans l'historique comme un micro-tour de plus ; là, il aurait sa place à lui.
 
-C'est proche du rappel `tour_en_cours` retiré ce soir — mais pas identique : le
-rappel était *concaténé au delta*, ce qui dupliquait le texte et cassait le
-repliage. Une section dédiée n'a pas ce défaut. **À mesurer avant d'y revenir**,
-puisque le retrait du rappel vaut +1 fin de tour sur 17.
+C'est proche du rappel `tour_en_cours` retiré ce soir — mais pas identique : le rappel était *concaténé au delta*, ce qui dupliquait le texte et cassait le repliage. Une section dédiée n'a pas ce défaut. **À mesurer avant d'y revenir**, puisque le retrait du rappel vaut +1 fin de tour sur 17.
 
 ### Le cas d'usage du Raspberry
 
-> *« Écouter les discussions, les comprendre et les illustrer sur l'écran de la
-> télé (recherche ou génération). »*
+> *« Écouter les discussions, les comprendre et les illustrer sur l'écran de la télé (recherche ou génération). »*
 
-Un système qui **ne parle jamais**. Il valide par l'exemple que le TTS est un
-accessoire, et c'est le meilleur argument pour la modularité — mieux que
-l'exemple `chat` du `PLAN.md`, parce qu'il produit quelque chose au lieu de se
-contenter de transmettre. Rejoint le § 10 d'`IDEES.md` (plugins, MQTT, un
-capteur coûteux sur une autre machine).
+Un système qui **ne parle jamais**. Il valide par l'exemple que le TTS est un accessoire, et c'est le meilleur argument pour la modularité — mieux que l'exemple `chat` du `PLAN.md`, parce qu'il produit quelque chose au lieu de se contenter de transmettre. Rejoint le § 10 d'`IDEES.md` (plugins, MQTT, un capteur coûteux sur une autre machine).

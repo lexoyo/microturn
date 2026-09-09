@@ -205,7 +205,7 @@ class Session:
             self.trace = journal.Journal(trace_dir, {
                 "stt": moteur,
                 "modele_stt": stt.WHISPER_MODEL if moteur == "whisper" else stt.VOSK_DIR,
-                "llm": modele or llm.MODEL,
+                "llm": modele or llm.modele_par_defaut(),
                 "tts": self.voix.engine, "voix": self.voix.voice,
                 "source": path or f"micro {mic}", "muet": muet, "langue": langue,
                 "parametres": {
@@ -229,8 +229,16 @@ class Session:
         m = moteur
         if m == "rejeu" and "sherpa" in str(kw.get("session", "")):
             m = "sherpa"
-        self.decideur = fabrique(model=modele or llm.MODEL, trace=self.trace,
+        self.decideur = fabrique(model=modele or llm.modele_par_defaut(), trace=self.trace,
                                  langue=langue, tick=TICK_S, moteur=m)
+        # Ce qui a produit la session, dit au démarrage. Sans ça rien n'indique
+        # que la même commande a décidé en local ou chez OpenRouter — la clé
+        # dans `.env` suffit à changer de décideur, et une mesure attribuée au
+        # mauvais modèle ne vaut rien.
+        print(f"  transcription  {moteur}\n"
+              f"  décideur       {self.decideur.resume()}\n"
+              f"  voix           {self.voix.engine}"
+              f" · {os.path.basename(str(self.voix.voice or '—'))}", flush=True)
         self.q, self.stop_evt, self.stream, self.eng = stt.start(
             moteur, path, mic, porte=self.porte, trace=self.trace,
             robot_parle=lambda: self.robot_parle,

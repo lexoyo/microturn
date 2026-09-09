@@ -32,9 +32,26 @@ titre "Reconnaissance vocale — sherpa-onnx (le défaut)"
 # 300 ms sur un Pi 3B à deux threads. Les fichiers int8 seulement : c'est ce
 # que le projet mesure, et c'est trois fois plus léger.
 FR=models/sherpa-onnx-streaming-zipformer-fr-2023-04-14
-B=https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-2023-04-14/resolve/main
 S=epoch-29-avg-9-with-averaged-model.int8.onnx
-for f in encoder-$S decoder-$S joiner-$S tokens.txt; do recupere "$FR/$f" "$B/$f"; done
+N=$(basename "$FR")
+# Le dépôt HuggingFace d'origine (csukuangfj/…-fr-2023-04-14) a disparu : 401 en
+# anonyme, « Repository not found » avec un compte valide, et le miroir hf-mirror
+# renvoie le même 401. Un token HuggingFace n'y change rien — vérifié le
+# 09/09/2026. Le dépôt anglais du même auteur, lui, répond toujours.
+# On prend donc le même export dans la release `asr-models` de k2-fsa, qui est la
+# distribution amont et ne demande aucune authentification. Prix à payer : une
+# archive de ~400 Mio (fp32 + int8) dont on n'extrait que les quatre fichiers
+# int8. Ne PAS la remplacer par un modèle plus récent (`…-fr-kroko-2025-08-06`) :
+# tous les chiffres du dépôt sont mesurés avec cet export-là.
+if [ -s "$FR/tokens.txt" ] && [ -s "$FR/encoder-$S" ]; then
+    dit "déjà là   $N"
+else
+    dit "télécharge $N — archive amont ~400 Mio, on n'en garde que 128"
+    mkdir -p models
+    curl -fL --progress-bar \
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$N.tar.bz2" \
+        | tar xj -C models "$N/encoder-$S" "$N/decoder-$S" "$N/joiner-$S" "$N/tokens.txt"
+fi
 
 if [ "$TOUT" = 1 ]; then
     titre "Reconnaissance vocale — anglais"
@@ -47,6 +64,23 @@ fi
 titre "Reconnaissance vocale — whisper (repli, et seul moteur multilingue)"
 recupere models/ggml-tiny-q5_1.bin \
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin
+
+titre "Décideur — Qwen2.5-7B-Instruct, en local (le défaut)"
+# Le modèle de BASE des chercheurs, sans leur LoRA : c'est la configuration où la
+# comparaison porte sur leur contribution propre (décision du 05/09, PLAN-REPRO).
+# Q4_K_M — 4,4 Gio — parce qu'il faut tenir sur une machine ordinaire ; eux
+# servent le modèle en pleine précision, et cet écart-là compte dans les chiffres.
+# ⚠️ Inutile sur la cible Pi 3B, qui n'a que 905 Mio : là-bas, une clé OpenRouter
+# dans .env fait repasser le décideur en distant, et MICROTURN_SANS_LOCAL=1 évite
+# de télécharger 4,4 Gio pour rien.
+if [ "${MICROTURN_SANS_LOCAL:-0}" = 1 ]; then
+    dit "sauté (MICROTURN_SANS_LOCAL=1) — il faudra une clé OpenRouter"
+else
+    recupere models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
+        https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf
+    .venv/bin/pip install -q llama-cpp-python
+    dit "$(.venv/bin/python -c 'import llama_cpp; print("llama-cpp-python", llama_cpp.__version__)')"
+fi
 
 titre "Voix — piper"
 # Le binaire piper n'est PAS installé ici : il est distribué en archive par

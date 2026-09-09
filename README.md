@@ -1,313 +1,222 @@
 # microturn
 
-Un compagnon vocal qui écoute en continu et décide **lui-même** quand répondre.
+**A reimplementation of [DuplexCascade](https://arxiv.org/abs/2603.09180) that runs on consumer hardware, using prompting instead of fine-tuning.**
 
-Pas de détecteur de parole, pas de mot-clé, pas de bouton. La transcription arrive
-au fil de l'eau, et toutes les 1,2 seconde le modèle de langage dit ce qu'il perçoit
-— *elle parle, elle a fini, elle réfléchit, elle me coupe* — et seulement dans le
-deuxième cas, ce qu'il faut répondre.
+Researchers at SB Intuitions showed that a language model can hold a *full-duplex* conversation — listening continuously and deciding **on its own** when to reply, with no silence detector, no wake word and no button — provided you fine-tune it with LoRA.
+
+microturn takes their mechanism and **trains nothing**: the same decision comes from a prompt.
+
+The other difference is the machine. **Their implementation needs about 20 GiB of GPU memory** — three Kyutai models plus a Qwen2-7B. This one runs on **any computer**, down to a **Raspberry Pi**: speech recognition and speech synthesis are small and local, and the only heavy part is the decision itself — which is a call to whatever model you are testing, local or remote.
+
+So the question this repository asks is: *how far does that get you, and with which models?* The sorting is part of the answer — some models fail outright, and that is measured below.
+
+This is an **experiment**, not a product. Contributions are welcome. More benchmarks on more models would be great.
+
+[[Original paper]](https://arxiv.org/abs/2603.09180) [[Their code]](https://github.com/sbintuitions/DuplexCascade) [[Their demo]](https://sbintuitions.github.io/DuplexCascadeDemo/) [[Our demos]](demos/) [[Reading notes]](PAPIER.md)
+
+⚠️ **Their code does not run on consumer hardware, so their results are not reproduced here — they are quoted from their paper.** Two independent reasons, checked on 2026-09-09: their weights sit behind a gated HuggingFace repository that **excludes EU residents**, and their three services need ~20 GiB of VRAM in bf16, the TTS alone claiming 3.79.
+
+## How it works
 
 ```
-micro ──▶ sherpa-onnx ──▶ décideur ──▶ piper ──▶ haut-parleur
-               │              │
-         transcription   PARLE · FINI · REFLECHIT · COUPE
+mic ──▶ sherpa-onnx ──▶ decider ──▶ piper ──▶ speaker
+              │             │
+         transcript    SPEAKING · DONE · THINKING · INTERRUPTING
 ```
 
-## L'idée, et d'où elle vient
+A voice activity detector fires on a silence threshold, and that cannot work: a thinking pause and the end of a sentence last the same time. The paper removes the detector and hands that judgement to the language model, which has the **content** and not just the signal. Every 1.2 seconds the model says where the person is — *still speaking, done, thinking, cutting in* — and only in the second case, what to reply.
 
-Un détecteur de parole tranche sur un seuil de silence : au-delà de tant de
-millisecondes, il décide que la personne a fini. Ça ne peut pas marcher, parce
-qu'une pause de réflexion et une fin de phrase durent la même chose. Les gens
-respirent, hésitent, cherchent leurs mots.
+Two of their choices are borrowed, and they matter.
 
-[DuplexCascade](https://arxiv.org/abs/2603.09180) (Yang, Fujita, Sudo — SB
-Intuitions et université de Tokyo, code sous licence MIT)
-propose de supprimer le détecteur et de confier ce jugement au modèle de langage,
-qui lui dispose du **contenu** et pas seulement du signal. Leur implémentation
-s'appuie sur les modèles Kyutai, qui demandent plus de 3 Go de mémoire : hors
-d'atteinte de la cible visée ici. On reprend donc le mécanisme, pas le code — et
-on l'obtient par **prompting** là où eux le font par fine-tuning.
-Fiche de lecture du papier : [`PAPIER.md`](PAPIER.md).
+**Silence is data.** When nothing was said since the previous tick, `<|no voice|>` goes to the model. It *sees* that nothing happened and can count consecutive silences. That is what replaces the threshold.
 
-Ce que coûte leur version : un Qwen2-7B-Instruct affiné en LoRA sur **8×H100
-pendant 5 heures**. La nôtre coûte un prompt. L'écart brut est de quatre points
-— 0,816 contre 0,858 — mais les deux chiffres ne sont pas pris au même pas
-d'horloge : le leur est mesuré à Δt = 0,6 s, le nôtre à 1,2 s. **À réglage
-comparable, l'écart est plutôt d'une douzaine de points.** Voir « Ce que ça
-vaut ».
+**The tokens describe the person's state, not the action to take.** We ask for a perception (*where is she?*), not a policy decision (*should I speak?*). That is a far better posed task for a general-purpose model.
 
-Deux choix leur sont directement empruntés, et ils comptent :
+## Which models can do it
 
-**Le silence est une donnée.** Quand rien n'a été dit depuis le tick précédent,
-on ne se tait pas : on envoie `<|no voice|>` au modèle. Il *voit* qu'il ne s'est rien
-passé, et peut compter les silences successifs — c'est ce qui remplace le seuil.
+The four clips in [`demos/`](demos/) are the three scenarios from the researchers' demo page plus a fourth one of ours, made of thinking pauses **inside** sentences — the difficulty their demos never show. Recorded by a native English speaker: varying pace, breaths, soft onsets, a muttered "Okay". That is exactly what breaks the system.
 
-**Les jetons décrivent l'état de la personne, pas l'action à faire.** On demande
-une perception (« où en est-elle ? »), pas une décision de politique (« dois-je
-parler ? »). C'est une tâche bien mieux posée pour un modèle générique.
+| decider | turn ends | pauses held | status |
+|---|---|---|---|
+| `google/gemini-2.5-flash-lite` | 14/16 · 11/16 | 4/4 · 4/4 | measured |
+| `qwen/qwen-2.5-7b-instruct` — their base model | 12/16 · 11/16 | 4/4 · 4/4 | measured |
+| `meta-llama/llama-3.2-3b-instruct` | 11/16 · 8/16 | 4/4 · 2/4 | measured |
+| `openai/gpt-4o-mini` | — | — | rejects the strict schema, HTTP 400 |
+| `meta-llama/llama-3.2-1b-instruct` | — | — | provider refuses schema mode, HTTP 403 |
+| `qwen/qwen3-8b` | — | — | 4.3 s per call, over the 1.5 s budget |
 
-## La contrainte qui décide de tout
+**Two passes per model, and they do not agree.** gemini scores 14/16 then 11/16 on the same audio with the same code. The three measured models overlap, so this bench does **not** rank them — and in particular it does not show the researchers' base model doing worse than gemini. All of the spread comes from one scenario, the travel one, where the system is speaking while the user cuts in and any timing shift changes everything downstream. The hesitation scenario is stable across every pass.
 
-La cible est un **Raspberry Pi 3B** : 905 Mio de mémoire, quatre Cortex-A53 à
-1,2 GHz, pas de GPU, et un throttling thermique qui s'enclenche après 25 secondes
-de charge sur les quatre cœurs. Chaque mégaoctet et chaque cycle comptent.
+**Only models that accept a strict JSON schema can be measured here.** The decision is constrained at decoding time — an enum over the state tokens — which is what replaces the format guarantee their fine-tuning provides. A model that refuses that schema loses 100 % of its decisions, not some of them. It is not a heavy constraint in practice, and those models likely offer another route to constrained output; that is left for later.
 
-| Étage | Choix | Pourquoi |
-|---|---|---|
-| Transcription | **sherpa-onnx**, zipformer en flux, 2 threads | Le seul à tenir le temps réel sur le Pi : **244 ms par bloc de 300 ms**, et aucun bloc au-dessus de 299 |
-| Repli | whisper.cpp `tiny` q5, fenêtre 10 s, `audio_ctx=512` | Seul moteur multilingue ; RTF **0,62** en greedy sur le Pi, mais il ne rend un texte neuf que toutes les ~4,3 s |
-| Décision | **Modèle distant** (OpenRouter, `gemini-2.5-flash-lite`) | Zéro ressource locale, ~0,46 s depuis le Pi. En local, SmolLM2-135M met 7,6 s — inutilisable |
-| Parole | **piper** résident, un WAV par phrase, ou `espeak-ng` | Garder piper en vie économise ~8 s par réponse sur le Pi ; espeak pèse 5 Mo et parle en 0,07 s |
+**Two quantities, never one.** A system that always stays quiet holds 100 % of the pauses; a system that always talks catches 100 % of the turn ends. Neither number means anything alone, so neither is published alone here.
 
-**Le RTF n'était pas le bon critère, et c'est ce qui a fait changer de moteur le
-29/08.** whisper re-transcrit tout le tour à chaque passe : son RTF de 0,62 cache
-le fait qu'il ne rend un texte neuf que toutes les 4,3 secondes sur le Pi. sherpa,
-transducteur causal, en rend un toutes les 300 ms. Sur le **délai de restitution
-du dernier mot** — la grandeur qui gouverne vraiment la latence vécue — whisper
-perd d'un ordre de grandeur.
+## Against their own benchmark
 
-Deux réglages contre-intuitifs, tous les deux gratuits. Sur le Pi, **moins de
-threads va plus vite** : sherpa met 244 ms par bloc à deux threads, 350 à trois,
-550 à quatre — au-delà de deux cœurs la machine bride plus qu'elle ne gagne. Et
-whisper, quand on le garde en repli, passe de 1,17 à **0,62** de RTF rien qu'en
-lui retirant son *beam search* par défaut (`best_of=1`, sans repli de température).
+On two replayed sessions, deterministic, averaged over five passes:
 
-### La parole : un WAV par phrase
-
-Depuis le 03/09, piper reste **résident** et écrit **un fichier WAV par phrase**,
-qu'`aplay` joue d'un bloc. C'est le protocole de `wyoming-piper`, de `rhasspy3` et
-de `pipecat` : aucun projet sérieux n'utilise `piper --output-raw`.
-
-Le tube brut ne rend que des octets concaténés, sans marqueur de fin — on en était
-réduit à déduire la fin d'une phrase d'un silence de 0,35 s dans le tube, ce qui
-devient faux dès que piper partage le CPU avec l'ASR. On fermait alors `aplay` en
-pleine phrase, et le reste ressortait **avec la phrase suivante**. Avec un fichier,
-la frontière est explicite. Résident et tube étaient deux choses distinctes ; c'est
-le tube qui posait problème.
-
-Prix accepté : le premier son attend la fin de la synthèse — de l'ordre de 0,2 s
-sur `shiao`, ~2,9 s sur un Pi 3B pour une longue phrase. C'est l'arbitrage qu'ont
-fait tous les autres.
-
-## Ce que ça vaut
-
-Deux sessions réelles rejouées en déterministe, **moyenne de cinq passes** :
-
-| | justesse | fins de tour | pauses ratées | latence vécue |
+| | accuracy | turn ends | missed pauses | perceived latency |
 |---|---|---|---|---|
-| base du 29/08 au matin | 0,634 | 11/17 | 11/29 | 5–7 s |
-| **configuration retenue** (Δt = 1,2 s) | **0,816 ± 0,015** | **13,8/17** | **5,2/29** | **3,55 / 3,75 s** |
-| DuplexCascade (leur banc, Δt = 0,6 s) | 0,858 | — | — | 1,724 s |
+| baseline, 2026-08-29 | 0.634 | 11/17 | 11/29 | 5–7 s |
+| **selected**, `gemini`, Δt 1.2 s | **0.816 ± 0.015** | 13.8/17 | 5.2/29 | 3.55 / 3.75 s |
+| DuplexCascade, their bench, Δt 0.6 s | 0.858 | — | — | 1.724 s |
 
-**Quatre points d'écart avec un Qwen2-7B affiné cinq heures sur huit H100**, et
-obtenus par prompting. La ligne DuplexCascade n'est pas comparable aux deux autres
-— c'est leur corpus, leur banc, leur mesure ; elle donne l'ordre de grandeur, pas
-un classement.
+Four points behind a Qwen2-7B fine-tuned for five hours on eight H100s, from a prompt. **But read those four points together with the clock step**: their 0.858 is measured at Δt = 0.6 s, and their own ablation shows accuracy climbing up to 1.2 s. At *our* clock step their figure peaks around 0.93. **At comparable settings the gap is about a dozen points, not four.**
 
-**Et il faut lire ces quatre points avec le pas d'horloge.** Leur 0,858 est
-mesuré à Δt = 0,6 s. Leur ablation (§ 4.4 du papier) balaie Δt de 0,3 à 1,8 s :
-la justesse monte jusqu'à **1,2 s** puis se dégrade, et ils retiennent 0,6 s
-comme compromis avec la latence. À *notre* pas d'horloge — 1,2 s — leur Figure 3
-culmine autour de **0,93** (valeur lue sur un graphique, à ±0,005 près : ce
-n'est pas une valeur de tableau). **À réglage comparable, l'écart n'est donc pas
-de quatre points mais d'une douzaine.** En sens inverse, notre 1,2 s se trouve
-être *leur* optimum de justesse : ce que nous payons en latence est exactement
-le prix qu'ils ont refusé de payer.
+⚠️ **Those three rows are no longer reproducible.** The sessions they were measured on lived in a gitignored directory and were lost with an old clone. They stand as recorded measurements, not as something you can re-run today. The demo benchmark above, on the other hand, regenerates from the original recordings.
 
-**Deux cases que cette ligne ne remplit pas, et pourquoi.** Full-Duplex-Bench
-n'a pas de colonne comparable à nos « fins de tour » : la case portait jusqu'ici
-0,955, qui est en réalité leur *taux de prise de tour sur interruption* (User
-Interruption TOR, Tableau 1 du papier) — rien à voir avec une fin de tour. Elle
-est retirée plutôt que remplacée, parce qu'aligner deux grandeurs différentes
-dans une même colonne est exactement ce qui a produit l'erreur. Et leur latence
-est **1,724 s**, qui est leur **latence de prise de tour** ; leur latence
-d'*interruption* vaut 1,225 s, et nos 1,2 s sont un pas d'horloge, pas une
-latence — trois grandeurs qui se ressemblent et qu'il faut nommer.
+Method, details and caveats: [`RESULTATS.md`](RESULTATS.md), [`RESULTATS-PI.md`](RESULTATS-PI.md), [`PLAN-REPRO.md`](PLAN-REPRO.md).
 
-Trois précautions qui font partie du chiffre :
+## Install
 
-- **0,816 est une moyenne de cinq passes** — 0,826 · 0,791 · 0,826 · 0,813 · 0,826,
-  σ 0,015. 0,826 revenait souvent, mais c'est le haut de la distribution, pas la
-  moyenne : le nombre de passes fait partie du chiffre.
-- **La justesse ne va jamais seule.** Un système qui se tairait toujours obtient 0,5
-  sur ce banc, et 90 % de justesse brute sur une conversation réelle, où neuf ticks
-  sur dix sont « elle parle encore ». On publie 0,816 **avec** ses deux taux par
-  classe.
-- **L'écart entre deux passes uniques a pour écart-type ~0,021** : un gain de 0,03
-  mesuré une seule fois n'est pas concluant.
+```bash
+./install.sh
+```
 
-Latences par poste, sur la cible :
+Idempotent: whatever is already there is not downloaded again. It sets up the venv, the speech recognition model, the voice, and **the local decider** — Qwen2.5-7B-Instruct in Q4_K_M, 4.4 GiB.
 
-| poste | whisper + piper relancé | **sherpa + piper résident** |
+Two things it does not do:
+
+- **the `piper` binary**, shipped as a per-platform archive: get it from [its releases](https://github.com/rhasspy/piper/releases) and drop it in `~/.local/bin/piper`. Without it, `--tts espeak` works.
+- **the OpenRouter key**, which is optional: without one the decider runs locally.
+
+`arecord`, `aplay` and `ffmpeg` must be present.
+
+## Run
+
+```bash
+.venv/bin/python pipeline.py                    # conversation, from the mic
+.venv/bin/python pipeline.py --trace sessions/  # same, keeping everything
+.venv/bin/python pipeline.py clip.wav --muet    # replay a recording
+```
+
+Startup announces the three stages, and **where the decision comes from**:
+
+```
+  transcription  sherpa
+  décideur       openrouter · qwen/qwen-2.5-7b-instruct (clé lue dans .env)
+  voix           piper · fr_FR-siwis-medium.onnx
+```
+
+The default decider is the researchers' **base model**, Qwen2.5-7B without their LoRA: the only setting where the comparison is about their own contribution. A key in `.env` runs it on OpenRouter, otherwise it runs locally on the GGUF. ⚠️ **Locally, one decision costs about twenty seconds on a laptop with no GPU**, against a 1.2 s tick: fine for the bench, not for a conversation.
+
+<details>
+<summary><b>What is taken from the paper, and what is not</b></summary>
+
+Taken:
+
+- [x] **Tokens describe the user's state**, not the system's action. They have six, we have five: `<user is speaking>`, `<user finish speaking>`, `<user is thinking>`, `<user backchannel>`, `<system backchannel>`.
+- [x] **Silence sent as data** on every tick. One marker for them (`<no voice>`), three here, one of which counts consecutive silences.
+- [x] **The fixed clock step** replacing the silence threshold. 0.6 s for them, 1.2 s here — and 1.2 s happens to be the accuracy optimum of *their* own ablation.
+- [x] **The cascade** transcription → decider → speech, with no voice detector.
+
+Not taken:
+
+- [ ] **The LoRA fine-tuning** (r=16, α=32, 50k UltraChat dialogues, 8×H100). That is exactly what a prompt and a decoding constraint replace here, and it is the whole point of this repository.
+- [ ] **Their `<user is interrupting>` token.** Interruption is inferred by the host, the only party that knows it is currently speaking.
+- [ ] **Their Kyutai models** for speech recognition and synthesis, replaced by sherpa-onnx and piper — that is what takes the requirement from ~20 GiB of VRAM down to a Raspberry Pi.
+- [ ] **Their backchannel post-processing by Qwen2-72B.**
+- [ ] **Their benchmark**, Full-Duplex-Bench, never run here: their weights are unreachable from the EU.
+
+⚠️ One point is on shaky ground on our side: `<user is thinking>` was dropped from our prompt on 2026-08-29 on the grounds that "DuplexCascade only has three tokens", which was **false**. The measured gain was real, the justification was not. Details in [`FORMAT-CHERCHEURS.md`](FORMAT-CHERCHEURS.md).
+
+</details>
+
+<details>
+<summary><b>Reproducing their benchmark</b></summary>
+
+The accuracy figure above uses **their** definition — one minus the take-over rate where low is good, the rate where high is good, unpaired mean — computed on **their** corpus, Full-Duplex-Bench. That is the only number in this repository that can sit next to their 0.858.
+
+Two things to fetch, neither of them versioned here:
+
+- the evaluation code, [`DanielLin94144/Full-Duplex-Bench`](https://github.com/DanielLin94144/Full-Duplex-Bench), cloned to `~/_/fdbench`;
+- the v1.0 corpus, [five zip archives on Google Drive](https://drive.google.com/drive/folders/1DtoxMVO9_Y_nDs2peZtx3pw-U2qYgpd3), unpacked into `~/_/fdbench-data` — 730 samples, 1.3 GiB, about 14 seconds each.
+
+```bash
+.venv/bin/python bench/mesurer.py --taches pause,pause_synth,turn,interrupt,backchannel \
+    --echantillon 15 --modele qwen/qwen-2.5-7b-instruct
+```
+
+Their backchannel evaluator needs `torchaudio` and `silero-vad`; the others need only `tqdm`. Interruption goes through our own adapter, `bench/eval_interrupt.py`, because theirs requires an OpenAI client for a GPT-4o rating that is out of scope here. **A partial average is refused on purpose**: publishing four tasks out of five under the same name would not be the same quantity.
+
+</details>
+
+<details>
+<summary><b>Options and environment variables</b></summary>
+
+`--moteur sherpa|whisper|vosk|rejeu` (default `sherpa`) · `--langue fr|en` · `--modele NAME` (a `.gguf` path means a local decider) · `--tts piper|espeak` · `--mic` · `--porte` (echo gate, off by default) · `--rendu out.wav` (the format Full-Duplex-Bench expects) · `--modele simule` (dummy decider, deterministic, no network call).
+
+| variable | role | default |
 |---|---|---|
-| ASR, délai du dernier mot (Pi 3B) | ~4,3 s | **0,25 s** |
-| TTS, coût de relance par réponse (Pi 3B) | ~8,0 s | **~0** |
-| décideur, appel distant | 0,7 s | inchangé — il ne dépend pas de la machine |
+| `OPENROUTER_API_KEY` | present = remote decider, absent = local decider | — |
+| `MICROTURN_MODEL` | remote model | `qwen/qwen-2.5-7b-instruct` |
+| `MICROTURN_LOCAL` | force the choice: `1` local, `0` remote | follows the key |
+| `MICROTURN_MODELE_LOCAL` | GGUF path | `models/Qwen2.5-7B-Instruct-Q4_K_M.gguf` |
+| `MICROTURN_CTX` | llama.cpp context | `4096` |
+| `MICROTURN_GPU_LAYERS` | layers offloaded to the GPU | `0` |
+| `MICROTURN_TIMEOUT` | remote call timeout, seconds | `1.5` |
+| `MICROTURN_SHERPA` | speech recognition model directory | follows `--langue` |
+| `MICROTURN_WHISPER` | fallback model | `models/ggml-tiny-q5_1.bin` |
+| `MICROTURN_TTS` | speech engine | `piper` |
+| `MICROTURN_PIPER` | piper binary | `~/.local/bin/piper` |
+| `MICROTURN_VOICE` | piper voice | `fr_FR-siwis-medium.onnx` |
 
-Sur une session réelle tenue sur le Pi, la latence médiane du décideur est de
-**0,465 s** (p90 1,009 s), pour un budget de tick de 1,2 s ; sur `shiao`, 0,44 s.
-C'est l'étage qui porte le mieux le portage, ce qui n'était pas attendu.
+The code reads about a dozen more that only serve the bench and the tests (`MICROTURN_LOCALES`, `MICROTURN_SANS_R`, `MICROTURN_TICKS_SILENCE`…). They are documented where they are used, under `bench/`.
 
-⚠️ Ces latences sont mesurées **poste par poste**, pas de bout en bout. Le détail,
-la méthode et les réserves : [`RESULTATS.md`](RESULTATS.md) pour les micro-bancs,
-[`RESULTATS-PI.md`](RESULTATS-PI.md) pour la chaîne complète sur le Pi.
+</details>
 
-Sur une même session de 145 s rejouée, le passage aux six seuils vers l'horloge fixe
-a fait passer le rapport se taire / parler de 0,8 à **7,6 pour 1**. ⚠️ Une partie de
-cette retenue venait d'un bug — un `DONE` sans réponse était compté comme « elle
-parle encore » (`RESULTATS.md` § 8).
+<details>
+<summary><b>The target: a Raspberry Pi 3B</b></summary>
 
-## Installation
+905 MiB of RAM, four Cortex-A53, no GPU, thermal throttling after 25 seconds of load. Every megabyte counts.
 
-```bash
-./install.sh                            # venv, sherpa fr, whisper de repli, voix piper fr
-MICROTURN_INSTALL_TOUT=1 ./install.sh   # + le modèle sherpa anglais et la voix en_US
-```
+| stage | choice | why |
+|---|---|---|
+| Transcription | **sherpa-onnx**, streaming zipformer, 2 threads | the only one holding real time: 244 ms per 300 ms chunk |
+| Fallback | whisper.cpp `tiny` q5 | the only multilingual engine, but new text only every ~4.3 s |
+| Decision | **remote model** | a 7B does not fit in 905 MiB; ~0.46 s median latency from the Pi |
+| Speech | **piper** kept resident, one WAV per sentence | keeping piper alive saves ~8 s per reply |
 
-Le script est **idempotent** : ce qui est déjà là n'est pas retéléchargé, il est sûr
-à relancer.
+**RTF was the wrong criterion**, and that is what forced the engine change on 2026-08-29. whisper re-transcribes the whole turn on every pass: its 0.62 RTF hides the fact that it only produces new text every 4.3 seconds. On the **delay before the last word appears**, sherpa is at 0.25 s and whisper loses by an order of magnitude.
 
-Il ne fait pas deux choses, et il faut donc les faire à la main :
+Two counter-intuitive settings, both free: on the Pi, **fewer threads is faster** (244 ms on two threads, 550 on four); and whisper goes from 1.17 to 0.62 RTF just by dropping its beam search.
 
-- **le binaire `piper`**, distribué en archive par plateforme — à prendre sur
-  [github.com/rhasspy/piper/releases](https://github.com/rhasspy/piper/releases) et
-  à mettre dans `~/.local/bin/piper`, ou pointé par `MICROTURN_PIPER`. Le script ne
-  télécharge les voix que s'il trouve le binaire. Sans lui, `--tts espeak` suffit.
-- **la clé OpenRouter** : le script crée un `.env` avec une clé d'exemple, il faut y
-  mettre la vraie.
+Since 2026-09-03 piper stays resident and writes **one WAV file per sentence**, like `wyoming-piper`, `rhasspy3` and `pipecat` — no serious project uses `piper --output-raw`, which yields bytes with no end marker.
 
-`arecord`, `aplay` et `ffmpeg` doivent être présents — le script prévient s'ils
-manquent. Le moteur `vosk` est conservé pour comparaison ; il demande
-`pip install vosk` plus son modèle français, tous deux hors du script.
+</details>
 
-**Cette section ne liste volontairement aucune URL de modèle.** C'est cette
-duplication qui a laissé le README documenter `whisper-tiny` deux jours après que le
-défaut soit passé à sherpa. La liste est dans `install.sh`, et nulle part ailleurs.
+<details>
+<summary><b>Analysing a session, and watching it live</b></summary>
 
-## Usage
+With `--trace`, a session writes the replayable input audio, a timestamped log of every transcription hypothesis, every prompt and every raw reply, plus the settings and **a fingerprint of the code**.
 
 ```bash
-.venv/bin/python pipeline.py                               # conversation, au micro
-.venv/bin/python pipeline.py --trace sessions/             # idem, en gardant tout
-.venv/bin/python pipeline.py extrait.wav --muet            # rejouer un enregistrement
-.venv/bin/python pipeline.py --langue en --trace sessions/ # en anglais
-```
-
-Options : `--moteur sherpa|whisper|vosk|rejeu` (défaut `sherpa`), `--langue fr|en`
-(défaut `fr`), `--modele` pour changer de décideur (défaut
-`google/gemini-2.5-flash-lite`), `--tts piper|espeak`, `--mic` pour choisir
-l'entrée, `--porte` pour le seuil anti-écho (défaut `0.0`, donc désactivée),
-`--rendu sortie.wav` pour produire le format attendu par Full-Duplex-Bench.
-
-### Le mode anglais
-
-`--langue en` change les jetons, le prompt, la voix et le modèle ASR — il sert au
-banc des chercheurs. Le modèle sherpa anglais s'installe avec
-`MICROTURN_INSTALL_TOUT=1 ./install.sh`.
-
-**Il n'est pas au niveau du français, parce qu'il n'a jamais été mesuré** : tous les
-chiffres de ce README portent sur le français, faute de sessions de référence en
-anglais.
-
-Le point sensible est identifié — le prompt doit être **apparié au moteur ASR**. La
-phrase qui prévient que le texte arrive en majuscules et sans ponctuation vaut
-**+0,063 de justesse quand elle est vraie et −0,103 quand elle est fausse** : le
-mensonge coûte presque le double de ce que la vérité rapporte, et c'est le plus gros
-effet mesuré du projet pour une seule phrase de prompt. `locales/en.toml` a reçu son
-`systeme_sherpa` le 03/09, après vérification que le modèle anglais rend bien des
-majuscules sans ponctuation — la phrase y est donc vraie. Mais **+0,063 et −0,103
-sont des chiffres français** : l'effet côté anglais reste non mesuré, et tant qu'une
-session de référence anglaise n'existe pas, ce mode est un mode de dépannage.
-
-## Analyser une session
-
-C'est la partie qui rend le reste utilisable. Avec `--trace`, une session écrit
-l'audio d'entrée (rejouable tel quel), un journal horodaté de chaque hypothèse de
-transcription, de chaque prompt envoyé et de chaque réponse brute, et un fichier de
-métadonnées contenant les réglages, la machine et **l'empreinte du code**.
-
-```bash
-.venv/bin/python tests/reference.py sessions/<date>   # ce qui a VRAIMENT été dit
+.venv/bin/python tests/reference.py sessions/<date>   # what was ACTUALLY said
 .venv/bin/python pipeline.py --moteur rejeu sessions/<date> --modele X --muet
 ```
 
-Le mode **rejeu** relit les transcriptions enregistrées au lieu de refaire tourner
-whisper. C'est ce qui rend une comparaison honnête : deux modèles reçoivent alors
-exactement les mêmes entrées, aux mêmes instants, et tout écart vient de ce qu'on
-fait varier. Sans ça, on comparerait deux bruits.
+**Replay mode** reads the recorded transcriptions back: two models then get exactly the same inputs at the same instants, and any difference comes from what you varied. Without it you would be comparing two noises. Open questions are in [`IDEES.md`](IDEES.md).
 
-Le protocole complet est dans [`PROTOCOLE.md`](PROTOCOLE.md), et les pistes non
-tranchées dans [`IDEES.md`](IDEES.md).
-
-## Voir la session pendant qu'elle tourne
-
-`visu/` diffuse `session.jsonl` en le lisant au fil de l'écriture. Deux
-terminaux, et rien à installer :
+`visu/` streams `session.jsonl` as it is written, with nothing to install:
 
 ```bash
-.venv/bin/python pipeline.py --trace sessions --langue en   # dans l'un
-python3 visu/serveur.py sessions                            # dans l'autre
+python3 visu/serveur.py sessions      # then http://127.0.0.1:8731/
 ```
 
-Puis <http://127.0.0.1:8731/>. La page lit le fichier **depuis le début** avant
-de le suivre : on peut l'ouvrir au milieu d'une session et voir tout ce qui
-précède, et elle marche telle quelle sur une session archivée. Elle n'écrit
-rien, n'est importée par personne, et `pipeline.py` ne sait pas qu'elle existe.
+The page shows **only** the conversation: the user's turn appears on the first partial and rewrites itself in place, revisions included, then freezes when the model decides. Everything else — chosen token, prompt, raw reply, latency — is one click away. Press `R` to replay the session at its real speed.
 
-Le pari : ce que fait ce projet n'a pas besoin d'être expliqué si on le montre
-comme une conversation. La page n'affiche donc **que** la conversation. Le tour
-de l'utilisateur naît au premier `partial` et se réécrit sur place — les
-révisions de sherpa comprises, `SUM` → `SUMMARI` → `SUMMARISE`, que la CLI ne
-montre pas puisqu'elle n'affiche que le dernier état — puis se fige quand le
-modèle tranche `<user finish speaking>`. Le tour du système se déroule au fil
-de sa parole. **Un seul signe dans toute la page** : le trait qui marque
-l'endroit où la phrase s'est arrêtée parce que l'utilisateur a repris la
-parole. Tout le reste — jeton décidé, prompt, réponse brute, latence, tokens,
-blocs audio sacrifiés, et jusqu'aux types d'événements qui n'ont pas leur place
-dans une conversation — est **à un clic**, dans le panneau : sur un tour, sur un
-filet de silence, ou sur le titre pour la configuration et la trace brute. La
-touche `R` rejoue la session depuis `t=0` à sa vitesse réelle, pour filmer.
+⚠️ Two numbers in the panel are **analogues, not the paper's quantities**: the latencies there are read off trace timestamps, where the researchers measure on annotated audio.
 
-Tout vient du seul `session.jsonl` : **pas de WAV, pas de forme d'onde.** Ça
-supprime le problème d'alignement des horloges — la trace part du lancement du
-process, un WAV de la première trame ALSA, et les confondre a coûté un faux
-diagnostic le 04/09/2026 — et ça rend visualisables les sessions déjà
-archivées. Zéro dépendance, zéro CDN, zéro étape de compilation ; l'interface
-est en anglais, le code commenté en français comme le reste du dépôt.
+</details>
 
-⚠️ Deux chiffres du panneau sont **des analogues, pas les grandeurs du papier** :
-la latence de prise de tour et celle de reprise après interruption sont lues sur
-les horodatages de la trace, là où les chercheurs mesurent sur de l'audio
-annoté. C'est écrit à côté d'eux. Et l'endroit où la phrase s'arrête est une
-estimation au débit médian de la session : la trace dit *quand* la coupure est
-tombée, jamais où le TTS en était.
+## Not solved
 
-## État
+- **Perceived latency is 3.5 s.** The researchers are at 1.7 s.
+- **The local decider is twenty times too slow** to hold a conversation, and a 7B will never fit on the Raspberry Pi target.
+- **The echo gate is off.** It threw away 81 % of the audio of a real session, to fight an echo that actually came from a mic resting against the speaker. `--porte 2.0` turns it back on.
 
-Prototype qui tourne, pas un produit. Ce qui marche : la boucle complète, la
-décision par jetons d'état, la trace, le rejeu déterministe, et un ASR en flux qui
-tient le temps réel sur un Raspberry Pi 3B.
+Where the project is going, and what is already settled: [`SPEC-PIVOT.md`](SPEC-PIVOT.md).
 
-Ce qui est **désactivé** : la porte anti-écho (`--porte 0.0` par défaut). Elle se
-calibrait sur un seuil plus haut qu'une voix normale et jetait 81 % de l'audio dans
-une session réelle sur le Pi ; l'écho qu'elle traitait venait en fait d'un micro
-posé contre le haut-parleur. Un problème de placement traité par du logiciel, et le
-logiciel coûtait plus cher que le problème. `--porte 2.0` la réactive.
+**Nothing enters this repository without being measured on a recorded session.**
 
-Ce qui reste ouvert : le décideur est le dernier étage qui n'est pas local, la
-latence vécue est encore de 3,5 s, et le mode anglais n'a aucune session de
-référence sur laquelle être mesuré.
-
-## Où va le projet
-
-Le 02/09, un constat a réorganisé le reste : **on avait mélangé deux tâches** —
-détecter qu'un tour de parole est fini, et décider quoi répondre. Le projet devient
-donc une **bibliothèque d'observation du tour de parole** : elle transforme un flux
-d'entrée en transitions d'état décrivant l'utilisateur, ne touche jamais au signal,
-et laisse le développeur brancher derrière elle le modèle de réponse qu'il veut.
-Ce n'est pas un système full-duplex — seulement la moitié amont.
-
-Ce qui est tranché et ce qui reste ouvert : [`SPEC-PIVOT.md`](SPEC-PIVOT.md).
-Comment on y va, et dans quel ordre : [`PLAN.md`](PLAN.md).
-
-Rien n'entre dans ce dépôt sans être mesuré sur une session enregistrée.
+Code under AGPL. The mechanism comes from DuplexCascade (MIT), not their code.
