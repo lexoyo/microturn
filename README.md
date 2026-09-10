@@ -64,14 +64,16 @@ Run on 2026-09-10 with `qwen/qwen-2.5-7b-instruct`, the researchers' base model,
 | Pause handling, synthetic ↓ | 0.333 | 0.667 | 0.058 |
 | Smooth turn taking ↑ | 0.667 | 0.667 | 0.832 |
 | User interruption ↑ | 0.600 | 0.600 | 0.955 |
-| Backchannel ↓ | 0.933 | 0.067 | 0.218 |
-| **Averaged Turn-Taking Accuracy** | | **0.493** | **0.858** |
+| Backchannel ↓ | not measurable | — | 0.218 |
+| **mean over the four measurable tasks** | | **0.600** | 0.858 over five |
 
-**Backchannel is where it collapses**, and it drags the mean down on its own: 0.933 against their 0.218. Take it out and the other four average 0.600. Prompting gets a general-purpose model most of the way on knowing *when a turn ends*; it does not teach it when to hum along.
+⚠️ **The backchannel task cannot be scored by this harness, and the number it produces is meaningless.** System backchannels are implemented — short pre-synthesised clips, as in the paper's § 3.2 — but the pipeline switches them off whenever `--rendu` is set, and the bench always sets it. The rendered audio the evaluator inspects therefore contains no backchannel by construction. It scored 0.933 against their 0.218, which measures a muted feature, not a model.
+
+**So 0.600 is not their 0.858.** Theirs averages five tasks including backchannel, ours four. The two numbers are not the same quantity, and the gap between them is a floor, not a measurement.
 
 Latency, measured on the same run: 0.286 s on turn taking, 0.451 s on interruption. Those are decision latencies, not the end-to-end figures the paper reports.
 
-⚠️ **The 0.493 was averaged by hand**, from the five task results above. The harness refuses to aggregate, correctly: the backchannel evaluator prints its rate as `TOR - Mean` where the others print `Average take turn`, so the result parser does not see it and the task counts as present-but-unscored. The five task figures are the tool's own output; only the last line is arithmetic.
+⚠️ **The 0.600 was averaged by hand**, from the four task results above; the harness refuses to aggregate and is right to. Two separate reasons: the backchannel task is not measurable at all here, and even its raw output is misread — that evaluator prints its rate as `TOR - Mean` where the others print `Average take turn`, so the result parser never sees it. The four task figures are the tool's own output; only the last line is arithmetic.
 
 For reference, the figures this repository carried until today, on **two replayed sessions of ours** rather than their corpus:
 
@@ -144,7 +146,7 @@ Not taken:
 <details>
 <summary><b>Reproducing their benchmark</b></summary>
 
-The 0.493 above is their definition — one minus the take-over rate where low is good, the rate where high is good, unpaired mean — on their corpus. Here is how to reproduce it.
+The 0.600 above is their definition — one minus the take-over rate where low is good, the rate where high is good, unpaired mean — on their corpus. Here is how to reproduce it.
 
 Two things to fetch, neither of them versioned here:
 
@@ -230,7 +232,7 @@ The page shows **only** the conversation: the user's turn appears on the first p
 
 ## Not solved
 
-- **Backchannel is the weakest task by far**, 0.933 against their 0.218. Knowing when to hum along is the part a prompt does not buy.
+- **System backchannels never reach the rendered audio.** They are implemented and they play in a live conversation, but `--rendu` mutes them, so the one benchmark task that would score them cannot. Until that is fixed, no accuracy figure here is comparable to theirs.
 - **Perceived latency is 3.5 s.** Their turn-taking latency is 1.724 s, which is close but **not the same quantity** — theirs is measured on annotated audio, ours end to end. Three numbers around 1.2 s are routinely confused here: their turn-taking latency, their interruption latency (1.225 s) and our clock step (1.2 s), which is not a latency at all.
 - **The local decider is twenty times too slow** to hold a conversation, and a 7B will never fit on the Raspberry Pi target.
 - **The echo gate is off.** It threw away 81 % of the audio of a real session, to fight an echo that actually came from a mic resting against the speaker. `--porte 2.0` turns it back on.
