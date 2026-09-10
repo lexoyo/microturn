@@ -12,7 +12,7 @@ So the question this repository asks is: *how far does that get you, and with wh
 
 This is an **experiment**, not a product. Contributions are welcome. More benchmarks on more models would be great.
 
-[[Original paper]](https://arxiv.org/abs/2603.09180) [[Their code]](https://github.com/sbintuitions/DuplexCascade) [[Their demo]](https://sbintuitions.github.io/DuplexCascadeDemo/) [[Our demos]](demos/) [[Reading notes]](PAPIER.md)
+[[Original paper]](https://arxiv.org/abs/2603.09180) [[Their code]](https://github.com/sbintuitions/DuplexCascade) [[Their demo]](https://sbintuitions.github.io/DuplexCascadeDemo/) [[Test audio]](test-audio/) [[Demos]](demos/) [[Reading notes]](PAPIER.md)
 
 ⚠️ **Their code does not run on consumer hardware, so their results are not reproduced here — they are quoted from their paper.** Two independent reasons, checked on 2026-09-09: their weights sit behind a gated HuggingFace repository that **excludes EU residents**, and their three services need ~20 GiB of VRAM in bf16, the TTS alone claiming 3.79.
 
@@ -34,18 +34,21 @@ Two of their choices are borrowed, and they matter.
 
 ## Which models can do it
 
-The four clips in [`demos/`](demos/) are the three scenarios from the researchers' demo page plus a fourth one of ours, made of thinking pauses **inside** sentences — the difficulty their demos never show. Recorded by a native English speaker: varying pace, breaths, soft onsets, a muttered "Okay". That is exactly what breaks the system.
+The four clips in [`test-audio/`](test-audio/) are the **inputs**, and only the inputs: the user's voice alone, with the system nowhere in them. Three of the scenarios come from the researchers' demo page, the fourth is ours and is made of thinking pauses **inside** sentences — the difficulty their demos never show. Recorded by a native English speaker: varying pace, breaths, soft onsets, a muttered "Okay". That is exactly what breaks the system. The silence durations were read frame by frame off the researchers' videos, not estimated.
 
-| decider | turn ends | pauses held | status |
-|---|---|---|---|
-| `google/gemini-2.5-flash-lite` | 14/16 · 11/16 | 4/4 · 4/4 | measured |
-| `qwen/qwen-2.5-7b-instruct` — their base model | 12/16 · 11/16 | 4/4 · 4/4 | measured |
-| `meta-llama/llama-3.2-3b-instruct` | 11/16 · 8/16 | 4/4 · 2/4 | measured |
-| `openai/gpt-4o-mini` | — | — | rejects the strict schema, HTTP 400 |
-| `meta-llama/llama-3.2-1b-instruct` | — | — | provider refuses schema mode, HTTP 403 |
-| `qwen/qwen3-8b` | — | — | 4.3 s per call, over the 1.5 s budget |
+What the system does with them is in [`demos/`](demos/): the same four scenarios as full conversations, both voices mixed, decided by the researchers' base model. It is the **median** of the five passes — 10 turn ends out of 16 — not the best one.
 
-**Two passes per model, and they do not agree.** gemini scores 14/16 then 11/16 on the same audio with the same code. The three measured models overlap, so this bench does **not** rank them — and in particular it does not show the researchers' base model doing worse than gemini. All of the spread comes from one scenario, the travel one, where the system is speaking while the user cuts in and any timing shift changes everything downstream. The hesitation scenario is stable across every pass.
+**Five passes per model**, turn ends out of 16 and pauses held out of 4:
+
+| decider | p1 | p2 | p3 | p4 | p5 | mean | pauses |
+|---|---|---|---|---|---|---|---|
+| `google/gemini-2.5-flash-lite` | 14 | 11 | 11 | 12 | 11 | **11.8** | 4/4 throughout |
+| `qwen/qwen-2.5-7b-instruct` — their base model | 12 | 11 | 10 | 9 | 10 | **10.4** | 4/4 throughout |
+| `meta-llama/llama-3.2-3b-instruct` | 11 | 8 | 6 | 8 | 6 | **7.8** | 3/4 and 2/4 on two passes |
+
+Three more were tried and could not be measured at all: `openai/gpt-4o-mini` (rejects the strict schema, HTTP 400 on all 88 calls), `meta-llama/llama-3.2-1b-instruct` (provider refuses schema mode, HTTP 403), `qwen/qwen3-8b` (4.3 s per call against a 1.5 s budget).
+
+**One pass would have been misleading, and the first pass of every model was its best.** Stopping there would have produced a flattering ranking. Over five passes the bench separates a weak model from a decent one — llama-3.2-3b is clearly below — but it does **not** separate gemini from the researchers' base model: 11–14 against 9–12, overlapping. Most of the spread comes from one scenario, the travel one, where the system is speaking while the user cuts in and any timing shift changes everything downstream. The hesitation scenario is stable across all fifteen passes.
 
 **Only models that accept a strict JSON schema can be measured here.** The decision is constrained at decoding time — an enum over the state tokens — which is what replaces the format guarantee their fine-tuning provides. A model that refuses that schema loses 100 % of its decisions, not some of them. It is not a heavy constraint in practice, and those models likely offer another route to constrained output; that is left for later.
 
@@ -53,17 +56,33 @@ The four clips in [`demos/`](demos/) are the three scenarios from the researcher
 
 ## Against their own benchmark
 
-On two replayed sessions, deterministic, averaged over five passes:
+Run on 2026-09-10 with `qwen/qwen-2.5-7b-instruct`, the researchers' base model, 15 samples per task, one pass. **Their definition, their corpus, this code.**
+
+| task | our TOR | our accuracy | DuplexCascade |
+|---|---|---|---|
+| Pause handling, Candor ↓ | 0.533 | 0.467 | 0.222 |
+| Pause handling, synthetic ↓ | 0.333 | 0.667 | 0.058 |
+| Smooth turn taking ↑ | 0.667 | 0.667 | 0.832 |
+| User interruption ↑ | 0.600 | 0.600 | 0.955 |
+| Backchannel ↓ | 0.933 | 0.067 | 0.218 |
+| **Averaged Turn-Taking Accuracy** | | **0.493** | **0.858** |
+
+**Backchannel is where it collapses**, and it drags the mean down on its own: 0.933 against their 0.218. Take it out and the other four average 0.600. Prompting gets a general-purpose model most of the way on knowing *when a turn ends*; it does not teach it when to hum along.
+
+Latency, measured on the same run: 0.286 s on turn taking, 0.451 s on interruption. Those are decision latencies, not the end-to-end figures the paper reports.
+
+⚠️ **The 0.493 was averaged by hand**, from the five task results above. The harness refuses to aggregate, correctly: the backchannel evaluator prints its rate as `TOR - Mean` where the others print `Average take turn`, so the result parser does not see it and the task counts as present-but-unscored. The five task figures are the tool's own output; only the last line is arithmetic.
+
+For reference, the figures this repository carried until today, on **two replayed sessions of ours** rather than their corpus:
 
 | | accuracy | turn ends | missed pauses | perceived latency |
 |---|---|---|---|---|
-| baseline, 2026-08-29 | 0.634 | 11/17 | 11/29 | 5–7 s |
-| **selected**, `gemini`, Δt 1.2 s | **0.816 ± 0.015** | 13.8/17 | 5.2/29 | 3.55 / 3.75 s |
-| DuplexCascade, their bench, Δt 0.6 s | 0.858 | — | — | 1.724 s |
+| before the engine change — whisper, piper restarted per reply | 0.634 | 11/17 | 11/29 | 5–7 s |
+| `gemini`, Δt 1.2 s, five passes | 0.816 ± 0.015 | 13.8/17 | 5.2/29 | 3.55 / 3.75 s |
 
-Four points behind a Qwen2-7B fine-tuned for five hours on eight H100s, from a prompt. **But read those four points together with the clock step**: their 0.858 is measured at Δt = 0.6 s, and their own ablation shows accuracy climbing up to 1.2 s. At *our* clock step their figure peaks around 0.93. **At comparable settings the gap is about a dozen points, not four.**
+⚠️ **That 0.816 never described this code, and it is not comparable to the table above.** It was measured on our own sessions, not their corpus, and on a configuration that still had TTS sentence splitting, a "keep it short" instruction and a forced informal register — all three since removed. Its input sessions lived in a gitignored directory and were lost with an old clone, so it cannot be re-run. It is kept here for continuity and should be quoted for nothing else.
 
-⚠️ **Those three rows are no longer reproducible.** The sessions they were measured on lived in a gitignored directory and were lost with an old clone. They stand as recorded measurements, not as something you can re-run today. The demo benchmark above, on the other hand, regenerates from the original recordings.
+**Read the gap with the clock step.** Their 0.858 is measured at Δt = 0.6 s, and their own ablation shows accuracy climbing up to 1.2 s, where their curve peaks around 0.93. At matched settings the distance is larger than the table suggests, not smaller.
 
 Method, details and caveats: [`RESULTATS.md`](RESULTATS.md), [`RESULTATS-PI.md`](RESULTATS-PI.md), [`PLAN-REPRO.md`](PLAN-REPRO.md).
 
@@ -90,7 +109,7 @@ Two things it does not do:
 .venv/bin/python pipeline.py clip.wav --muet    # replay a recording
 ```
 
-Startup announces the three stages, and **where the decision comes from**:
+Startup announces the three stages, and **where the decision comes from** (the program speaks French, as does the rest of the repository):
 
 ```
   transcription  sherpa
@@ -116,7 +135,7 @@ Not taken:
 - [ ] **Their `<user is interrupting>` token.** Interruption is inferred by the host, the only party that knows it is currently speaking.
 - [ ] **Their Kyutai models** for speech recognition and synthesis, replaced by sherpa-onnx and piper — that is what takes the requirement from ~20 GiB of VRAM down to a Raspberry Pi.
 - [ ] **Their backchannel post-processing by Qwen2-72B.**
-- [ ] **Their benchmark**, Full-Duplex-Bench, never run here: their weights are unreachable from the EU.
+- [ ] **Their system.** Full-Duplex-Bench itself does run here — that is where the accuracy figure comes from — but their fine-tuned model never has, so every number of theirs is quoted, never re-measured.
 
 ⚠️ One point is on shaky ground on our side: `<user is thinking>` was dropped from our prompt on 2026-08-29 on the grounds that "DuplexCascade only has three tokens", which was **false**. The measured gain was real, the justification was not. Details in [`FORMAT-CHERCHEURS.md`](FORMAT-CHERCHEURS.md).
 
@@ -125,7 +144,7 @@ Not taken:
 <details>
 <summary><b>Reproducing their benchmark</b></summary>
 
-The accuracy figure above uses **their** definition — one minus the take-over rate where low is good, the rate where high is good, unpaired mean — computed on **their** corpus, Full-Duplex-Bench. That is the only number in this repository that can sit next to their 0.858.
+The 0.493 above is their definition — one minus the take-over rate where low is good, the rate where high is good, unpaired mean — on their corpus. Here is how to reproduce it.
 
 Two things to fetch, neither of them versioned here:
 
@@ -177,11 +196,11 @@ The code reads about a dozen more that only serve the bench and the tests (`MICR
 | Decision | **remote model** | a 7B does not fit in 905 MiB; ~0.46 s median latency from the Pi |
 | Speech | **piper** kept resident, one WAV per sentence | keeping piper alive saves ~8 s per reply |
 
-**RTF was the wrong criterion**, and that is what forced the engine change on 2026-08-29. whisper re-transcribes the whole turn on every pass: its 0.62 RTF hides the fact that it only produces new text every 4.3 seconds. On the **delay before the last word appears**, sherpa is at 0.25 s and whisper loses by an order of magnitude.
+**RTF was the wrong criterion**, and that is what forced the engine change. whisper re-transcribes the whole turn on every pass: its 0.62 RTF hides the fact that it only produces new text every 4.3 seconds. On the **delay before the last word appears**, sherpa is at 0.25 s and whisper loses by an order of magnitude.
 
 Two counter-intuitive settings, both free: on the Pi, **fewer threads is faster** (244 ms on two threads, 550 on four); and whisper goes from 1.17 to 0.62 RTF just by dropping its beam search.
 
-Since 2026-09-03 piper stays resident and writes **one WAV file per sentence**, like `wyoming-piper`, `rhasspy3` and `pipecat` — no serious project uses `piper --output-raw`, which yields bytes with no end marker.
+piper stays resident and writes **one WAV file per sentence**, like `wyoming-piper`, `rhasspy3` and `pipecat` — no serious project uses `piper --output-raw`, which yields bytes with no end marker.
 
 </details>
 
@@ -211,7 +230,8 @@ The page shows **only** the conversation: the user's turn appears on the first p
 
 ## Not solved
 
-- **Perceived latency is 3.5 s.** The researchers are at 1.7 s.
+- **Backchannel is the weakest task by far**, 0.933 against their 0.218. Knowing when to hum along is the part a prompt does not buy.
+- **Perceived latency is 3.5 s.** Their turn-taking latency is 1.724 s, which is close but **not the same quantity** — theirs is measured on annotated audio, ours end to end. Three numbers around 1.2 s are routinely confused here: their turn-taking latency, their interruption latency (1.225 s) and our clock step (1.2 s), which is not a latency at all.
 - **The local decider is twenty times too slow** to hold a conversation, and a 7B will never fit on the Raspberry Pi target.
 - **The echo gate is off.** It threw away 81 % of the audio of a real session, to fight an echo that actually came from a mic resting against the speaker. `--porte 2.0` turns it back on.
 
