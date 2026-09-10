@@ -34,9 +34,9 @@ Two of their choices are borrowed, and they matter.
 
 ## Which models can do it
 
-The four clips in [`test-audio/`](test-audio/) are the **inputs**, and only the inputs: the user's voice alone, with the system nowhere in them. Three of the scenarios come from the researchers' demo page, the fourth is ours and is made of thinking pauses **inside** sentences — the difficulty their demos never show. Recorded by a native English speaker: varying pace, breaths, soft onsets, a muttered "Okay". That is exactly what breaks the system. The silence durations were read frame by frame off the researchers' videos, not estimated.
+The four clips in [`test-audio/`](test-audio/) are the **inputs**, and only the inputs: the user's voice alone, loudness-normalised to −18 LUFS, with the system nowhere in them. Three of the scenarios come from the researchers' demo page, the fourth is ours and is made of thinking pauses **inside** sentences — the difficulty their demos never show. Recorded by a native English speaker: varying pace, breaths, soft onsets, a muttered "Okay". That is exactly what breaks the system. The silence durations were read frame by frame off the researchers' videos, not estimated.
 
-What the system does with them is in [`demos/`](demos/): the same four scenarios as full conversations, both voices mixed, decided by the researchers' base model. It is the **median** of the five passes — 10 turn ends out of 16 — not the best one.
+What the system does with them is in [`demos/`](demos/): the same four scenarios as full conversations, both voices mixed, one folder per decider — the researchers' base model and gemini. Same input, same code, same day. The base model talks over the user throughout; that difference is the last row of the table below, and it is the clearest thing to listen for.
 
 **Five passes per model**, turn ends out of 16 and pauses held out of 4:
 
@@ -56,24 +56,26 @@ Three more were tried and could not be measured at all: `openai/gpt-4o-mini` (re
 
 ## Against their own benchmark
 
-Run on 2026-09-10 with `qwen/qwen-2.5-7b-instruct`, the researchers' base model, 15 samples per task, one pass. **Their definition, their corpus, this code.**
+Run on 2026-09-10, 15 samples per task, one pass each. **Their definition, their corpus, this code.** Two deciders: the researchers' own base model, and the best one measured here.
 
-| task | our TOR | our accuracy | DuplexCascade |
+| task | qwen-2.5-7b | gemini-flash-lite | DuplexCascade |
 |---|---|---|---|
-| Pause handling, Candor ↓ | 0.533 | 0.467 | 0.222 |
-| Pause handling, synthetic ↓ | 0.333 | 0.667 | 0.058 |
-| Smooth turn taking ↑ | 0.667 | 0.667 | 0.832 |
-| User interruption ↑ | 0.600 | 0.600 | 0.955 |
-| Backchannel ↓ | not measurable | — | 0.218 |
-| **mean over the four measurable tasks** | | **0.600** | 0.858 over five |
+| Pause handling, Candor | 0.467 | 0.400 | 0.222 |
+| Pause handling, synthetic | 0.667 | 0.600 | 0.058 |
+| Smooth turn taking | 0.667 | 0.733 | 0.832 |
+| User interruption | 0.600 | **0.933** | 0.955 |
+| Not speaking over the user | **0.067** | 0.600 | 0.782 |
+| **Averaged Turn-Taking Accuracy** | **0.494** | **0.653** | **0.858** |
 
-⚠️ **System backchannels were never built, so the task is out of scope.** There is a prompt rule for the token and a code path that picks a pre-synthesised clip, but nothing has ever come out of it: across 3,501 decisions logged in one night, the model chose it 15 times, a clip was selected each time, and every one was logged as `joue: false` — the bench mutes them. No backchannel has ever been emitted, heard or validated. The 0.933 the evaluator returns scores silence, and is not reported here.
+**Two thirds of the way there, from a prompt.** 0.653 against 0.858, with no training, no GPU and a decider that answers in 0.19 to 0.43 s.
 
-**So 0.600 is not their 0.858.** Theirs averages five tasks including backchannel, ours four. The two numbers are not the same quantity, and the gap between them is a floor, not a measurement.
+**The single worst number here is the researchers' own base model talking over people.** On the ICC task it speaks — a segment longer than three seconds — in 14 samples out of 15 where it should have stayed quiet. gemini does it in 6. That one row is the whole difference between the two columns, and it is audible: [`demos/`](demos/) is decided by the base model, and it interrupts constantly.
 
-Latency, measured on the same run: 0.286 s on turn taking, 0.451 s on interruption. Those are decision latencies, not the end-to-end figures the paper reports.
+⚠️ **The last row is not the paper's backchannel score.** Theirs measures a system that emits backchannels; ours measures one that merely stays silent, since **system backchannels were never built here** — the token has a prompt rule and a code path, but across 3,501 logged decisions it fired 15 times and every one was rendered mute. The metric only asks whether the system took the turn, so the comparison holds; the behaviour behind it does not. Frequency and distribution, which do score emission, are ignored here on purpose.
 
-⚠️ **The 0.600 was averaged by hand**, from the four task results above; the harness refuses to aggregate and is right to. Two separate reasons: the backchannel task is not measurable at all here, and even its raw output is misread — that evaluator prints its rate as `TOR - Mean` where the others print `Average take turn`, so the result parser never sees it. The four task figures are the tool's own output; only the last line is arithmetic.
+⚠️ **Both averages were computed by hand** from the five rows above. The harness refuses to aggregate and is right to: the backchannel evaluator prints its rate as `TOR - Mean` where the others print `Average take turn`, so the result parser never sees it. Every task figure is the tool's own output; only the last line is arithmetic.
+
+Decision latency on the same runs: 0.286 s and 0.451 s for the base model, 0.430 s and 0.186 s for gemini, on turn taking and interruption respectively. Those are decision latencies, not the end-to-end figures the paper reports.
 
 For reference, the figures this repository carried until today, on **two replayed sessions of ours** rather than their corpus:
 
