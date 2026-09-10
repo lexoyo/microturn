@@ -67,7 +67,7 @@ Run on 2026-09-10 with `qwen/qwen-2.5-7b-instruct`, the researchers' base model,
 | Backchannel ↓ | not measurable | — | 0.218 |
 | **mean over the four measurable tasks** | | **0.600** | 0.858 over five |
 
-⚠️ **The backchannel task cannot be scored by this harness, and the number it produces is meaningless.** System backchannels are implemented — short pre-synthesised clips, as in the paper's § 3.2 — but the pipeline switches them off whenever `--rendu` is set, and the bench always sets it. The rendered audio the evaluator inspects therefore contains no backchannel by construction. It scored 0.933 against their 0.218, which measures a muted feature, not a model.
+⚠️ **System backchannels were never built, so the task is out of scope.** There is a prompt rule for the token and a code path that picks a pre-synthesised clip, but nothing has ever come out of it: across 3,501 decisions logged in one night, the model chose it 15 times, a clip was selected each time, and every one was logged as `joue: false` — the bench mutes them. No backchannel has ever been emitted, heard or validated. The 0.933 the evaluator returns scores silence, and is not reported here.
 
 **So 0.600 is not their 0.858.** Theirs averages five tasks including backchannel, ours four. The two numbers are not the same quantity, and the gap between them is a floor, not a measurement.
 
@@ -136,7 +136,7 @@ Not taken:
 - [ ] **The LoRA fine-tuning** (r=16, α=32, 50k UltraChat dialogues, 8×H100). That is exactly what a prompt and a decoding constraint replace here, and it is the whole point of this repository.
 - [ ] **Their `<user is interrupting>` token.** Interruption is inferred by the host, the only party that knows it is currently speaking.
 - [ ] **Their Kyutai models** for speech recognition and synthesis, replaced by sherpa-onnx and piper — that is what takes the requirement from ~20 GiB of VRAM down to a Raspberry Pi.
-- [ ] **Their backchannel post-processing by Qwen2-72B.**
+- [ ] **System backchannels.** Their `<system backchannel>`, and their post-processing of it by Qwen2-72B. A prompt rule and a clip player exist here; nothing has ever been emitted.
 - [ ] **Their system.** Full-Duplex-Bench itself does run here — that is where the accuracy figure comes from — but their fine-tuned model never has, so every number of theirs is quoted, never re-measured.
 
 ⚠️ One point is on shaky ground on our side: `<user is thinking>` was dropped from our prompt on 2026-08-29 on the grounds that "DuplexCascade only has three tokens", which was **false**. The measured gain was real, the justification was not. Details in [`FORMAT-CHERCHEURS.md`](FORMAT-CHERCHEURS.md).
@@ -232,7 +232,7 @@ The page shows **only** the conversation: the user's turn appears on the first p
 
 ## Not solved
 
-- **System backchannels never reach the rendered audio.** They are implemented and they play in a live conversation, but `--rendu` mutes them, so the one benchmark task that would score them cannot. Until that is fixed, no accuracy figure here is comparable to theirs.
+- **System backchannels are not built.** One of the paper's six tokens, and the one thing here that goes beyond perceiving the user to acting like a listener. Until it exists, no accuracy figure here is comparable to theirs, which averages it in.
 - **Perceived latency is 3.5 s.** Their turn-taking latency is 1.724 s, which is close but **not the same quantity** — theirs is measured on annotated audio, ours end to end. Three numbers around 1.2 s are routinely confused here: their turn-taking latency, their interruption latency (1.225 s) and our clock step (1.2 s), which is not a latency at all.
 - **The local decider is twenty times too slow** to hold a conversation, and a 7B will never fit on the Raspberry Pi target.
 - **The echo gate is off.** It threw away 81 % of the audio of a real session, to fight an echo that actually came from a mic resting against the speaker. `--porte 2.0` turns it back on.
